@@ -12,9 +12,16 @@ LLMs, humans, scripts, or deterministic decision providers may propose intention
 
 ## Project status
 
-GRASS is currently in the **design phase**. The first implementation has not started yet.
+GRASS is currently in the **pre-baseline design phase**. The architecture is a working draft and implementation has not started yet. Core assumptions may still be edited directly while the initial model is being refined.
 
-The initial architecture is being designed around these principles:
+Start here:
+
+- [Architecture working draft](docs/DESIGN.md)
+- [Coding-agent instructions](AGENTS.md)
+- [Roadmap](ROADMAP.md)
+- [Architecture Decision Records](docs/adr/README.md)
+
+## Core ideas
 
 - `Actor` is the fundamental participant abstraction.
 - The first implementation focuses on individual actors while preserving extension points for future collective and institutional actors.
@@ -27,8 +34,12 @@ The initial architecture is being designed around these principles:
 - Human operators may observe, intervene in-world, explicitly override simulation state, or temporarily control actors.
 - Ethics and legality belong to the modeled world and actor preferences rather than a hard-coded moral policy in the simulation core.
 
+## Development methodology
+
+The repository is the source of truth. During the current pre-baseline phase, the core architecture may still be revised directly in `docs/DESIGN.md` as ideas are refined. Draft ADRs may be used to capture candidate decisions, but they are not binding until accepted.
+
+Once the first design baseline is declared, material architectural changes will be recorded through ADRs and then reflected in the current design document. Design baselines and software releases will be versioned separately; software semantic versioning will begin when executable releases exist.
+
 ## License
 
-GRASS is intended to be released under the **GNU General Public License v3.0 only (GPL-3.0-only)**.
-
-A full `LICENSE` file and the initial architecture documents will be added as the design baseline is committed.
+GRASS is licensed under the **GNU General Public License version 3 only (GPL-3.0-only)**. See [LICENSE](LICENSE).
