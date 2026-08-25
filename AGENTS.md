@@ -20,13 +20,25 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 8. **Decision providers are replaceable.** OpenAI, Ollama, local models, future providers, humans, scripts, and deterministic strategies must use the same conceptual decision interface.
 9. **Model providers and decision policy are separate concepts.** Do not couple an actor directly to a specific LLM SDK.
 10. **Actions are open at the intention level and constrained at the mechanics level.** Actors may propose novel intentions. The engine must interpret, validate, decompose, or reject them before execution.
-11. **Rules do not imply enforcement.** Legal, organizational, or social violations can occur if physically possible. Detection, reporting, institutional response, and consequences are separate mechanics.
-12. **Information is not equivalent to belief.** Receiving a message creates an observation/claim; actor belief updates are separate.
-13. **Membership is dynamic.** Actors may enter, leave, be removed from, or join organizations/groups during a simulation without deleting their historical identity.
-14. **Human interventions must be explicit and auditable.** Distinguish in-world interventions from direct simulation overrides.
-15. **No unrestricted execution of LLM-generated Python.** Never use raw `eval`/`exec` on generated expressions or functions. Use a validated expression language, AST whitelist, sandboxed worker, or another constrained mechanism.
-16. **Reproducibility matters.** Persist seeds, configuration versions, model/provider metadata, and branch ancestry when feasible.
-17. **Do not store or expose private chain-of-thought.** If decisions need explainability, request and store structured decision metadata such as intent, considered options, expected effects, confidence, and cited observations.
+11. **Action planning and execution are replaceable boundaries.** Do not couple `Actor`, `WorldState`, `EventStore`, or provider contracts to the current candidate interpreter/process/operation model. Treat planner-specific intermediate structures and execution-model-specific operations as private or explicitly versioned implementation details.
+12. **Rules do not imply enforcement.** Legal, organizational, or social violations can occur if physically possible. Detection, reporting, institutional response, and consequences are separate mechanics.
+13. **Information is not equivalent to belief.** Receiving a message creates an observation/claim; actor belief updates are separate.
+14. **Membership is dynamic.** Actors may enter, leave, be removed from, or join organizations/groups during a simulation without deleting their historical identity.
+15. **Human interventions must be explicit and auditable.** Distinguish in-world interventions from direct simulation overrides.
+16. **No unrestricted execution of LLM-generated Python.** Never use raw `eval`/`exec` on generated expressions or functions. Use a validated expression language, AST whitelist, sandboxed worker, or another constrained mechanism.
+17. **Reproducibility matters.** Persist seeds, configuration versions, model/provider metadata, and branch ancestry when feasible.
+18. **Do not store or expose private chain-of-thought.** If decisions need explainability, request and store structured decision metadata such as intent, considered options, expected effects, confidence, and cited observations.
+
+## Action-system guardrails
+
+- Preserve the actor's semantic `ActionProposal` separately from planner-specific representation when practical.
+- Do not let an `ActionProposal` directly declare authoritative world effects.
+- Do not assume a permanent primitive list such as `PERFORM`, `COMMUNICATE`, `OBSERVE`, or `MOVE`; these are current design candidates only.
+- Do not place domain action names such as `schedule_company_all_hands`, `propose_law`, or `build_sos` in core APIs.
+- Scenario-defined processes may be used by the first implementation, but their schema and discovery mechanism are still open design questions.
+- Capability checks should target world objects and context (access, control, presence, authorization, technical/physical feasibility) rather than hard-coded domain action names.
+- Keep planning and execution separate enough that either can be replaced independently.
+- Never persist a planner's private intermediate object merely because it is convenient for v1. Persist only what is needed for replay, observability, or reproducibility, and version execution-model-specific data explicitly.
 
 ## Change methodology
 
@@ -51,7 +63,7 @@ The LLM is an actor cognition component, not the physics engine, database, sched
 - Favor typed interfaces and explicit schemas.
 - Keep pure state-transition logic separate from I/O and LLM calls.
 - Make simulation components testable with deterministic fake providers.
-- Use dependency inversion at provider and persistence boundaries.
+- Use dependency inversion at provider, planning/execution, and persistence boundaries.
 - Prefer append-only event records for historical facts.
 - Add tests for branch isolation, replay consistency, action validation, information provenance, and provider substitution as these modules appear.
 - Do not optimize prematurely for millions of actors; preserve extension points for aggregate/collective actors and scalable schedulers.

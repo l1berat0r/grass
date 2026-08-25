@@ -126,20 +126,76 @@ GRASS must not require or persist private chain-of-thought. When decision explai
 
 Actors need creative freedom, so the intention space must not be limited to a tiny enum such as `WORK`, `REST`, and `TALK`.
 
-The engine therefore separates:
+The core architectural requirement is separation of **actor intention**, **action planning**, **action execution/resolution**, and **authoritative world mutation**. The concrete representation used inside planning and execution is intentionally replaceable.
 
-1. **ActionProposal / intention** — open-ended behavior proposed by a provider.
-2. **Interpretation** — mapping an intention to known mechanics, parameters, targets, and possibly a composed plan.
-3. **Validation** — checking physical, temporal, resource, membership, permission, and scenario constraints.
-4. **Resolution** — resolving simultaneous or conflicting actions.
-5. **State transition** — applying validated effects.
-6. **Event emission** — recording what actually happened.
+A stable conceptual flow is:
 
-Novel intentions may be decomposed into existing mechanics. An intention that cannot be interpreted coherently may be rejected, refined, delayed, or converted into a failure/no-op event according to scenario policy.
+1. **ActionProposal / intention** — open-ended behavior proposed by a `DecisionProvider`.
+2. **Planning** — translate the semantic intention into something the current execution model can attempt.
+3. **Validation / capability evaluation** — evaluate physical, temporal, resource, membership, access, authorization, and scenario constraints.
+4. **Resolution / execution** — resolve the attempted behavior, including simultaneous or conflicting actions.
+5. **World effects** — produce explicit candidate changes to authoritative state.
+6. **State transition** — apply accepted effects through the world engine.
+7. **Event emission** — record material attempts, outcomes, and state changes.
 
-LLM-generated text never directly mutates state.
+The current candidate design may use an action interpreter, scenario-defined processes, composable actor-facing operations, and explicit world effects. This is an **initial execution model**, not a permanent public contract of GRASS.
 
-### 5.1 Ethics, illegality and enforcement
+### 5.1 Replaceable planning and execution boundaries
+
+The core engine MUST NOT depend on one specific way of translating intentions into executable behavior. Future implementations may use, for example:
+
+- an LLM-based action interpreter;
+- deterministic schema matching;
+- a symbolic planner;
+- affordance-graph planning;
+- tool-like structured calls;
+- behavior trees;
+- or another model not yet designed.
+
+These alternatives should be replaceable without redesigning `Actor`, `WorldState`, `EventStore`, `DecisionProvider`, or persistence of authoritative history.
+
+Conceptually, the implementation should preserve narrow boundaries similar to:
+
+`DecisionProvider -> ActionProposal -> ActionPlanningPort -> ExecutionPlan -> ActionExecutionPort -> ExecutionResult -> WorldEffects -> WorldState / Events`
+
+The names and exact interfaces are provisional. The important requirement is dependency direction and replaceability.
+
+`ActionProposal` should preserve the semantic intent of the actor and MUST NOT declare arbitrary world effects. A planner may attach structured metadata, candidate operations, or an execution-model identifier, but its private intermediate representations must not leak into unrelated domain models.
+
+`ExecutionPlan` is a boundary object, not a promise that all future planners will use the same internal step language. If execution-model-specific operations are persisted or exposed, they must be explicitly versioned and treated as implementation-specific data rather than universal GRASS semantics.
+
+`ExecutionResult` / `WorldEffects` describe what the resolver determined can happen. External components, including LLMs and planners, still do not receive direct mutation access to `WorldState`.
+
+Planning and execution are separate axes of change: GRASS should be able to replace the planner without replacing world resolution, and to change execution/resolution mechanics without changing how an actor expresses its intention.
+
+### 5.2 Initial candidate execution model
+
+For the initial implementation, a useful candidate is to let actors propose open-ended intentions and allow the planner/interpreter to map them to scenario-defined processes or compositions of generic interactions.
+
+The scenario, rather than core, may define domain-specific processes such as `gather_wood`, `repair_shelter`, `write_report`, or `run_security_scan`. The core should not contain a global catalog of human actions such as `schedule_company_all_hands`, `propose_law`, or `build_sos`.
+
+The planner may attempt to realize novel intentions by composing available scenario processes and generic interactions. An intention that cannot be interpreted coherently may be rejected, refined, delayed, or converted into a failure/no-op attempt according to scenario policy.
+
+Candidate actor-facing interactions such as `PERFORM`, `COMMUNICATE`, `OBSERVE`, and `MOVE` are exploratory design ideas, not frozen primitives. Likewise, the exact minimal algebra of world effects remains unresolved.
+
+Capabilities should be evaluated against world objects and context (for example access, control, presence, channel use, or resource authority) rather than against a hard-coded domain action name. Lack of authorization does not automatically imply physical or technical impossibility; preventive enforcement, actual feasibility, detection, and later consequences are distinct concerns.
+
+LLM-generated text never directly mutates state and must not be allowed to declare outcomes such as `increase_loyalty(20)` or `make_actor_afraid`. Actors choose attempts; the world resolves consequences.
+
+### 5.3 Persist semantic intent separately from execution details
+
+When practical, event history should preserve the actor's semantic `ActionProposal` separately from planner-specific and resolver-specific details.
+
+This supports:
+
+- debugging why an action was interpreted in a particular way;
+- comparing different planners against the same actor intention;
+- replaying or branching from an action proposal with a different planning/execution model;
+- measuring how much simulation outcomes depend on the chosen action interpretation architecture.
+
+Planner internals are not automatically authoritative history. Persist only the portions needed for reproducibility, inspection, or deterministic replay, and version them explicitly when they are execution-model-specific.
+
+### 5.4 Ethics, illegality and enforcement
 
 The core engine MUST NOT equate physical possibility with legality or ethics.
 
@@ -223,15 +279,16 @@ A conceptual turn is:
 3. update bounded cognition context, memory, and beliefs where appropriate;
 4. request action proposals from eligible decision providers;
 5. collect proposals before authoritative resolution;
-6. interpret and validate proposals;
-7. resolve simultaneous interactions/conflicts;
-8. apply state transitions and rule/institution mechanics;
-9. propagate resulting information and observations;
-10. emit immutable events and derived metrics;
-11. evaluate entry/exit and termination conditions;
-12. continue to the next logical time.
+6. plan/interpret proposals through the selected action-planning model;
+7. validate capabilities and feasibility;
+8. resolve simultaneous interactions/conflicts through the selected execution model;
+9. apply accepted world effects and rule/institution mechanics;
+10. propagate resulting information and observations;
+11. emit immutable events and derived metrics;
+12. evaluate entry/exit and termination conditions;
+13. continue to the next logical time.
 
-The exact phase boundaries, handling of long-running actions, and multi-message conversations remain open design questions.
+The exact phase boundaries, handling of long-running actions, multi-message conversations, and the concrete planning/execution contracts remain open design questions.
 
 Sequentially mutating the world while querying each actor in arbitrary order should be avoided because it can create artificial ordering bias.
 
@@ -239,7 +296,7 @@ Sequentially mutating the world while querying each actor in arbitrary order sho
 
 Simulation history is designed as a tree rather than only a linear log.
 
-Every material authoritative state change should be representable by immutable events with logical time, branch identity, and provenance.
+Every material occurrence, attempted action, authoritative decision, and state change should be representable by immutable events when it matters for replay, observability, or analysis. In particular, failed attempts, refusals, or deliberate non-actions may be historically meaningful even when they cause no immediate state mutation.
 
 A branch has a parent and fork point. History before the fork is conceptually shared and immutable; continuation after the fork is independent.
 
@@ -250,6 +307,7 @@ Required future capabilities include:
 - reconstruct state at historical points;
 - fork from a selected point;
 - change an intervention or actor decision;
+- replay the same semantic action proposal through a different planning/execution model where practical;
 - continue branches independently;
 - compare branch outcomes and metrics;
 - identify which events arose from AI, humans, rules, scenario events, institutions, or overrides.
@@ -332,14 +390,17 @@ The following are intentionally open and should not be silently decided by imple
 3. event schema and storage technology;
 4. snapshot cadence and restoration strategy;
 5. safe runtime for scenario-defined functions;
-6. degree of LLM use in action interpretation versus deterministic/schema-based interpretation;
-7. belief representation;
-8. memory storage and retrieval;
-9. conversation granularity and long-running action semantics;
-10. exact interaction between utility estimation and LLM reasoning;
-11. causal-reference semantics between events;
-12. UI technology;
-13. cost controls, batching, caching, and concurrency for LLM calls.
+6. exact action-planning and execution contracts, including how `ActionProposal`, execution-model-specific plans, and `WorldEffects` are represented and versioned;
+7. degree of LLM use in action interpretation versus deterministic/schema-based interpretation;
+8. minimal actor-facing interaction language and minimal world-effect algebra for the initial execution model;
+9. scenario-process representation and discovery by planners;
+10. belief representation;
+11. memory storage and retrieval;
+12. conversation granularity and long-running action semantics;
+13. exact interaction between utility estimation and LLM reasoning;
+14. causal-reference semantics between events;
+15. UI technology;
+16. cost controls, batching, caching, and concurrency for LLM calls.
 
 During the current pre-baseline phase these assumptions may still be edited directly. Draft ADRs may capture candidate decisions. After a design baseline is declared, material architecture changes should normally proceed through accepted ADRs.
 
