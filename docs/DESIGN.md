@@ -17,7 +17,7 @@ A scenario should be able to represent a corporation, political party, state, co
 
 The simulator is intended to support emergent behavior, imperfect knowledge, configurable needs and resources, cooperation and competition, communication and rumor, human intervention, multiple cognition backends, replay, branching, counterfactual comparison, and post-run analysis.
 
-GRASS is not assumed to be scientifically predictive by default. Scientific claims require scenario-specific calibration, validation, uncertainty analysis, and evidence.
+GRASS is not assumed to be scientifically predictive by default. Scientific claims require scenario-specific calibration, validation, uncertainty analysis, and evidence. It does not make any claims about it's prediction precission. It is rather intended to be a tool which can help people understand social systems they happen to be a part of.
 
 ## 2. Architectural thesis
 
@@ -174,6 +174,8 @@ Receiving information does not automatically create belief. Each recipient inter
 
 One-to-many communication must support scenarios such as an executive addressing employees, a political leader speaking to supporters, a news organization publishing a claim, or a rumor spreading through a social network.
 
+Not every channel should be accessible for everyone. For example an employee in an organization can choose to talk to other employee in the same office, but only CTO is able to schedule an all-hands meeting when he speaks to the whole company.
+
 Information provenance should make it possible to inspect how a claim propagated and changed over time.
 
 ## 7. Entry, exit and actor lifecycle
@@ -288,6 +290,7 @@ A `Simulation Analyst` is external to simulated reality. It may inspect event hi
 - Who accumulated informal influence?
 - Which operator interventions mattered most?
 - How did two branches diverge?
+- What is the resource distribution over actors and their position in the social hierarchy.
 
 Analyst statements should reference source events where practical and distinguish observed correlation from stronger causal claims.
 
