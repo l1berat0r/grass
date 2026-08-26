@@ -56,13 +56,35 @@ The authoritative state of one simulation branch at a logical time. It contains 
 
 Actors never receive unrestricted `WorldState` as decision context.
 
-### 3.3 Actor
+### 3.3 Entity and Actor
 
-`Actor` is the common participant abstraction. Actor identity must remain stable across the history of a simulation even if the actor becomes inactive or leaves a modeled organization.
+`Entity` is the common persistent identity abstraction for scenario-relevant things that need to be referred to across time. GRASS does not require every physical object to be an entity; something should normally receive entity identity only when the chosen simulation resolution needs to track, reference, relate, observe, control, modify, or preserve its history.
 
-The first implementation will focus on `IndividualActor`, while persistence, action, event, relationship, membership, information, and provider boundaries MUST remain extensible to future `CollectiveActor` and `InstitutionActor` types.
+A minimal entity concept provides:
 
-Future collective actors may represent aggregate populations rather than one LLM call per represented human. Future institutional actors may expose actor-like behavior externally while deriving decisions internally from procedures, roles, votes, or other actors.
+- stable `entity_id`;
+- `entity_type`;
+- `active`;
+- scenario-defined mechanical/state properties;
+- optional `semantic_content`.
+
+`active` is authoritative entity state. Deactivation preserves identity and history rather than deleting the entity, so inactive entities may remain referenced by past events, relations, observations, and analytics.
+
+GRASS provides a small built-in vocabulary of broadly useful entity types. The initial vocabulary includes at least:
+
+- `Person`;
+- `Organization`;
+- `Group`;
+- `Location`;
+- `Artifact`.
+
+Scenarios may extend this vocabulary with domain-specific types such as `Company`, `Department`, `Camp`, `GardenBed`, `Vehicle`, or `PoliticalParty`. A scenario-defined type may optionally identify a built-in base type when useful for validation, planning, UI, or analytics. Core mechanics MUST NOT gain domain behavior merely because a type name exists.
+
+`Actor` is an entity with cognition, perception, and decision capability rather than a separate parallel identity system. The implementation should prefer composition (for example an `ActorFacet` or equivalent component keyed by `entity_id`) over a deep inheritance hierarchy.
+
+The first implementation focuses on actor-capable `Person` entities. Persistence, action, event, relationship, membership, information, and provider boundaries MUST nevertheless remain extensible to future collective or institutional actors. A `Group` or `Organization` entity may later acquire actor capability without changing its historical entity identity.
+
+Actor cognition state such as beliefs, plans, drives, utility configuration, and memory is authoritative simulation state for replay and branching purposes, but it is not ordinary objective entity state. It SHOULD remain separated from general entity properties so that world truth, represented semantic content, actor observation, and actor belief do not collapse into one namespace.
 
 ### 3.4 StateVariable and Resource
 
@@ -70,7 +92,19 @@ State variables are scenario-defined rather than hard-coded. Examples include en
 
 A state variable may define range, initialization, thresholds, visibility, decay/recovery behavior, and transition rules.
 
-Resources represent quantities that may be owned, transferred, consumed, created, reserved, or competed over. Examples include money, food, budget, attention, or time allocations.
+Resources represent fungible or aggregatable quantities that may be transferred, consumed, produced, reserved, or competed over. Examples include money, food, budget, water, fuel, attention, or time allocations.
+
+Every authoritative resource quantity MUST be associated with an `Entity`; resources do not exist as detached global quantities without context. Conceptually:
+
+`ResourceState(entity_id, resource_type, quantity, unit?, properties?)`
+
+Examples include a `Company` entity having a `budget` resource, a `GardenBed` entity having a `food` resource representing harvestable carrots, a water tank having a `water` resource, or a forest/location entity having a `wood` resource.
+
+This association provides spatial, organizational, or logical context for resource access and capability checks. A transfer of resources is therefore a transition between entity-associated resource states rather than a mutation of an unscoped global number.
+
+Resources should not be exploded into individual entities merely because they have physical instances. A quantity of carrots may remain `food` on a garden-bed entity. If one particular object becomes individually important to the scenario, such as the only working radio, it may instead be modeled as an `Entity`.
+
+The boundary between `StateVariable` and `Resource` is semantic: resources are quantities for which ownership/location, transfer, consumption, production, reservation, or aggregation is meaningful; other actor/world attributes may remain state variables.
 
 ### 3.5 Drives, Utility and Plans
 
@@ -116,9 +150,39 @@ The engine must not depend on which provider is used.
 
 `ModelProvider` is a lower-level abstraction for language-model access. It isolates GRASS from vendor SDKs and may support OpenAI APIs, Ollama, OpenAI-compatible local endpoints, vLLM, or future providers.
 
-Decision policy and model transport are separate concepts. An actor must not be coupled directly to a specific LLM SDK.
+Decision policy, model transport, provider identity, and provider execution location are separate concepts. An actor must not be coupled directly to a specific LLM SDK.
 
-### 4.3 Explainability metadata
+A provider binding should be able to declare at least:
+
+- a logical provider identifier;
+- adapter/protocol type;
+- model identifier and non-secret configuration;
+- execution location (`SERVER_MANAGED` or `CLIENT_MANAGED`);
+- session/user scope where applicable;
+- explicit fallback policy;
+- provider/model metadata required for reproducibility.
+
+`SERVER_MANAGED` providers execute from the GRASS backend. Their credentials are server secrets and MUST NOT be sent to the frontend. A server-managed default provider may be used when a session has no explicit provider override and may be unavailable at a given time.
+
+`CLIENT_MANAGED` providers execute through the user's client session. They are intended for user-supplied providers such as hosted APIs, OpenAI-compatible endpoints, or a locally reachable Ollama instance. The provider credential MUST NOT be transmitted to or stored by the GRASS backend in this mode. The backend may know a logical provider handle and non-secret metadata needed to route a model request, while transport details and credentials may remain client-local.
+
+### 4.3 Client-managed provider execution and secret handling
+
+For a client-managed provider, the backend may request a model call through the active frontend session. The frontend performs the provider request using the client-local credential and returns only the model response and non-secret call metadata required by the simulation.
+
+The returned model response is untrusted cognition output. A modified or malicious frontend may fabricate it, but it MUST NOT be able to submit authoritative `WorldEffects` or mutate `WorldState`. Client-managed responses follow the normal `ModelProvider -> DecisionProvider -> ActionProposal -> planning -> validation -> resolution` path.
+
+Client-managed credentials should initially be kept only in browser memory and scoped to the active session. They MUST NOT be stored in `localStorage` or `sessionStorage` by the initial implementation. Durable user-side credential storage, if added later, requires a separate security design.
+
+Direct browser execution depends on the target provider allowing browser access, including appropriate CORS configuration. A future local bridge may support local providers when direct browser access is insufficient. A future server relay is also possible, but it is a separate security mode because it would make the backend handle user credentials and user-selected outbound destinations. GRASS MUST NOT provide an unrestricted generic server-side HTTP proxy; any future relay requires explicit SSRF protections, destination validation, egress restrictions, timeout/size limits, and dedicated secret handling.
+
+Provider fallback MUST be explicit. Failure of a user-selected provider must not silently switch cognition to a different model. A session may choose a policy such as `PAUSE`, `FAIL`, or an explicit fallback provider. Any provider/model switch that affects a running simulation must be recorded in reproducibility metadata and, where historically relevant, in the event history.
+
+If no client-managed provider is configured, the session may use the server-managed default provider. If the default is unavailable and no explicit fallback exists, the backend should surface provider unavailability rather than silently changing execution semantics.
+
+The initial frontend/backend transport should support long-lived session communication so the backend can suspend a pending cognition call and receive its result from the client. WebSocket is the initial transport choice for these interactive/session exchanges; ordinary configuration and query operations may use REST.
+
+### 4.4 Explainability metadata
 
 GRASS must not require or persist private chain-of-thought. When decision explainability is useful, providers should return structured metadata such as intent, considered alternatives, expected effects, confidence, and observations used.
 
@@ -195,7 +259,35 @@ This supports:
 
 Planner internals are not automatically authoritative history. Persist only the portions needed for reproducibility, inspection, or deterministic replay, and version them explicitly when they are execution-model-specific.
 
-### 5.4 Ethics, illegality and enforcement
+### 5.4 Scenario-resolution entities and semantic content
+
+GRASS models authoritative reality at the resolution chosen by the scenario, not at an imagined microscopic physical ground truth below that resolution. The engine MUST NOT require irrelevant low-level entities merely to reconstruct an outcome.
+
+A novel action may therefore create or modify a generic scenario-level `Entity` rather than forcing the core to introduce domain-specific outcome primitives such as `VisualMarker`, `Document`, `Shelter`, or `Barricade`.
+
+Mechanically relevant properties should remain explicit and be determined by validated world/scenario mechanics. Optional `semantic_content` may describe what an entity represents, contains, depicts, or communicates and may later be interpreted by cognition providers.
+
+For example, an actor intending to arrange stones into an SOS signal may, after successful resolution, result in an entity conceptually similar to:
+
+`Entity(entity_type=Artifact, properties={location: beach, material: stones, visibility: 0.72}, semantic_content="Visual representation of the letters SOS")`
+
+Individual stones need not exist as entities unless their individual identity is itself relevant at the scenario's simulation resolution.
+
+The actor may propose intended semantic content, but it does not directly declare authoritative success or mechanical properties. World resolution determines whether the intended object is actually realized and which mechanically relevant properties it has. Partial or failed execution may result in different realized semantic content.
+
+Semantic content is not synonymous with world truth. A document may truthfully exist with semantic content claiming that revenue was `$10M` while the authoritative revenue state is `$4.2M`. Likewise an SOS representation can exist even if nobody actually requires rescue.
+
+GRASS therefore keeps distinct:
+
+- authoritative entity state and mechanical properties;
+- semantic content represented by an entity;
+- actor-relative observation;
+- actor interpretation;
+- actor belief.
+
+World effects should operate on a formal scenario-state model using generic state operations rather than an ever-growing catalog of domain action or outcome primitives. The exact minimal state-delta algebra remains open, but it should support creating, updating, activating/deactivating entities, changing entity properties, changing entity-associated resource states, and creating/updating/removing relations without requiring core GRASS to know what those domain objects mean.
+
+### 5.5 Ethics, illegality and enforcement
 
 The core engine MUST NOT equate physical possibility with legality or ethics.
 
@@ -272,31 +364,94 @@ Multiple actors may eventually be human-controlled simultaneously.
 
 ## 9. Simulation lifecycle
 
+Actors form their primary intentions against the same authoritative snapshot at the start of a turn. Intent generation is therefore conceptually simultaneous: one actor MUST NOT receive another actor's newly generated intention as if it were already an observed fact merely because the implementation queried that actor first.
+
 A conceptual turn is:
 
-1. advance/establish logical time;
-2. derive observations for each relevant actor;
-3. update bounded cognition context, memory, and beliefs where appropriate;
-4. request action proposals from eligible decision providers;
-5. collect proposals before authoritative resolution;
-6. plan/interpret proposals through the selected action-planning model;
-7. validate capabilities and feasibility;
-8. resolve simultaneous interactions/conflicts through the selected execution model;
-9. apply accepted world effects and rule/institution mechanics;
-10. propagate resulting information and observations;
-11. emit immutable events and derived metrics;
-12. evaluate entry/exit and termination conditions;
-13. continue to the next logical time.
+1. **Snapshot / perception** — establish `WorldState(t)` and derive actor-relative observations/context.
+2. **Primary decision** — all eligible actors independently generate their primary `ActionProposal` from the same start-of-turn reality.
+3. **Planning** — translate proposals into candidate plans using the selected planning model.
+4. **Interaction and conflict discovery** — identify targeted interactions, shared-resource claims, exclusive attention/time requirements, dependencies, mutually exclusive outcomes, and other constraints between candidate plans.
+5. **Bounded reaction phase** — actors affected by incoming interaction requests or discovered conflicts may accept, refuse, defer, prioritize, or modify participation within the scope of those already identified interactions.
+6. **Joint resolution / scheduling** — resolve connected conflict/dependency components together and construct a feasible within-turn execution schedule or simultaneous-resolution groups.
+7. **Execution-time revalidation** — immediately before an action or resolution group executes, validate that its relevant preconditions and capabilities still hold after earlier committed events in the same turn.
+8. **Execution and state transition** — resolve the action/group, convert accepted results into authoritative events, and atomically apply the corresponding state transitions.
+9. **End-of-turn dynamics** — apply configured decay, recovery, background processes, rule/institution mechanics, information propagation, and other scenario dynamics whose semantics belong at the end of the turn.
+10. **Finalize** — emit derived metrics, evaluate lifecycle/termination conditions, and continue to the next logical time.
 
-The exact phase boundaries, handling of long-running actions, multi-message conversations, and the concrete planning/execution contracts remain open design questions.
+The reaction phase is deliberately bounded. It is not a second unrestricted primary decision round. Its purpose is to let actors respond to conflicts and participation requests that could not have been known when primary intentions were formed, without creating unbounded recursive chains of "reaction to reaction".
 
-Sequentially mutating the world while querying each actor in arbitrary order should be avoided because it can create artificial ordering bias.
+For example, an engineer may intend to work while a CTO independently intends to talk with that engineer. The scheduler may identify an attention/time conflict, but it MUST NOT invent the engineer's preference. The engineer's bounded reaction may accept, refuse, defer, or otherwise prioritize the meeting relative to the original work intention.
+
+Likewise, if an engineer requests a conversation with a CTO while the CTO intends to speak with someone else, the CTO decides how to respond; the resolver only exposes the conflict and enforces mechanical constraints.
+
+### 9.1 Conflict and dependency resolution
+
+The resolver should not be modeled as a simple global action queue or as recursive actor-by-actor execution. Candidate plans form a dependency/conflict graph whose nodes are plans or plan fragments and whose edges may represent:
+
+- competition for exclusive actor attention or time;
+- shared or insufficient resources;
+- mutual targeting or required participation;
+- ordering dependencies;
+- mutually exclusive state transitions;
+- preemption or invalidation;
+- scenario-defined interaction constraints.
+
+Independent connected components may be resolved independently. Mutually dependent or cyclic components must be resolved jointly rather than by recursive traversal. Cycles are therefore normal resolution cases, not exceptional errors.
+
+The exact graph representation and algorithm (for example SCC detection, constraint solving, heuristics, or another approach) remain implementation details and may evolve.
+
+### 9.2 Time, attention and partial execution
+
+Within-turn time and actor attention are explicit mechanical constraints. An actor cannot normally participate in two interactions that require the same exclusive attention interval.
+
+A conflict does not imply that one whole intention must be discarded. Where scenario/process semantics permit, a plan may be delayed, shortened, partially executed, or resumed after another interaction. For example a 20-minute conversation may consume part of an engineer's one-hour work turn rather than automatically cancelling all work.
+
+The exact representation of duration, interruptibility, resumability, and partial progress is scenario/process-specific and remains open beyond the minimal v0.1 scheduler contract.
+
+### 9.3 Execution-time revalidation
+
+Planning and scheduling do not guarantee that a later action remains feasible. Earlier actions in the same turn may change state or capabilities.
+
+For example, an engineer may intend to deploy while a CTO independently intends to revoke the engineer's access. Both intentions are valid against the same start-of-turn snapshot. If access is revoked before the scheduled deployment attempt, the deployment is revalidated against the new authoritative state and may fail or be cancelled with an explicit event such as `ActionFailed` / `ActionCancelled(reason=preconditions_changed)`.
+
+Execution-time revalidation does not regenerate the actor's original intention and does not reveal future state to the actor retroactively.
+
+### 9.4 Simultaneous resolution groups
+
+Some interactions cannot be represented correctly by arbitrarily ordering actions. The scheduler/resolver must therefore support a set of actions being resolved as one simultaneous-resolution group.
+
+Examples include two actors competing for a single indivisible resource, mutually interacting actions, or scenario mechanics in which outcomes depend on several actions occurring at the same logical instant.
+
+Ordering (`A before B`) and simultaneous grouping (`A with B`) are both valid resolver outcomes. The scenario/execution model determines the resulting world effects for a simultaneous group.
+
+Sequentially mutating the world while querying decision providers in arbitrary actor order remains forbidden because it creates artificial ordering bias.
 
 ## 10. History, replay and branching
 
 Simulation history is designed as a tree rather than only a linear log.
 
-Every material occurrence, attempted action, authoritative decision, and state change should be representable by immutable events when it matters for replay, observability, or analysis. In particular, failed attempts, refusals, or deliberate non-actions may be historically meaningful even when they cause no immediate state mutation.
+Canonical authoritative simulation history is event-sourced. `WorldState` is a materialized projection of accepted historical events for one branch at one logical point in time; checkpoints or snapshots are reconstruction optimizations rather than an alternative source of truth.
+
+`WorldEffect` and `Event` are distinct concepts. A `WorldEffect` represents a candidate authoritative transition produced by resolution. It is not yet a historical fact. After invariant checks and authoritative acceptance, the engine emits immutable events describing what actually occurred. Only accepted events applied through deterministic state-transition logic may mutate authoritative `WorldState`.
+
+Components outside the state-transition boundary MUST NOT mutate `WorldState` directly. Planners, executors, providers, UI components, and scenario adapters should receive read-only views or explicit interfaces rather than unrestricted mutable references.
+
+Not every event must mutate world state. Every material occurrence, attempted action, authoritative decision, and state change should be representable by immutable events when it matters for replay, observability, or analysis. Failed attempts, refusals, provider changes, or deliberate non-actions may therefore be historically meaningful even when they cause no immediate state mutation.
+
+A minimal event envelope should preserve stable identity and ordering independently of payload shape. The initial schema should provide equivalents of:
+
+- `event_id`;
+- `branch_id`;
+- monotonically ordered `sequence` within the branch;
+- logical simulation time;
+- event type and versioned payload;
+- provenance;
+- optional causation/correlation references where useful.
+
+Sequence establishes deterministic replay order but does not by itself imply causal ordering between events resolved at the same logical time.
+
+One authoritative transition may produce multiple events. Such an event set must be committed atomically: either all events representing that accepted transition become part of the branch history, or none do. The storage technology may change, but it must preserve this semantic guarantee.
 
 A branch has a parent and fork point. History before the fork is conceptually shared and immutable; continuation after the fork is independent.
 
@@ -312,7 +467,11 @@ Required future capabilities include:
 - compare branch outcomes and metrics;
 - identify which events arose from AI, humans, rules, scenario events, institutions, or overrides.
 
-The exact event store, serialization format, checkpoint cadence, and physical representation of shared history are not decided yet.
+Replay means deterministic reconstruction of recorded history. Replaying an existing branch MUST NOT re-invoke an LLM, human provider, or other cognition provider in order to rediscover past decisions. Recorded events and the historical decision/action data required by the selected reproducibility level are reused instead.
+
+Calling providers again creates new history. This occurs when continuing a simulation beyond recorded history, regenerating behavior by explicit request, or continuing a new branch after a fork. GRASS should therefore distinguish clearly between **replay** and **branch continuation/regeneration**.
+
+The exact event-store technology, serialization format, checkpoint cadence, and physical representation of shared history remain implementation decisions, provided they preserve these semantics.
 
 ## 11. Scenario-defined functions
 
@@ -377,6 +536,17 @@ These are extension points, not v0.1 implementation requirements.
 
 The first executable milestone should prove architecture rather than realism.
 
+### 15.1 Initial technology choices
+
+The initial implementation stack is:
+
+- **GRASS core:** Python;
+- **backend/API:** FastAPI;
+- **frontend:** React;
+- **frontend/backend transport:** REST for ordinary API operations and WebSocket for interactive simulation/session traffic, including client-managed provider round trips.
+
+These are implementation choices for the initial architecture, not permission to couple simulation-domain code to FastAPI or React. GRASS core must remain usable and testable independently of the web application. Provider, persistence, planning/execution, and simulation-domain boundaries must remain explicit.
+
 A useful acceptance scenario is a small organization with roughly ten individual actors, hourly logical turns, configurable state variables such as energy/stress/fulfillment, a resource such as money, trust relationships, simple membership, one-to-one and one-to-many communication, actor exit/entry, a deterministic provider for tests, at least one LLM adapter, operator information disclosure, actor possession, event history, checkpoint/replay, and a branch fork with independent continuation.
 
 Explicitly deferred: true collective/institutional decision semantics, society-scale distributed execution, complex economy, calibrated psychology, advanced geography, multiplayer networking, automatic population-resolution changes, rich graphical UI, and causal-inference claims.
@@ -399,8 +569,9 @@ The following are intentionally open and should not be silently decided by imple
 12. conversation granularity and long-running action semantics;
 13. exact interaction between utility estimation and LLM reasoning;
 14. causal-reference semantics between events;
-15. UI technology;
-16. cost controls, batching, caching, and concurrency for LLM calls.
+15. durable storage/security design for client-managed credentials, if persistent BYOK is added;
+16. whether and how a future local provider bridge or secured server relay should be implemented;
+17. cost controls, batching, caching, and concurrency for LLM calls.
 
 During the current pre-baseline phase these assumptions may still be edited directly. Draft ADRs may capture candidate decisions. After a design baseline is declared, material architecture changes should normally proceed through accepted ADRs.
 
