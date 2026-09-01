@@ -14,46 +14,88 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 2. **Actors do not receive omniscient state.** Decision providers operate on `PerceivedWorld` / observations, memories, beliefs, drives, plans, and actor-local state.
 3. **Every authoritative state-changing operation produces events.** Do not introduce hidden mutations of simulated reality.
 4. **History is branchable.** New persistence decisions must preserve the ability to fork from any persisted checkpoint/event position and continue independently.
-5. **Provenance is mandatory.** Events and interventions must record their origin: AI actor, human-controlled actor, world rule, institution, scenario event, operator intervention, or explicit override.
-6. **Do not hard-code corporate, governmental, political, or other scenario-specific semantics in the core engine.** Domain mechanics belong in scenario definitions, plugins, rules, schemas, and functions.
-7. **`Entity` is the persistent world identity anchor; actors are entity-backed.** Initial implementation may focus on actor-capable `Person` entities, but APIs and persistence schemas must remain extensible to future collective and institutional actors.
-8. **Decision providers are replaceable.** OpenAI, Ollama, local models, future providers, humans, scripts, and deterministic strategies must use the same conceptual decision interface.
-9. **Model providers and decision policy are separate concepts.** Do not couple an actor directly to a specific LLM SDK.
-10. **Actions are open at the intention level and constrained at the mechanics level.** Actors may propose novel intentions. The engine must interpret, validate, decompose, or reject them before execution.
-11. **Action planning and execution are replaceable boundaries.** Do not couple `Actor`, `WorldState`, `EventStore`, or provider contracts to the current candidate interpreter/process/operation model. Treat planner-specific intermediate structures and execution-model-specific operations as private or explicitly versioned implementation details.
-12. **Rules do not imply enforcement.** Legal, organizational, or social violations can occur if physically possible. Detection, reporting, institutional response, and consequences are separate mechanics.
-13. **Information is not equivalent to belief.** Receiving a message creates an observation/claim; actor belief updates are separate.
-14. **Membership is dynamic.** Actors may enter, leave, be removed from, or join organizations/groups during a simulation without deleting their historical identity.
-15. **Human interventions must be explicit and auditable.** Distinguish in-world interventions from direct simulation overrides.
-16. **No unrestricted execution of LLM-generated Python.** Never use raw `eval`/`exec` on generated expressions or functions. Use a validated expression language, AST whitelist, sandboxed worker, or another constrained mechanism.
-17. **Reproducibility matters.** Persist seeds, configuration versions, model/provider metadata, and branch ancestry when feasible.
-18. **Do not store or expose private chain-of-thought.** If decisions need explainability, request and store structured decision metadata such as intent, considered options, expected effects, confidence, and cited observations.
-19. **Provider execution location is explicit.** Server-managed and client-managed providers share a logical provider contract without sharing credential handling. Client-managed credentials must not be sent to the backend; server-managed credentials must not be sent to the frontend.
-20. **Authoritative history is event-sourced.** `WorldEffect` is a proposed transition; `Event` is an immutable historical fact. Only accepted events applied through deterministic state-transition logic may mutate `WorldState`.
-21. **Replay does not regenerate cognition.** Reconstruct recorded branches from persisted history without re-calling LLMs or other decision providers. New provider calls create new history, for example during branch continuation.
-22. **Model at scenario resolution.** Do not introduce lower-level entities only to reconstruct irrelevant physical detail. Scenario-level entities may carry explicit mechanical properties and optional semantic content, while actor-relative perception, interpretation, and belief remain separate.
-23. **Entity is the persistent world identity anchor.** Scenario-relevant things use stable entity identity; actors are entity-backed cognition/decision participants rather than a separate parallel identity system. `active` deactivates an entity without deleting its history.
-24. **Entity types are extensible vocabulary, not domain classes.** Preserve a small built-in set of generic types (initially `Person`, `Organization`, `Group`, `Location`, `Artifact`) and allow scenarios to extend it. Do not attach domain-specific core mechanics merely because a scenario defines a new type.
-25. **Resources are entity-associated quantities.** Every authoritative resource quantity belongs to an entity context. Do not create detached global resource balances or microscopic entities for fungible resource units.
-26. **Primary intentions are simultaneous at turn start.** All eligible actors form primary intentions from the same start-of-turn authoritative snapshot. Never let provider iteration order leak newly generated intentions or state changes into later actors' decision contexts.
-27. **Conflicts are jointly resolved.** Do not implement the scheduler as a naive `for actor/action` mutation loop or recursively resolve cyclic dependencies actor-by-actor. Detect interacting/conflicting plan components and resolve each component coherently.
-28. **Reaction is bounded, not recursive cognition.** An actor may respond to already-discovered participation requests/conflicts by accepting, refusing, deferring, prioritizing, or modifying participation, but the reaction phase must not become an unbounded new primary-decision loop.
-29. **Revalidate at execution time.** A scheduled action may become infeasible after earlier same-turn events. Re-check relevant preconditions/capabilities immediately before authoritative resolution and emit explicit failure/cancellation events when conditions changed.
-30. **True simultaneity is representable.** Do not force arbitrary ordering where several actions require one joint resolution outcome. Support simultaneous-resolution groups when scenario mechanics require them.
+5. **Provenance is mandatory.** Events and interventions must record their origin.
+6. **Do not hard-code scenario domains in core.** Corporate, governmental, political, survival, or other domain mechanics belong in scenario definitions/plugins/rules/schemas rather than core abstractions.
+7. **`Entity` is the persistent world identity anchor; actors are entity-backed.**
+8. **Decision providers are replaceable.** OpenAI, Ollama, local models, humans, scripts, deterministic strategies, and future providers share the conceptual decision boundary.
+9. **Model providers and decision policy are separate concepts.**
+10. **Actions are open at the intention level and constrained at the mechanics level.**
+11. **Action planning and world resolution are replaceable boundaries.** Do not couple authoritative state/history or provider contracts to one planner or resolver implementation.
+12. **Rules do not imply enforcement.** Legality, authorization, possibility, detection, and consequence are distinct.
+13. **Information is not equivalent to belief.**
+14. **Membership and relation state are dynamic; historical identity is preserved.**
+15. **Human interventions must be explicit and auditable.**
+16. **No unrestricted execution of LLM-generated Python.**
+17. **Reproducibility matters.** Persist seeds, configuration versions, provider/model metadata, resolution mode, and branch ancestry when feasible.
+18. **Do not store or expose private chain-of-thought.** Use structured decision metadata instead.
+19. **Provider execution location is explicit.** Server-managed and client-managed provider credentials follow distinct security boundaries.
+20. **Authoritative history is event-sourced.** `WorldEffect` is a candidate transition; `Event` is an immutable historical fact. Only accepted events applied through deterministic transition logic mutate projected `WorldState`.
+21. **Replay does not regenerate cognition or world resolution.** Reconstruct recorded branches from persisted history; new provider/resolver calls create new history.
+22. **Model at scenario resolution.** Do not introduce microscopic entities merely to reconstruct irrelevant physical detail.
+23. **Entity deactivation preserves identity/history.**
+24. **Entity types are extensible vocabulary, not domain classes.** Initial generic vocabulary includes `Person`, `Organization`, `Group`, `Location`, `Artifact`, and `Commitment`.
+25. **Resources are entity-associated and scenario-defined.**
+26. **Primary intentions are simultaneous at turn start.** All eligible actors decide from the same authoritative start snapshot.
+27. **Conflicts are jointly resolved.** Do not use a naive sequential mutation loop or recursive actor-by-actor conflict handling.
+28. **Reaction is bounded, not recursive cognition.**
+29. **Revalidate at execution time.** Earlier same-turn events may invalidate later attempts.
+30. **True simultaneity is representable.**
+31. **World resolution is replaceable, committing reality is not.** Deterministic or generative resolvers propose outcomes; only the authoritative transition layer commits events/state.
+32. **Resolution mode is explicit experimental configuration.** Initial identifiers are `DETERMINISTIC` and `GENERATIVE`; UI may label the latter `Generative / LLM Crazy`.
+33. **Generative resolution is semantically permissive, not structurally privileged.** It may invent surprising outcomes but cannot bypass state/event schemas, identity/reference validity, event sourcing, atomicity, or branch isolation.
+34. **Blueprints are hypotheses, not feasibility certificates.** Feasibility is contextual and discovered through concrete `Job` execution.
+35. **One blueprint = one primitive; one job = one blueprint execution.** Multi-primitive composition belongs to `Plan`.
 
 ## Action-system guardrails
 
-- Preserve the actor's semantic `ActionProposal` separately from planner-specific representation when practical.
-- Do not let an `ActionProposal` directly declare authoritative world effects.
-- Do not assume a permanent primitive list such as `PERFORM`, `COMMUNICATE`, `OBSERVE`, or `MOVE`; these are current design candidates only.
-- Do not place domain action names such as `schedule_company_all_hands`, `propose_law`, or `build_sos` in core APIs.
-- Scenario-defined processes may be used by the first implementation, but their schema and discovery mechanism are still open design questions.
-- Capability checks should target world objects and context (access, control, presence, authorization, technical/physical feasibility) rather than hard-coded domain action names.
-- Keep planning and execution separate enough that either can be replaced independently.
-- Never persist a planner's private intermediate object merely because it is convenient for v1. Persist only what is needed for replay, observability, or reproducibility, and version execution-model-specific data explicitly.
-- Candidate plans should expose enough mechanical requirements for the scheduler to discover conflicts/dependencies without understanding scenario-specific narrative action names. Examples include required participants, duration/attention claims, resource claims, targets, dependencies, and relevant preconditions.
-- The resolver may determine compatibility, ordering, timing, simultaneous grouping, and mechanical feasibility, but MUST NOT invent an actor's psychological preference when conflicting alternatives require that actor's choice.
+- Model v0.1 `ActionProposal` as a discriminated union: common envelope (`proposal_id`, `actor_id`, `primitive`, `intent_description`, optional `content`, optional `time_budget`, optional `job_id`) plus typed primitive-specific payload.
+- Keep `intent_description` separate from `content`; neither declares authoritative outcome.
+- Treat `time_budget` as intended/requested actor time, never guaranteed duration.
+- Treat `job_id` as continuation of an existing execution.
+- Do not put generic `targets[]` in the common proposal envelope; use semantic references within each primitive payload.
+- Support common world references for concrete `ENTITY`, `RELATION`, or `BLUEPRINT` identities and unresolved semantic descriptions for planner resolution against perceived world.
+- Keep calculated resource claims, required participants, dependencies, resolved preconditions, completion, and world deltas out of `ActionProposal`.
+- Current v0.1 actor-facing primitives are `CREATE`, `MODIFY`, `RELATE`, `TRANSFER`, `MOVE`, `COMMUNICATE`, `OBSERVE`, `WAIT`, and `REST`.
+- Do not introduce `PERFORM` for ordinary work; use `CREATE` or `MODIFY`, with `Job` continuation for multi-turn execution.
+- Do not introduce `DESTROY`; destructive intent uses `MODIFY` and deactivation/remnant effects at scenario resolution.
+- Do not introduce `SCHEDULE`; future social coordination is represented by creating a `Commitment` entity and relations to its parties.
+- Do not introduce `GRANT_ACCESS`; access may be a scenario-defined resource handled through `TRANSFER` with delegation/sharing semantics.
+- Use `RELATE` to establish scenario-defined relations and `MODIFY` to change/deactivate existing relations.
+- Resource types/granularity belong to the scenario. `TRANSFER` modes may include ordinary transfer, `GATHER`, `CONSUME`, and scenario-defined delegation/sharing.
+- Keep every resource operation anchored to entity-associated resource state.
+- A blueprint is a process hypothesis/recipe, not proof of feasibility. The same blueprint may succeed in one context and fail in another.
+- Do not require global blueprint `EXECUTABLE`/`REJECTED` feasibility status before an attempt.
+- Blueprints may carry semantic `assumptions`; do not prematurely convert all assumptions into an executable condition DSL.
+- Keep blueprint lifecycle orthogonal to feasibility: active/inactive plus immutable versioning is sufficient initially.
+- Bind each blueprint to exactly one primitive. Do not put steps, nested actions, workflows, or multiple primitives in a blueprint.
+- Compose multi-primitive intentions in `Plan`; each plan step may select one primitive + blueprint and declare dependencies.
+- Scenario-defined and actor-created/LLM-generated blueprints may both be attempted. Actor-created blueprints are untrusted hypotheses and cannot bypass resource/capability/transition boundaries.
+- Multi-party blueprint execution never implies automatic participation; consent/participation is resolved through bounded reaction and scheduling.
+- Always create a `Job` for blueprint-backed execution, even when it completes in the same atomic transition.
+- Use initial job statuses `PENDING`, `ACTIVE`, `PAUSED`, `COMPLETED`, `FAILED`, and `CANCELLED`; the last three are terminal.
+- Do not assume universal percentage completion. Support at least simple `LINEAR` and `BINARY` structured progress models in v0.1.
+- Allow world resolution to invalidate blueprint assumptions or discover additional constraints/resources during execution.
+- One `Job` executes one blueprint and therefore one primitive; retries after terminal failure/cancellation create a new job.
+- Do not confuse blueprint scope with effect scope: one job resolution may produce multiple `WorldEffects` and events atomically.
+- Keep responsibility split explicit: `Plan` composes steps, `Blueprint` describes one primitive attempt, `Job` tracks one concrete execution, and `WorldEffects` describe candidate authoritative changes.
+- Capability checks should target world objects/context rather than hard-coded domain action names.
+- Keep planning and world resolution independently replaceable.
+- Never persist private planner intermediates merely for convenience; persist only what replay/observability/reproducibility requires and version implementation-specific data.
+- Candidate plans should expose enough mechanical requirements for scheduling/conflict discovery without embedding narrative domain action semantics.
+- Resolver may determine compatibility, ordering, timing, grouping, and mechanics, but MUST NOT invent an actor's psychological preference when the actor must choose.
 - Treat cyclic plan dependencies as joint-resolution components, not recursion errors.
+
+## World-resolution guardrails
+
+- Keep `WorldResolutionProvider` (exact interface/name provisional) behind a narrow boundary so deterministic and generative resolution can be replaced without changing event/state authority.
+- `DETERMINISTIC` derives outcomes from explicit scenario mechanics/current state.
+- `GENERATIVE` may use an LLM/model as a creative adjudicator and intentionally sacrifice strict realism/repeatability.
+- Never let a world-resolution model return an authoritative replacement `WorldState`; it proposes structured effects/outcomes that pass through validation/events/reducers.
+- Treat generative resolver output as untrusted structured input.
+- Structural invariants are mode-independent: preserve event sourcing, append-only history, branch isolation, reducer authority, identity/reference integrity, schema validation, and atomicity.
+- Replay uses recorded events only. Re-invoking a resolver from the same checkpoint is regeneration/branch continuation and may produce different history.
+- Persist resolution mode and relevant resolver/model/version metadata as experimental/provenance data.
+- Do not introduce hybrid deterministic-to-generative fallback implicitly; any future hybrid policy must be explicit, auditable, and recorded.
 
 ## Provider security guardrails
 
@@ -79,7 +121,7 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 - Keep `active` in authoritative `Entity` state and deactivate rather than delete entities whose identity/history remains relevant.
 - Prefer an entity-backed actor component/facet over a parallel actor identity space or a deep domain inheritance hierarchy.
 - Keep actor cognition state separate from ordinary entity properties even though both must be reproducible and branchable.
-- Treat built-in entity types as a small semantic vocabulary. Scenario-defined types may extend them, optionally identifying a generic base type, without forcing new core classes.
+- Treat built-in entity types as a small semantic vocabulary including `Commitment`. Scenario-defined types may extend them, optionally identifying a generic base type, without forcing new core classes.
 - Associate every resource balance with an `entity_id`. Examples include `Company.budget` and `GardenBed.food`; access/control semantics can then be evaluated against the owning/context entity.
 - Keep fungible quantities as resources. Promote a concrete object to an `Entity` only when its individual identity is relevant at the scenario's simulation resolution.
 
@@ -98,7 +140,7 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 
 Prefer simple, composable mechanics that can produce complex emergent behavior. Avoid adding parameters merely because they sound realistic. Every core concept should justify its existence through a clear simulation need.
 
-The LLM is an actor cognition component, not the physics engine, database, scheduler, or source of truth.
+An LLM may serve as actor cognition or, in `GENERATIVE` mode, as an untrusted world-adjudication component. It is never the database, authoritative event/state transition layer, or source of committed truth.
 
 ## Coding expectations
 
