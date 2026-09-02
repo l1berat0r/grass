@@ -35,16 +35,21 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 23. **Entity deactivation preserves identity/history.**
 24. **Entity types are extensible vocabulary, not domain classes.** Initial generic vocabulary includes `Person`, `Organization`, `Group`, `Location`, `Artifact`, and `Commitment`.
 25. **Resources are entity-associated and scenario-defined.**
-26. **Primary intentions are simultaneous at turn start.** All eligible actors decide from the same authoritative start snapshot.
-27. **Conflicts are jointly resolved.** Do not use a naive sequential mutation loop or recursive actor-by-actor conflict handling.
-28. **Reaction is bounded, not recursive cognition.**
-29. **Revalidate at execution time.** Earlier same-turn events may invalidate later attempts.
-30. **True simultaneity is representable.**
-31. **World resolution is replaceable, committing reality is not.** Deterministic or generative resolvers propose outcomes; only the authoritative transition layer commits events/state.
-32. **Resolution mode is explicit experimental configuration.** Initial identifiers are `DETERMINISTIC` and `GENERATIVE`; UI may label the latter `Generative / LLM Crazy`.
-33. **Generative resolution is semantically permissive, not structurally privileged.** It may invent surprising outcomes but cannot bypass state/event schemas, identity/reference validity, event sourcing, atomicity, or branch isolation.
-34. **Blueprints are hypotheses, not feasibility certificates.** Feasibility is contextual and discovered through concrete `Job` execution.
-35. **One blueprint = one primitive; one job = one blueprint execution.** Multi-primitive composition belongs to `Plan`.
+26. **Logical time is event-driven, not turn-driven.** Do not introduce a mandatory global tick/turn duration; advance the simulation clock to the next material scheduled/resolution event.
+27. **Cognition is decision-point driven.** Do not poll every actor periodically. Invoke a `DecisionProvider` when the actor has no sufficient plan or a material event/interaction requires a choice.
+28. **Plans persist across time.** Continue already-planned steps without unnecessary cognition until completion, blockage, invalidation, interruption, or explicit revision.
+29. **Conflicts are jointly resolved.** Do not use a naive sequential mutation loop or recursive actor-by-actor conflict handling.
+30. **Reaction is bounded and event-driven.** Model it as a constrained `DecisionPoint` caused by a specific interaction/conflict, not a global reaction phase.
+31. **Revalidate at execution time.** Earlier committed concurrent/scheduled events may invalidate later attempts.
+32. **True simultaneity is representable.**
+33. **Same-time provider order must not create world causality.** Actors receiving decision points from the same state/event batch should not observe another actor's uncommitted intention merely because that provider was queried first.
+34. **World resolution is replaceable, committing reality is not.** Deterministic or generative resolvers propose outcomes; only the authoritative transition layer commits events/state.
+35. **Resolution mode is explicit experimental configuration.** Initial identifiers are `DETERMINISTIC` and `GENERATIVE`; UI may label the latter `Generative / LLM Crazy`.
+36. **Generative resolution is semantically permissive, not structurally privileged.** It may invent surprising outcomes but cannot bypass state/event schemas, identity/reference validity, event sourcing, atomicity, or branch isolation.
+37. **Blueprints are hypotheses, not feasibility certificates.** Feasibility is contextual and discovered through concrete `Job` execution.
+38. **One blueprint = one primitive; one job = one blueprint execution.** Multi-primitive composition belongs to `Plan`.
+39. **Invalid resolver output never becomes guessed reality.** Deterministic invalid proposals stop execution; generative invalid proposals may receive bounded repair attempts, then stop execution if still invalid.
+40. **WorldEffects are a closed core mutation algebra.** Scenarios extend semantics and data, not authoritative mutation opcodes.
 
 ## Action-system guardrails
 
@@ -69,6 +74,15 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 - Keep blueprint lifecycle orthogonal to feasibility: active/inactive plus immutable versioning is sufficient initially.
 - Bind each blueprint to exactly one primitive. Do not put steps, nested actions, workflows, or multiple primitives in a blueprint.
 - Compose multi-primitive intentions in `Plan`; each plan step may select one primitive + blueprint and declare dependencies.
+- Treat `Plan` as persistent across arbitrary logical time; do not scope it to a fixed turn. The scheduler may execute several already-planned steps without a new cognition call.
+- Do not introduce a persistent `PlanExecution` aggregate in v0.1 unless a concrete need appears. Derive PlanStep runtime status from step-to-job references, Job states, and events already tracked by the scheduler/world projection.
+- Do not add an independently mutable `PlanStep.status` when it duplicates Job/runtime state that can be derived.
+- Preserve plan revisions/provenance rather than mutating past intention history in place.
+- Distinguish passive `Observation` from `DecisionPoint`; do not interrupt actors or call LLMs for every observation.
+- For every committed event that reaches/affects an actor, first derive that actor's observation through perception/propagation mechanics, then evaluate an actor-specific `DecisionTriggerPolicy` against the observation, current plan/jobs, and perceived context.
+- `DecisionTriggerPolicy` decides whether existing execution may continue or a `DecisionPoint` is required; it does not decide whether the actor perceived the event in the first place.
+- Keep the initial DecisionTriggerPolicy inexpensive/rule-based where practical. Do not require an LLM call merely to decide whether every observation merits an LLM call.
+- Evaluate decision triggers for same-timestamp committed batches coherently so internal event/queue order does not create artificial salience or causality.
 - Scenario-defined and actor-created/LLM-generated blueprints may both be attempted. Actor-created blueprints are untrusted hypotheses and cannot bypass resource/capability/transition boundaries.
 - Multi-party blueprint execution never implies automatic participation; consent/participation is resolved through bounded reaction and scheduling.
 - Always create a `Job` for blueprint-backed execution, even when it completes in the same atomic transition.
@@ -85,6 +99,25 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 - Resolver may determine compatibility, ordering, timing, grouping, and mechanics, but MUST NOT invent an actor's psychological preference when the actor must choose.
 - Treat cyclic plan dependencies as joint-resolution components, not recursion errors.
 
+## Event-driven scheduler guardrails
+
+- Do not implement a mandatory global turn/tick loop. Maintain a logical simulation clock and advance it to the earliest material event/resolution time.
+- When nothing can affect the world before a long-running job completes, permit direct clock jumps (for example an uninterrupted eight-hour sleep).
+- If an earlier event/interruption exists, advance only to that event, preserve elapsed job progress, resolve it, and create decision points only when a choice is required.
+- Allow many jobs to accrue progress concurrently over the same elapsed interval.
+- The scheduler owns timing/coordination, not reality: it may decide what is due for resolution, but `WorldResolutionProvider` + authoritative event transition still determine/commit outcomes.
+- No generic end-of-turn phase exists. Model background/periodic dynamics as scheduled events or explicit elapsed-time dynamics.
+- At a shared logical timestamp, collect interacting work/events and resolve conflicts/simultaneous groups coherently rather than leaking arbitrary queue/provider order.
+- Existing plans should continue automatically when the next step is unambiguous and mechanically eligible.
+- Advancing the clock itself must not mutate arbitrary world state. Pass elapsed intervals to temporal/world-resolution mechanics and commit resulting effects only through normal events/reducers.
+- Support scheduler-facing `TemporalProjection`-like data for predicted next material resolution times; projections are replaceable future expectations, not Events.
+- Support scheduled, progress-based, and rate/continuous temporal processes without introducing hidden fixed ticks.
+- Prefer anchor + elapsed-time calculation for simple continuous/rate state and job progress; schedule material threshold/completion boundaries instead of emitting tiny periodic updates.
+- Recalculate/invalidate temporal projections when relevant world conditions change.
+- Create `DecisionPoint`s for plan exhaustion, required interactions/consent, material job failure/pause/discovery, material external events, or explicit intervention; do not periodically wake all actors.
+- Keep bounded reaction as a scoped decision point associated with a known interaction/conflict.
+- Execution-time revalidation occurs against the authoritative state current at the material resolution/start point.
+
 ## World-resolution guardrails
 
 - Keep `WorldResolutionProvider` (exact interface/name provisional) behind a narrow boundary so deterministic and generative resolution can be replaced without changing event/state authority.
@@ -96,6 +129,16 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 - Replay uses recorded events only. Re-invoking a resolver from the same checkpoint is regeneration/branch continuation and may produce different history.
 - Persist resolution mode and relevant resolver/model/version metadata as experimental/provenance data.
 - Do not introduce hybrid deterministic-to-generative fallback implicitly; any future hybrid policy must be explicit, auditable, and recorded.
+- Treat `WorldResolutionProvider.resolve(ResolutionRequest) -> ResolutionProposal` as the conceptual boundary; exact DTO schemas remain provisional until implementation requires them.
+- Normal infeasibility belongs in a valid resolver outcome (`FAILED`, `BLOCKED`, `PARTIAL`, etc.); do not knowingly encode impossible state as a candidate effect.
+- Keep authoritative `WorldEffects` as a closed, versioned core algebra. Scenarios may define vocabulary/mechanics but MUST NOT introduce arbitrary custom effect opcodes as an escape hatch.
+- Keep `TemporalProjection` separate from `WorldEffects`; projections are invalidatable scheduler expectations, not historical facts.
+- Validate the entire atomic candidate effect batch at the authoritative transition boundary, including schema/reference/branch integrity and scenario-defined resource/state constraints.
+- Resource lower/upper bounds belong to scenario/resource definitions; do not hard-code a universal non-negative rule in core.
+- An invalid deterministic `ResolutionProposal` is a fatal simulation execution/integrity error, not an in-world action failure.
+- In `GENERATIVE` mode, bounded repair/retry attempts may use validation feedback, but none may commit partial state/events or advance authoritative time for the unresolved transition. Exhausting the repair budget is fatal for execution.
+- On fatal resolution failure, preserve the branch at its last committed event/state and retain diagnostics/provenance. Never invent a fallback world outcome merely to keep the simulation running.
+- Job creation from an eligible PlanStep belongs to engine/job lifecycle handling, not arbitrary resolver-side mutation authority.
 
 ## Provider security guardrails
 
@@ -113,6 +156,7 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 - Executors/resolvers may propose `WorldEffects`; the authoritative transition layer validates them, emits accepted events, and applies those events through deterministic reducers/state-transition logic.
 - Treat checkpoints and snapshots as replay optimizations, not an alternative canonical history.
 - Preserve atomicity when one authoritative transition yields multiple events.
+- Validate candidate transitions as complete atomic batches before commit; individually valid effects may be invalid in combination.
 - Event sequence is deterministic replay ordering; do not assume it proves causality between simultaneous outcomes.
 - Material failed attempts, refusals, provider changes, and deliberate non-actions may be events even when no reducer changes `WorldState`.
 - Do not call cognition providers during ordinary replay of already-recorded history.
@@ -140,7 +184,7 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 
 Prefer simple, composable mechanics that can produce complex emergent behavior. Avoid adding parameters merely because they sound realistic. Every core concept should justify its existence through a clear simulation need.
 
-An LLM may serve as actor cognition or, in `GENERATIVE` mode, as an untrusted world-adjudication component. It is never the database, authoritative event/state transition layer, or source of committed truth.
+An LLM may serve as actor cognition or, in `GENERATIVE` mode, as an untrusted world-adjudication component. It is never the scheduler, database, authoritative event/state transition layer, or source of committed truth.
 
 ## Coding expectations
 
