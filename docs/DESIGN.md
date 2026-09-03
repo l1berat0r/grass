@@ -135,7 +135,17 @@ An actor may value different states differently from another actor. For example,
 
 A plan is not scoped to a fixed simulation turn. Once formed, it may remain active across arbitrary amounts of logical time and across several completed `PlanStep` / `Job` executions. The scheduler may continue through already-planned steps without invoking cognition again until the plan is exhausted, blocked, invalidated, interrupted by a relevant world event/interaction, or explicitly revised by the actor.
 
-Multi-primitive composition belongs to `Plan`; each blueprint remains bound to one primitive and each blueprint-backed step creates one `Job`. Plan revision must preserve historical provenance rather than rewriting what the actor previously intended.
+`Plan` is an actor intention structure, not a workflow that the scheduler must force to completion. A `DecisionPoint` may leave the existing plan unchanged, revise part of it, or cause the actor to abandon it and create a different plan. Plan revision must preserve historical provenance rather than rewriting what the actor previously intended.
+
+Conceptually, a plan version contains stable plan identity/version, actor identity, an objective/summary, a collection of `PlanStep`s, source decision/proposal references where applicable, provenance, and creation metadata. Plan versions are immutable; a material revision creates a successor version. Whether a materially different intention is represented as a new plan identity rather than another revision may initially remain a planner/decision-provider choice with preserved provenance rather than a hard-coded semantic classifier.
+
+Each `PlanStep` declares exactly one actor-facing primitive. A step MAY optionally reference an exact immutable `Blueprint` version when process knowledge is needed for that attempt; many primitives can also be attempted without any blueprint. When a blueprint is present, `Blueprint.primitive` MUST equal `PlanStep.primitive`.
+
+Conceptually a step may contain `step_id`, `primitive`, optional `blueprint_ref`, primitive parameters/bindings, dependencies, origin/provenance, and optional semantic description. Planner-derived operational steps must retain provenance to the actor intention from which they were derived and MUST NOT silently invent unrelated psychological goals.
+
+Plan steps form a DAG in v0.1. The initial dependency semantics are intentionally small: `SUCCESS` (the default) and `TERMINAL`. Steps without dependencies between them may be eligible for concurrent execution, subject to normal scheduler checks for actor attention/time, resources, participants, conflicts, capabilities, and world mechanics. GRASS does not initially need arbitrary conditional branches, loops, or workflow retry policies; when materially new choice is required, normal events/observations can create a `DecisionPoint` and the actor may revise or replace the plan.
+
+Runtime PlanStep status is derived rather than independently mutated. A step with no associated Job has not started; once started it is associated with exactly one Job, whose lifecycle/events determine the step's execution state. v0.1 therefore does not require a separate persistent `PlanExecution` aggregate or mutable `PlanStep.status`.
 
 ### 3.6 Belief, Memory and PerceivedWorld
 
@@ -159,18 +169,56 @@ Membership is dynamic. Actors may join, leave, be removed from, or move between 
 
 ### 3.8 DecisionPoint
 
-A `DecisionPoint` represents a moment at which an actor's existing plan is insufficient and cognition must be invoked again. Decision providers are event-driven rather than periodically polled on a fixed simulation tick.
+A `DecisionPoint` represents a moment at which an actor's existing plan is insufficient, may need reconsideration, or a bounded response is required, so cognition must be invoked again. Decision providers are event-driven rather than periodically polled on a fixed simulation tick.
 
-A decision point should identify at least the affected actor, logical time, reason/provenance, relevant observations/events, and references to the interrupted/exhausted plan or job where applicable.
+Conceptually, a decision point contains at least:
 
-Typical reasons include:
+- `decision_point_id`;
+- `actor_id`;
+- logical time;
+- `reason`;
+- `scope`;
+- triggering event references;
+- relevant actor-relative observation references;
+- optional current plan, job, or interaction references;
+- provenance.
 
-- no current plan / plan exhausted;
-- an incoming interaction requiring the actor's response;
-- a material observation that requires a choice rather than passive memory update;
-- job failure, pause, or discovery that invalidates assumptions;
-- an external/scenario event that materially changes the actor's available choices;
-- an explicit operator/human-control intervention.
+The initial v0.1 reason vocabulary is:
+
+- `PLAN_REQUIRED`;
+- `PLAN_EXHAUSTED`;
+- `PLAN_BLOCKED`;
+- `INTERACTION_REQUEST`;
+- `JOB_FAILED`;
+- `JOB_PAUSED`;
+- `ASSUMPTION_INVALIDATED`;
+- `MATERIAL_OBSERVATION`;
+- `EXTERNAL_EVENT`;
+- `OPERATOR_INTERVENTION`.
+
+This reason vocabulary is an initial contract, not a permanent closed ontology. Additional reasons may be introduced when later execution models require them without changing the principle that a DecisionPoint is a cognition boundary rather than an authoritative world transition.
+
+Decision scope is initially:
+
+- `FULL` — the actor may broadly reconsider the current plan, revise it, replace it, or otherwise choose a new course of action;
+- `BOUNDED` — cognition is constrained to a specific triggering interaction/problem and the relevant current context rather than becoming an automatic global replanning round.
+
+The initial decision-result vocabulary is conceptually:
+
+- `CONTINUE_PLAN`;
+- `REVISE_PLAN`;
+- `REPLACE_PLAN`;
+- `BOUNDED_REACTION`.
+
+These result kinds are likewise versionable/extensible and are not intended to freeze all future cognition semantics into core. A `DecisionPoint` provides context for cognition; the resulting decision says what the actor intends to do with that context. It does not itself mutate authoritative reality.
+
+`BOUNDED_REACTION` allows an actor to respond to a concrete interaction or interruption without automatically revising its main plan. For example, an actor on the way to log in may briefly answer another actor, accept or refuse a request, or communicate a constrained response and then continue the existing plan if no further decision is needed.
+
+Any world-affecting bounded reaction still follows the normal actor-execution path. Conceptually:
+
+`DecisionPoint -> DecisionProvider -> DecisionOutcome -> ActionProposal/planning -> PlanStep -> Job -> WorldResolution -> Events`
+
+There is no direct `DecisionOutcome -> WorldState` shortcut. The exact planner-level representation of a bounded reaction may remain provisional in v0.1: it may become a small plan revision, a transient reaction fragment, or another explicit representation, provided provenance is preserved and the normal `PlanStep -> Job -> resolution` authority boundary is not bypassed.
 
 Not every observation creates a `DecisionPoint`. Passive observations may update actor-relative information/memory without interrupting current execution. This distinction is necessary both for realistic continuity of behavior and to avoid invoking expensive cognition providers for mechanically irrelevant details.
 
@@ -185,8 +233,6 @@ The policy should receive at least the actor, the new observation/event context,
 The initial policy SHOULD be inexpensive and may be deterministic/rule-based. GRASS MUST NOT require an LLM call merely to decide whether every individual observation is salient enough for an LLM call. More advanced learned/generative salience policies may be introduced later behind the same conceptual boundary.
 
 When several events with the same logical timestamp are resolved as one coherent batch, decision-trigger evaluation should occur against the actor-relative observations produced by that committed batch rather than leaking arbitrary internal queue order.
-
-A bounded reaction is modeled as a constrained `DecisionPoint` caused by a specific incoming interaction/conflict. Its scope is the already-discovered interaction and current plan context rather than an automatic unrestricted global replanning round.
 
 ## 4. Cognition boundaries
 
@@ -386,7 +432,7 @@ This distinction is fundamental:
 
 The same blueprint may succeed in one context and fail in another. GRASS therefore MUST NOT require a blueprint to pass a global `EXECUTABLE`/`REJECTED` feasibility lifecycle before actors can attempt it.
 
-Each blueprint is bound to exactly one actor-facing primitive. A blueprint MUST NOT contain an internal workflow, nested action list, or multi-primitive graph. If an intention requires several primitives, composition belongs to `Plan`; each plan step may select one primitive and one blueprint and declare dependencies on other steps.
+Each blueprint is bound to exactly one actor-facing primitive. A blueprint MUST NOT contain an internal workflow, nested action list, or multi-primitive graph. If an intention requires several primitives, composition belongs to `Plan`; each plan step declares one primitive, may optionally select a blueprint for that same primitive, and may declare dependencies on other steps.
 
 Conceptually, a blueprint may define:
 
@@ -409,26 +455,32 @@ Expected requirements and assumptions are process knowledge, not guaranteed laws
 
 Blueprints may be supplied by the scenario and may also be created by actors during a run. Actor-created/LLM-generated blueprints are untrusted hypotheses: describing an unlimited-food process does not grant authority to create unlimited food or bypass resource/capability/state-transition boundaries.
 
-Blueprint lifecycle is orthogonal to feasibility. At minimum a blueprint is versioned and may be active/inactive. Deactivation prevents new use while preserving historical identity; modification creates a new immutable version for future jobs. A job remains bound to the exact blueprint version with which it started.
+Blueprint lifecycle is orthogonal to feasibility. At minimum a blueprint is versioned and may be active/inactive. Deactivation prevents new use while preserving historical identity; modification creates a new immutable version for future jobs. When a PlanStep uses a blueprint, both the step and its resulting job remain bound to the exact blueprint version selected for that attempt.
 
 ### 5.4 Plan and Job boundaries
 
 Composition belongs to `Plan`, not to `Blueprint`. Conceptually:
 
-`ActionProposal -> Plan -> PlanStep(primitive + blueprint) -> Job`
+`ActionProposal -> Plan -> PlanStep(primitive, blueprint?) -> Job`
 
-A plan may contain several dependent primitive executions. For example, employing a person and then granting access may become a `RELATE` step followed by a dependent `TRANSFER` step. A blueprint does not become a hidden workflow engine.
+A plan may contain several dependent primitive executions. For example, employing a person and then granting access may become a `RELATE` step followed by a dependent `TRANSFER` step. Either step may use a blueprint if its mechanics require one, but a blueprint does not become a hidden workflow engine.
 
-A `Job` is one concrete execution of one blueprint and therefore one primitive. Every blueprint-backed execution always creates a `Job`, even when creation and completion occur within one atomic transition. This provides a uniform trace:
+A `Job` is one concrete execution attempt of one `PlanStep` and therefore exactly one primitive. Every started PlanStep creates exactly one Job, whether or not the step references a blueprint and even when creation and completion occur within one atomic transition. This provides a uniform trace for both simple primitives and blueprint-backed work:
 
-`ActionProposal -> PlanStep -> Blueprint -> Job -> WorldResolution -> WorldEffects -> Events`
+`ActionProposal -> Plan -> PlanStep -> Job -> WorldResolution -> WorldEffects -> Events`
+
+with optional process knowledge:
+
+`PlanStep -> Blueprint?`
+
+Before a step starts it has no Job. Once it starts, its single Job identity is stable through `PENDING`, `ACTIVE`, and `PAUSED` execution and into a terminal state. A terminal retry is not a second Job attached to the same step: it is a new PlanStep in a later plan revision, which creates a new Job. This keeps historical attempt identity unambiguous.
 
 Conceptual job state includes:
 
 - `job_id`;
-- originating proposal/plan-step references;
-- exact `blueprint_id` and blueprint version;
+- originating proposal plus exact `plan_id`, plan version, and `step_id` references;
 - primitive;
+- optional exact `blueprint_id` and blueprint version;
 - initiator and participant bindings;
 - output references when applicable;
 - status;
@@ -446,13 +498,13 @@ The initial lifecycle is:
 - `FAILED` — this concrete attempt cannot reasonably continue under the resolver's adjudication;
 - `CANCELLED` — the attempt was intentionally abandoned without completing its goal.
 
-`COMPLETED`, `FAILED`, and `CANCELLED` are terminal. A retry after terminal failure/cancellation creates a new job.
+`COMPLETED`, `FAILED`, and `CANCELLED` are terminal. A retry after terminal failure/cancellation requires a new PlanStep (normally in a later immutable plan revision), and that step creates a new job.
 
 Progress is not universally a percentage. v0.1 should support at least simple `LINEAR` and `BINARY` structured progress models. Detailed contribution and state-change history belongs in events; `Job` is the materialized execution state required to continue simulation.
 
 World resolution may discover new information while a job is running, such as an invalid blueprint assumption, an additional required resource, or an incompatibility. Such discovery may continue, pause, fail, or trigger later plan revision and should become normal events/information when materially relevant.
 
-One blueprint/job execution may legitimately result in several candidate `WorldEffects` and authoritative events as one atomic transition. Blueprint scope and effect scope are deliberately different.
+One job execution may legitimately result in several candidate `WorldEffects` and authoritative events as one atomic transition. When a blueprint is present, its one-primitive scope still does not constrain the number of effects/events required to realize that primitive outcome.
 
 ### 5.5 Scenario-resolution entities and semantic content
 

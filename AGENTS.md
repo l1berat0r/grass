@@ -47,7 +47,7 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 35. **Resolution mode is explicit experimental configuration.** Initial identifiers are `DETERMINISTIC` and `GENERATIVE`; UI may label the latter `Generative / LLM Crazy`.
 36. **Generative resolution is semantically permissive, not structurally privileged.** It may invent surprising outcomes but cannot bypass state/event schemas, identity/reference validity, event sourcing, atomicity, or branch isolation.
 37. **Blueprints are hypotheses, not feasibility certificates.** Feasibility is contextual and discovered through concrete `Job` execution.
-38. **One blueprint = one primitive; one job = one blueprint execution.** Multi-primitive composition belongs to `Plan`.
+38. **One blueprint = one primitive; one started plan step = one job.** Multi-primitive composition belongs to `Plan`. A `PlanStep` always declares one primitive and may optionally reference a blueprint for that primitive; starting the step creates exactly one `Job` whether or not a blueprint is present.
 39. **Invalid resolver output never becomes guessed reality.** Deterministic invalid proposals stop execution; generative invalid proposals may receive bounded repair attempts, then stop execution if still invalid.
 40. **WorldEffects are a closed core mutation algebra.** Scenarios extend semantics and data, not authoritative mutation opcodes.
 
@@ -73,25 +73,34 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 - Blueprints may carry semantic `assumptions`; do not prematurely convert all assumptions into an executable condition DSL.
 - Keep blueprint lifecycle orthogonal to feasibility: active/inactive plus immutable versioning is sufficient initially.
 - Bind each blueprint to exactly one primitive. Do not put steps, nested actions, workflows, or multiple primitives in a blueprint.
-- Compose multi-primitive intentions in `Plan`; each plan step may select one primitive + blueprint and declare dependencies.
+- Compose multi-primitive intentions in `Plan`; each `PlanStep` declares exactly one primitive, may optionally pin one blueprint version for that primitive, and may declare dependencies on other steps.
 - Treat `Plan` as persistent across arbitrary logical time; do not scope it to a fixed turn. The scheduler may execute several already-planned steps without a new cognition call.
+- Treat a plan as an actor intention structure, not a workflow the scheduler must force to completion. At a `DecisionPoint`, the actor may keep it, revise it, or abandon it and create a different plan.
+- Keep plan versions immutable and preserve provenance across revisions rather than rewriting historical intention. Reuse stable step identity for logically unchanged steps where practical.
+- Keep the initial dependency model deliberately small. Plan steps form a DAG; v0.1 dependency conditions are `SUCCESS` (default) and `TERMINAL`. Absence of a dependency permits potential parallel execution but does not bypass scheduler checks for attention, resources, participants, conflicts, or world mechanics.
+- Do not introduce v0.1 workflow constructs such as arbitrary `if/else`, loops, or retry policies merely to encode future actor choices. Material failures or observations may create a `DecisionPoint`, after which the actor/planner may revise or replace the plan.
 - Do not introduce a persistent `PlanExecution` aggregate in v0.1 unless a concrete need appears. Derive PlanStep runtime status from step-to-job references, Job states, and events already tracked by the scheduler/world projection.
 - Do not add an independently mutable `PlanStep.status` when it duplicates Job/runtime state that can be derived.
 - Preserve plan revisions/provenance rather than mutating past intention history in place.
 - Distinguish passive `Observation` from `DecisionPoint`; do not interrupt actors or call LLMs for every observation.
+- Use initial `DecisionPoint` reasons `PLAN_REQUIRED`, `PLAN_EXHAUSTED`, `PLAN_BLOCKED`, `INTERACTION_REQUEST`, `JOB_FAILED`, `JOB_PAUSED`, `ASSUMPTION_INVALIDATED`, `MATERIAL_OBSERVATION`, `EXTERNAL_EVENT`, and `OPERATOR_INTERVENTION`. Treat this vocabulary as extensible rather than a permanent closed ontology.
+- Use initial decision scopes `FULL` and `BOUNDED`. `FULL` permits broad plan reconsideration; `BOUNDED` constrains cognition to the triggering interaction/problem and current context.
+- Initial `DecisionOutcome` kinds are `CONTINUE_PLAN`, `REVISE_PLAN`, `REPLACE_PLAN`, and `BOUNDED_REACTION`. This result vocabulary is versionable/extensible and must not be treated as immutable core ontology.
+- A bounded reaction may produce normal actor actions without automatically revising the actor's main plan. Any world-affecting reaction must still enter the ordinary action/planning/PlanStep/Job/resolution path; `DecisionOutcome` never mutates reality directly.
+- Do not prematurely freeze whether a bounded reaction is materialized as a transient plan fragment, a small plan revision, or another planner-level representation, provided it preserves provenance and the normal execution boundary.
 - For every committed event that reaches/affects an actor, first derive that actor's observation through perception/propagation mechanics, then evaluate an actor-specific `DecisionTriggerPolicy` against the observation, current plan/jobs, and perceived context.
 - `DecisionTriggerPolicy` decides whether existing execution may continue or a `DecisionPoint` is required; it does not decide whether the actor perceived the event in the first place.
 - Keep the initial DecisionTriggerPolicy inexpensive/rule-based where practical. Do not require an LLM call merely to decide whether every observation merits an LLM call.
 - Evaluate decision triggers for same-timestamp committed batches coherently so internal event/queue order does not create artificial salience or causality.
 - Scenario-defined and actor-created/LLM-generated blueprints may both be attempted. Actor-created blueprints are untrusted hypotheses and cannot bypass resource/capability/transition boundaries.
 - Multi-party blueprint execution never implies automatic participation; consent/participation is resolved through bounded reaction and scheduling.
-- Always create a `Job` for blueprint-backed execution, even when it completes in the same atomic transition.
+- Every started `PlanStep` creates exactly one `Job`, even when the step has no blueprint or the job starts and completes in the same atomic transition. Before start, a plan step has no job; after start it remains associated with that one job.
 - Use initial job statuses `PENDING`, `ACTIVE`, `PAUSED`, `COMPLETED`, `FAILED`, and `CANCELLED`; the last three are terminal.
 - Do not assume universal percentage completion. Support at least simple `LINEAR` and `BINARY` structured progress models in v0.1.
 - Allow world resolution to invalidate blueprint assumptions or discover additional constraints/resources during execution.
-- One `Job` executes one blueprint and therefore one primitive; retries after terminal failure/cancellation create a new job.
+- One `Job` executes one `PlanStep` and therefore one primitive. It optionally pins the exact blueprint version used by that step. A retry after terminal failure/cancellation is represented as a new step in a later plan revision and therefore creates a new job.
 - Do not confuse blueprint scope with effect scope: one job resolution may produce multiple `WorldEffects` and events atomically.
-- Keep responsibility split explicit: `Plan` composes steps, `Blueprint` describes one primitive attempt, `Job` tracks one concrete execution, and `WorldEffects` describe candidate authoritative changes.
+- Keep responsibility split explicit: `Plan` composes actor-intended steps, `PlanStep` identifies one intended primitive attempt, `Blueprint` optionally describes mechanics/process knowledge for that primitive, `Job` tracks the concrete execution of the step, and `WorldEffects` describe candidate authoritative changes.
 - Capability checks should target world objects/context rather than hard-coded domain action names.
 - Keep planning and world resolution independently replaceable.
 - Never persist private planner intermediates merely for convenience; persist only what replay/observability/reproducibility requires and version implementation-specific data.
