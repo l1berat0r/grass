@@ -50,6 +50,9 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 38. **One blueprint = one primitive; one started plan step = one job.** Multi-primitive composition belongs to `Plan`. A `PlanStep` always declares one primitive and may optionally reference a blueprint for that primitive; starting the step creates exactly one `Job` whether or not a blueprint is present.
 39. **Invalid resolver output never becomes guessed reality.** Deterministic invalid proposals stop execution; generative invalid proposals may receive bounded repair attempts, then stop execution if still invalid.
 40. **WorldEffects are a closed core mutation algebra.** Scenarios extend semantics and data, not authoritative mutation opcodes.
+41. **SimulationState is the authoritative reconstructed runtime state.** Treat `WorldState`, `ExecutionState`, and `CognitionState` as deterministic projections of the same committed Event history, not separate sources of truth.
+42. **WorldState is objective simulated reality, not all runtime state.** Plans, Jobs, Observations, DecisionPoints, and actor cognition remain semantically separate projections even when they must be replayable/branchable.
+43. **Fork/replay positions are committed-transition boundaries.** Do not expose a partial state from inside one atomic `transition_id` as a valid branch/replay point.
 
 ## World-definition and GEL guardrails
 
@@ -181,6 +184,13 @@ Build GRASS (GRASS Roots Agentic Systems Simulator), a general-purpose simulator
 
 ## Event and world-state guardrails
 
+- Treat committed Event history as the single canonical source of truth for authoritative simulation state. Reconstruct `SimulationState` as deterministic projections including at least `WorldState`, `ExecutionState`, and `CognitionState`.
+- Keep `WorldState` limited to objective in-world reality. Do not fold Plans, Jobs, Observations, DecisionPoints, actor beliefs/memory, or scheduler cache/index state into world truth merely because they are persistent.
+- Persist Plans/Jobs and materially relevant actor observations/decision state through semantic Events to the degree needed for replay, branching, continuation, configured observability, and reproducibility.
+- Ordinary replay must restore recorded Plans, Observations, DecisionPoints, and decisions without invoking planners, DecisionProviders, LLMs, GEL, random samplers, or WorldResolutionProviders.
+- A branch created after a recorded decision inherits that decision/Plan as part of the prefix. Re-run cognition only when the branch forks before the decision or an explicit regeneration/intervention creates new history.
+- Do not expose a partially applied atomic `transition_id` as a valid `SimulationState`, checkpoint, replay position, or fork point. Readers see state before or after the complete committed transition.
+- `ScheduledResolution` remains ephemeral scheduler optimization and must not be persisted merely to reconstruct `ExecutionState`.
 - Do not mutate authoritative `WorldState` from actors, providers, planners, executors, API handlers, or frontend code.
 - Executors/resolvers may propose `WorldEffects`; the authoritative transition layer validates them, emits accepted events, and applies those events through deterministic reducers/state-transition logic.
 - Treat checkpoints and snapshots as replay optimizations, not an alternative canonical history.
