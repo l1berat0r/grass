@@ -2,9 +2,9 @@
 
 This directory contains Architecture Decision Records (ADRs) for GRASS.
 
-During the current pre-baseline design phase, ADRs may be created as **Draft** records to capture candidate architectural decisions, but the core design may still be edited directly while the architecture is being shaped. A draft ADR is not binding.
+The first architecture baseline is **`design-0.1`**. `docs/DESIGN.md` describes the current baseline architecture; accepted ADRs preserve the rationale behind significant decisions.
 
-After the first design baseline is declared, material changes to core architectural contracts should normally be introduced through a new ADR and reflected in `docs/DESIGN.md` after acceptance.
+After the baseline, material changes to core architectural contracts should normally be proposed through a new ADR before implementation and reflected in `docs/DESIGN.md` after acceptance.
 
 ## Status values
 
@@ -12,6 +12,16 @@ After the first design baseline is declared, material changes to core architectu
 - `Accepted` — current architectural decision.
 - `Rejected` — considered and deliberately not adopted.
 - `Superseded` — replaced by a later ADR.
+
+## Current accepted architecture records
+
+- ADR-0001 — event-sourced branching;
+- ADR-0003 — ephemeral ScheduledResolution index;
+- ADR-0004 — WorldDefinition, run configuration, scenario events, and GEL;
+- ADR-0005 — semantic Event types and atomic transition boundary;
+- ADR-0006 — authoritative SimulationState projections.
+
+ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 
 ## Template
 

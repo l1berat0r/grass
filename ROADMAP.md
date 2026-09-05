@@ -1,102 +1,135 @@
 # GRASS Roadmap
 
-This roadmap is intentionally coarse. It identifies design and implementation milestones without turning unresolved architecture into premature implementation tasks.
+This roadmap starts from the `design-0.1` architecture baseline. It is intentionally contract-oriented: implementation should prove one bounded invariant/vertical slice at a time rather than build the whole simulator at once.
 
 ## Design track
 
-### Initial conceptual architecture draft
+### design-0.1 architecture baseline
 
-**Status: in refinement**
+**Status: complete**
 
-Defines the project's current core thesis and concepts: `Actor`, world/perceived-state separation, configurable dynamics, provider independence, open intentions with validated mechanics, information provenance, human intervention and actor possession, event-sourced history, branching, and analyst/observer surfaces.
+The baseline defines the engine authority model, event sourcing/semantic Events, `SimulationState` projections, WorldDefinition/SimulationRunConfig, GEL, action/Plan/Job boundaries, event-driven scheduler, ephemeral ScheduledResolution index, world resolution/validation, DecisionPoints, capability evaluation, replay, and branching.
 
-### Before the first design baseline
-
-Refine the conceptual architecture directly where needed. Use draft ADRs to capture candidate decisions when useful, but do not treat the architecture as frozen yet.
-
-Key topics to resolve or sharpen:
-
-1. Formal `Actor` and common entity schemas.
-2. `WorldDefinition` serialization and validation model.
-3. Exact simulation lifecycle and phase boundaries.
-4. Event schema, event-store contract, checkpoints, and branch restoration semantics.
-5. Action proposal/interpreter/resolver contracts.
-6. Information, claim, observation, and belief representation.
-7. Safe scenario-defined dynamics/runtime.
-8. DecisionProvider / ModelProvider contracts.
-9. Memory representation and retrieval boundaries.
-10. Conversation duration and long-running action semantics.
-11. Developer-facing CLI/observer API and later UI technology.
+After this baseline, material architecture changes should normally be introduced through a new ADR and then reflected in `docs/DESIGN.md`.
 
 ## Implementation track
 
-Implementation begins after enough of the design track is stable to define bounded contracts.
+### Slice 0 — core value objects and package skeleton
 
-### Engine 0.1 — deterministic minimal core
+- Python package structure independent from FastAPI;
+- identifiers, logical time, provenance, branch/transition references;
+- typed schemas/value objects;
+- deterministic test utilities.
 
-- typed world and actor identities;
-- logical clock;
-- deterministic scripted/random decision provider;
-- minimal action proposal and resolution path;
-- configurable scalar state variables;
-- immutable events;
-- tests for core invariants.
+### Slice 1 — EventStore + atomic transitions
 
-### Engine 0.2 — history and replay
+- minimal semantic Event envelope/types;
+- in-memory EventStore;
+- atomic `transition_id` commit boundary;
+- append-only/immutability tests;
+- stable replay sequence rules.
 
-- EventStore interface;
-- deterministic replay;
-- checkpoints;
-- state reconstruction tests.
+### Slice 2 — SimulationState projections
 
-### Engine 0.3 — branching
+- `WorldState`, `ExecutionState`, `CognitionState` projection boundaries;
+- deterministic reducers/projections;
+- Entity/Relation/Resource/StateVariable state;
+- replay equivalence tests;
+- no direct state mutation outside transition/reducer code.
 
-- branch ancestry and fork points;
+### Slice 3 — branch/replay foundation
+
+- branch ancestry and committed-transition fork points;
+- shared immutable prefix semantics;
 - branch-local continuation;
 - branch isolation tests;
-- basic branch comparison metadata.
+- snapshot/checkpoint interface as optimization only.
 
-### Engine 0.4 — scenarios
+### Slice 4 — WorldDefinition and genesis
 
-- formal WorldDefinition loader/validator;
-- scenario-defined state/resources/rules;
-- safe dynamics mechanism selected by ADR.
+- formal loader/validator for a minimal WorldDefinition;
+- SimulationRunConfig separation;
+- initial conditions -> genesis Event transition;
+- scenario-defined entity/relation/resource/state-variable definitions.
 
-### Engine 0.5 — cognition providers
+### Slice 5 — Plan / PlanStep / Job
 
-- DecisionProvider abstraction;
-- fake/scripted provider;
+- immutable Plan versions;
+- one-primitive PlanSteps with SUCCESS/TERMINAL DAG dependencies;
+- optional Blueprint references;
+- exactly one Job for every started PlanStep;
+- Job lifecycle/progress projection;
+- retry as new PlanStep/new Job.
+
+### Slice 6 — event-driven scheduler
+
+- logical clock jumps to next material resolution;
+- ephemeral ScheduledResolution index;
+- full rebuild fallback;
+- incremental-vs-full-rebuild history equivalence test;
+- same-time collection and conflict-component grouping;
+- elapsed-time progress anchors.
+
+### Slice 7 — deterministic world resolution
+
+- ResolutionRequest/ResolutionProposal boundary;
+- closed core WorldEffect algebra;
+- full atomic candidate validation;
+- deterministic resolver/mechanics;
+- normal FAILED/BLOCKED/PARTIAL outcomes vs integrity failures.
+
+### Slice 8 — perception and DecisionPoints
+
+- Observation persistence/projection;
+- DecisionTriggerPolicy;
+- FULL and BOUNDED DecisionPoints;
+- scripted/fake DecisionProvider;
+- Decision/Plan persistence sufficient for replay without provider calls.
+
+### Slice 9 — acceptance-scenario vertical slice
+
+Turn `docs/ACCEPTANCE_SCENARIO.md` into executable integration tests covering genesis, plan execution, time jumps, bounded interaction, same-time conflict, scenario event, failure, replay, and branching.
+
+### Slice 10 — GEL
+
+- GEL grammar/parser/AST;
+- type/input/output validation;
+- bounded interpreter;
+- safe standard functions and bounded loops;
+- explicit random context;
+- resource/operation budgets and failure tests;
+- no host/filesystem/network/process capabilities.
+
+### Slice 11 — provider adapters
+
+- DecisionProvider / ModelProvider ports;
+- OpenAI adapter;
+- Ollama/OpenAI-compatible adapter;
 - HumanDecisionProvider boundary;
-- remote LLM adapter;
-- local/Ollama or OpenAI-compatible adapter;
-- provider metadata capture.
+- explicit server-managed vs client-managed execution location;
+- provider/model provenance/fallback rules.
 
-### Engine 0.6 — information and social interaction
+### Slice 12 — backend and frontend
 
-- observations, claims, messages, channels;
-- one-to-one and one-to-many delivery;
-- information provenance and retransmission;
-- basic belief-update boundary.
+- FastAPI application around the independent core;
+- REST for ordinary configuration/query operations;
+- WebSocket for interactive/session/client-managed provider round trips;
+- React UI for scenario/run control, timelines, actor inspection, branches, and provider configuration.
 
-### Engine 0.7 — operator controls
+### Slice 13 — observer and analyst foundations
 
-- in-world interventions;
-- explicit simulation overrides;
-- actor possession;
-- provenance for all operator actions.
-
-### Engine 0.8 — observer and analyst foundations
-
-- step/run/pause developer interface;
-- event and actor inspection;
-- bounded/hierarchical simulation summaries;
-- analyst references back to source events.
+- event/actor/plan/job/decision inspection;
+- branch comparison metadata;
+- deterministic MetricProvider boundary;
+- provenance-linked analysis surfaces;
+- optional LLM analyst as read-only interpretation layer.
 
 ## Explicitly later
 
-- `CollectiveActor` behavior;
-- autonomous `InstitutionActor` behavior;
-- distributed society-scale execution;
+- collective/institutional actor cognition;
+- society-scale distributed execution;
 - dynamic population resolution;
-- rich graphical UI and animated relationship graphs;
-- calibrated domain models and scientific validation tooling.
+- sophisticated calibrated economics/psychology/law/biology;
+- advanced geography/physics;
+- rich graphical/animated UI;
+- causal-inference claims/tooling beyond observational metrics.

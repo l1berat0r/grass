@@ -6,39 +6,43 @@ A scenario may represent a corporation, political party, state, community, exped
 
 The central architectural principle is:
 
-> **The simulation engine owns reality; cognition providers propose behavior.**
+> **Only the simulation engine commits reality. Decision providers propose actor behavior; world-resolution providers determine candidate outcomes.**
 
-LLMs, humans, scripts, or deterministic decision providers may propose intentions, interpret observations, communicate, form beliefs, and choose strategies. Only the simulation engine may validate actions, resolve conflicts, mutate authoritative world state, and emit historical events.
+LLMs, humans, scripts, deterministic providers, planners, and world resolvers may propose behavior or candidate outcomes. Authoritative state changes are committed only by the simulation engine as validated immutable Events.
 
 ## Project status
 
-GRASS is currently in the **pre-baseline design phase**. The architecture is a working draft and implementation has not started yet. Core assumptions may still be edited directly while the initial model is being refined.
+The initial architecture is baselined as **`design-0.1`**. Implementation may now proceed in bounded vertical slices. Material changes to core architectural contracts should normally be proposed through ADRs and reflected in the current design document.
 
 Start here:
 
-- [Architecture working draft](docs/DESIGN.md)
+- [Architecture baseline](docs/DESIGN.md)
+- [Acceptance scenario](docs/ACCEPTANCE_SCENARIO.md)
 - [Coding-agent instructions](AGENTS.md)
 - [Roadmap](ROADMAP.md)
 - [Architecture Decision Records](docs/adr/README.md)
 
 ## Core ideas
 
-- `Actor` is the fundamental participant abstraction.
-- The first implementation focuses on individual actors while preserving extension points for future collective and institutional actors.
-- World state is authoritative; actors perceive only a subset of it.
-- State variables and dynamics are scenario-defined rather than hard-coded into the core.
-- Actor cognition is provider-independent and may use hosted LLM APIs, local models such as Ollama, humans, scripts, or deterministic strategies.
-- Actions may be creatively proposed, but only validated simulation mechanics may change the world.
-- Information has provenance and is distinct from belief.
-- History is event-sourced, replayable, and branchable for counterfactual experiments.
-- Human operators may observe, intervene in-world, explicitly override simulation state, or temporarily control actors.
-- Ethics and legality belong to the modeled world and actor preferences rather than a hard-coded moral policy in the simulation core.
+- committed Event history is the canonical source of truth;
+- `SimulationState` is reconstructed as distinct `WorldState`, `ExecutionState`, and `CognitionState` projections;
+- `Entity` is the persistent identity anchor; actor capability is entity-backed composition;
+- actors perceive only actor-relative information, never unrestricted world truth;
+- state variables, resources, event rules, and world mechanics are scenario-defined;
+- `WorldDefinition` is separate from experimental `SimulationRunConfig`;
+- simple mechanics may use built-ins, LLM-generated safe mechanics may use GEL, and advanced trusted models may use installed implementations/plugins;
+- actions express intention; Plan/PlanStep/Job represent intended and concrete execution; only world resolution + validation + Events commit outcomes;
+- the scheduler is event-driven, has no mandatory global tick, and its `ScheduledResolution` index is ephemeral/rebuildable;
+- information has provenance and is distinct from observation/belief;
+- history is replayable and branchable for counterfactual experiments;
+- human operators may observe, intervene in-world, explicitly override simulation state, or temporarily possess actors;
+- deterministic and generative world resolution share the same structural authority boundaries.
 
 ## Development methodology
 
-The repository is the source of truth. During the current pre-baseline phase, the core architecture may still be revised directly in `docs/DESIGN.md` as ideas are refined. Draft ADRs may be used to capture candidate decisions, but they are not binding until accepted.
+`design-0.1` is the first design baseline. From this point, implementation details that preserve the baseline may be decided locally, while material changes to authority, persistence, replay, provider, action, scheduler, world-resolution, or scenario-mechanics contracts should normally use an ADR first.
 
-Once the first design baseline is declared, material architectural changes will be recorded through ADRs and then reflected in the current design document. Design baselines and software releases will be versioned separately; software semantic versioning will begin when executable releases exist.
+Design baselines and executable software releases are versioned separately.
 
 ## License
 
