@@ -5,7 +5,14 @@ from typing import cast
 
 import pytest
 
-from grass.core import BranchId, CorrelationId, EventId, TransitionId
+from grass.core import (
+    BranchId,
+    CorrelationId,
+    EntityId,
+    EventId,
+    RelationId,
+    TransitionId,
+)
 from tests.support import stable_id
 
 
@@ -18,16 +25,25 @@ def test_identifier_preserves_opaque_value() -> None:
 
 def test_identifier_types_are_nominally_distinct() -> None:
     assert cast(object, EventId("same")) != BranchId("same")
-    assert cast(object, BranchId("same")) != TransitionId("same")
+    assert cast(object, BranchId("same")) != EntityId("same")
+    assert cast(object, EntityId("same")) != RelationId("same")
+    assert cast(object, RelationId("same")) != TransitionId("same")
     assert cast(object, TransitionId("same")) != CorrelationId("same")
 
 
 @pytest.mark.parametrize(
     "identifier_type",
-    [EventId, BranchId, TransitionId, CorrelationId],
+    [EventId, BranchId, EntityId, RelationId, TransitionId, CorrelationId],
 )
 def test_identifier_rejects_empty_value(
-    identifier_type: type[EventId] | type[BranchId] | type[TransitionId] | type[CorrelationId],
+    identifier_type: (
+        type[EventId]
+        | type[BranchId]
+        | type[EntityId]
+        | type[RelationId]
+        | type[TransitionId]
+        | type[CorrelationId]
+    ),
 ) -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         identifier_type("")

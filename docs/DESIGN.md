@@ -44,6 +44,10 @@ SimulationState
 
 These are deterministic projections of the same Event history, not independent sources of truth.
 
+`ProjectionPosition` records the branch-origin history completely applied to a `SimulationState`: `branch_id`, optional last `TransitionRef`, last Event sequence, and optional logical time. Empty history has sequence zero and no transition/time. This is projection metadata, not the ancestry-aware branch cursor introduced with branching.
+
+Projection applies one complete `CommittedTransition` to private candidate data and publishes one new immutable `SimulationState` only after every Event and final structural invariant succeeds. Unknown Events, unsupported versions, malformed payloads, sequence gaps, wrong branches, and invalid lifecycle history fail explicitly rather than producing partial state.
+
 ### 3.1 WorldState
 
 `WorldState` is objective modeled reality at the scenario-selected resolution. It includes relevant projections of Entities, Relations, entity-associated Resources, state variables, authoritative Information items, and other generic world structures.
@@ -250,6 +254,8 @@ Entity
 
 `active` is authoritative. Deactivation preserves identity/history.
 
+Initial projection semantics create Entities active, keep `entity_type` immutable, and replace complete properties on update. Updating or repeatedly deactivating an inactive Entity is invalid. Deactivation never cascades implicitly.
+
 Initial generic entity vocabulary includes:
 
 - `Person`;
@@ -278,6 +284,8 @@ The first implementation focuses on actor-capable Persons; Groups/Organizations 
 
 Relations are first-class persistent objects with stable identity, scenario-defined type, participant/role bindings, properties, and active state.
 
+Initial Relation participants are an unordered immutable set of unique `(role, entity_id)` bindings with at least one member. Relation type is immutable; update replaces the complete participant set and properties. Relation lifecycle follows the same strict active-state rules as Entity lifecycle. Referenced Entities must exist after the complete atomic transition, but core does not universally require them to be active.
+
 Employment, membership, reporting, ownership, alliance, marriage, and similar domain concepts are scenario relation types rather than core action verbs.
 
 ### 7.4 Resource
@@ -298,11 +306,17 @@ Use Resource where transfer, consumption, production, reservation, control, shar
 
 Resource bounds such as min/max are scenario/resource definitions. Core does not hard-code `quantity >= 0`.
 
-### 7.5 Commitment
+Initial Resource identity is `(entity_id, resource_type)`. `ResourceChanged` upserts the authoritative resulting quantity rather than a delta. Version 1 accepts built-in integers and finite floats, excludes booleans, and permits negative quantities. Units, properties, bounds, and scenario constraints remain definitions for later validation.
+
+### 7.5 StateVariable
+
+Initial StateVariable identity is `(scope, state_variable_type)`. Version 1 supports tagged `WORLD` scope and tagged `ENTITY` scope containing an Entity ID. `StateVariableChanged` upserts the complete immutable structured value. Entity-scoped values require final-transition Entity existence; additional scopes and scenario schemas are deferred.
+
+### 7.6 Commitment
 
 `Commitment` is a generic Entity representing promises, agreements, contracts, or future coordination. It may project a future due resolution, but it does not force actor behavior. An actor may comply, renegotiate, violate, ignore, or reject it through normal decisions/mechanics.
 
-### 7.6 Information
+### 7.7 Information
 
 Information/claims are first-class and provenance-aware. Received information is not automatically belief.
 
@@ -731,6 +745,10 @@ PlanReplaced
 ```
 
 The exact complete v0.1 catalog is implementation-driven and versioned.
+
+Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid. Multiple writes to the same projected identity/key within one transition are invalid.
+
+Strict routing occurs at the `SimulationState` boundary. A known Event routed to another projection is not unknown merely because `WorldState` does not consume it; Events unknown to every current projection still fail explicitly.
 
 Historically meaningful non-mutating Events may include ActionProposed/Attempted/Rejected/Failed/Succeeded, ActorRefused, ProviderChanged, ScenarioOccurrenceTriggered, and OperatorIntervention where useful.
 

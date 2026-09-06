@@ -30,6 +30,16 @@ class BranchId(_Identifier):
 
 
 @dataclass(frozen=True, slots=True)
+class EntityId(_Identifier):
+    """Opaque identity of a persistent scenario Entity."""
+
+
+@dataclass(frozen=True, slots=True)
+class RelationId(_Identifier):
+    """Opaque identity of a persistent Relation."""
+
+
+@dataclass(frozen=True, slots=True)
 class TransitionId(_Identifier):
     """Opaque identity of an atomic authoritative transition."""
 

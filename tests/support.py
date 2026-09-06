@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Deterministic values shared by Slice 0 tests."""
+"""Deterministic values shared by core tests."""
 
 from collections.abc import Sequence
 from typing import TypeVar
@@ -9,11 +9,13 @@ from grass.core import (
     BranchId,
     CauseRef,
     CorrelationId,
+    EntityId,
     EventId,
     EventPayload,
     EventToCommit,
     LogicalTime,
     Provenance,
+    RelationId,
     TransitionId,
     TransitionRef,
     TransitionToCommit,
@@ -25,6 +27,8 @@ IdentifierT = TypeVar(
     BranchId,
     TransitionId,
     CorrelationId,
+    EntityId,
+    RelationId,
 )
 
 

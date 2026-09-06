@@ -27,6 +27,12 @@ def freeze_structured_mapping(
     return frozen
 
 
+def freeze_structured_value(value: StructuredValue, *, description: str) -> StructuredValue:
+    """Copy and recursively freeze one structured value."""
+
+    return _freeze_structured_value(value, description=description)
+
+
 def _freeze_structured_value(value: StructuredValue, *, description: str) -> StructuredValue:
     if value is None or type(value) in (str, bool, int):
         return value
