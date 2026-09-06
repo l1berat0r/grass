@@ -15,7 +15,7 @@ class TransitionRef:
     transition_id: TransitionId
 
     def __post_init__(self) -> None:
-        if not isinstance(self.branch_id, BranchId):
+        if type(self.branch_id) is not BranchId:
             raise TypeError("branch_id must be a BranchId")
-        if not isinstance(self.transition_id, TransitionId):
+        if type(self.transition_id) is not TransitionId:
             raise TypeError("transition_id must be a TransitionId")

@@ -38,6 +38,14 @@ def test_identifier_rejects_non_string_value() -> None:
         EventId(cast(str, 7))
 
 
+def test_identifier_rejects_string_subclasses_without_normalizing() -> None:
+    class StringSubclass(str):
+        pass
+
+    with pytest.raises(TypeError, match="must be a string"):
+        EventId(StringSubclass("event"))
+
+
 def test_identifier_is_immutable_hashable_and_unordered() -> None:
     identifier = BranchId("branch")
 

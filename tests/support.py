@@ -2,9 +2,22 @@
 
 """Deterministic values shared by Slice 0 tests."""
 
+from collections.abc import Sequence
 from typing import TypeVar
 
-from grass.core import BranchId, CorrelationId, EventId, LogicalTime, TransitionId
+from grass.core import (
+    BranchId,
+    CauseRef,
+    CorrelationId,
+    EventId,
+    EventPayload,
+    EventToCommit,
+    LogicalTime,
+    Provenance,
+    TransitionId,
+    TransitionRef,
+    TransitionToCommit,
+)
 
 IdentifierT = TypeVar(
     "IdentifierT",
@@ -22,3 +35,44 @@ def stable_id(identifier_type: type[IdentifierT], label: str) -> IdentifierT:
 
 
 FIXED_LOGICAL_TIME = LogicalTime(12_345_678_901)
+
+
+def event_to_commit(
+    label: str,
+    *,
+    event_type: str = "TestFactRecorded",
+    event_version: int = 1,
+    payload: EventPayload | None = None,
+    provenance: Provenance | None = None,
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> EventToCommit:
+    """Build deterministic engine-authorized input for EventStore tests."""
+
+    return EventToCommit(
+        event_id=stable_id(EventId, label),
+        event_type=event_type,
+        event_version=event_version,
+        payload={} if payload is None else payload,
+        provenance=Provenance("ENGINE") if provenance is None else provenance,
+        causation_refs=causation_refs,
+        correlation_id=correlation_id,
+    )
+
+
+def transition_to_commit(
+    branch: str,
+    transition: str,
+    logical_time: int,
+    events: Sequence[EventToCommit],
+) -> TransitionToCommit:
+    """Build a deterministic transition without production ID generation."""
+
+    return TransitionToCommit(
+        transition_ref=TransitionRef(
+            stable_id(BranchId, branch),
+            stable_id(TransitionId, transition),
+        ),
+        logical_time=LogicalTime(logical_time),
+        events=events,
+    )

@@ -10,7 +10,7 @@ class _Identifier:
     value: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.value, str):
+        if type(self.value) is not str:
             raise TypeError("identifier value must be a string")
         if self.value == "":
             raise ValueError("identifier value must not be empty")

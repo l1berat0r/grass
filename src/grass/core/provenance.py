@@ -4,43 +4,24 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from math import isfinite
 from types import MappingProxyType
 from typing import ClassVar, TypeAlias
 
-MetadataScalar: TypeAlias = str | int | float | bool | None
-MetadataValue: TypeAlias = (
-    MetadataScalar
-    | Mapping[str, "MetadataValue"]
-    | list["MetadataValue"]
-    | tuple["MetadataValue", ...]
+from grass.core._structured_data import (
+    StructuredScalar,
+    StructuredValue,
+    freeze_structured_mapping,
 )
+
+MetadataScalar: TypeAlias = StructuredScalar
+MetadataValue: TypeAlias = StructuredValue
 
 
 def _require_non_empty_string(value: object, field_name: str) -> None:
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError(f"{field_name} must be a string")
     if value == "":
         raise ValueError(f"{field_name} must not be empty")
-
-
-def _freeze_metadata_value(value: MetadataValue) -> MetadataValue:
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        if not isfinite(value):
-            raise ValueError("metadata floats must be finite")
-        return value
-    if isinstance(value, Mapping):
-        frozen: dict[str, MetadataValue] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise TypeError("metadata mapping keys must be strings")
-            frozen[key] = _freeze_metadata_value(item)
-        return MappingProxyType(frozen)
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_metadata_value(item) for item in value)
-    raise TypeError(f"unsupported metadata value: {type(value).__name__}")
 
 
 def _empty_metadata() -> Mapping[str, MetadataValue]:
@@ -71,11 +52,9 @@ class Provenance:
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.source_kind, "source kind")
-        if self.source_ref is not None and not isinstance(self.source_ref, ProvenanceSourceRef):
+        if self.source_ref is not None and type(self.source_ref) is not ProvenanceSourceRef:
             raise TypeError("source_ref must be a ProvenanceSourceRef or None")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping")
-        frozen_metadata = _freeze_metadata_value(self.metadata)
-        if not isinstance(frozen_metadata, Mapping):  # pragma: no cover - guarded above
-            raise TypeError("metadata must be a mapping")
+        frozen_metadata = freeze_structured_mapping(self.metadata, description="metadata")
         object.__setattr__(self, "metadata", frozen_metadata)

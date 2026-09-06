@@ -75,6 +75,14 @@ def test_provenance_metadata_rejects_unsupported_values() -> None:
         Provenance("ENGINE", metadata={"value": unsupported})
 
 
+def test_provenance_metadata_rejects_scalar_subclasses() -> None:
+    class IntegerSubclass(int):
+        pass
+
+    with pytest.raises(TypeError, match="unsupported metadata value"):
+        Provenance("ENGINE", metadata={"value": IntegerSubclass(1)})
+
+
 def test_provenance_is_immutable() -> None:
     provenance = Provenance("ENGINE")
 
