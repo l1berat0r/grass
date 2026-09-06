@@ -1,6 +1,6 @@
 # ADR-0001: Event-sourced, branchable simulation history
 
-- Status: Draft
+- Status: Accepted
 - Date: 2026-08-25
 
 ## Context
