@@ -11,7 +11,6 @@ from grass.core import (
     CauseRef,
     CorrelationId,
     EventId,
-    InMemoryEventStore,
     LogicalTime,
     Provenance,
     ProvenanceSourceRef,
@@ -19,11 +18,11 @@ from grass.core import (
     TransitionRef,
     TransitionToCommit,
 )
-from tests.support import event_to_commit, stable_id, transition_to_commit
+from tests.support import event_to_commit, rooted_store, stable_id, transition_to_commit
 
 
 def test_store_assigns_contiguous_branch_local_sequences_in_submitted_order() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
 
     first = store.commit_transition(
         transition_to_commit(
@@ -47,7 +46,7 @@ def test_store_assigns_contiguous_branch_local_sequences_in_submitted_order() ->
 
 
 def test_branch_sequences_include_only_events_originating_on_that_branch() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("a", "b")
 
     branch_a = store.commit_transition(
         transition_to_commit("a", "shared-value", 10, [event_to_commit("a-event")])
@@ -63,7 +62,7 @@ def test_branch_sequences_include_only_events_originating_on_that_branch() -> No
 
 
 def test_reusing_committed_transition_ref_fails_without_consuming_sequence() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     committed = transition_to_commit("branch", "transition", 10, [event_to_commit("one")])
     store.commit_transition(committed)
 
@@ -79,8 +78,10 @@ def test_reusing_committed_transition_ref_fails_without_consuming_sequence() -> 
 
 
 def test_empty_transition_rejection_consumes_nothing() -> None:
-    store = InMemoryEventStore()
-    transition_ref = TransitionRef(BranchId("branch"), TransitionId("transition"))
+    store = rooted_store("branch")
+    transition_ref = TransitionRef(
+        stable_id(BranchId, "branch"), stable_id(TransitionId, "transition")
+    )
 
     with pytest.raises(ValueError, match="at least one Event"):
         TransitionToCommit(transition_ref, LogicalTime(0), [])
@@ -96,7 +97,7 @@ def test_empty_transition_rejection_consumes_nothing() -> None:
 
 
 def test_duplicate_event_ids_within_transition_are_rejected_atomically() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     duplicate = event_to_commit("duplicate")
     rejected = transition_to_commit("branch", "rejected", 10, [duplicate, duplicate])
 
@@ -110,7 +111,7 @@ def test_duplicate_event_ids_within_transition_are_rejected_atomically() -> None
 
 
 def test_event_id_is_unique_across_branches() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("a", "b")
     store.commit_transition(transition_to_commit("a", "first", 10, [event_to_commit("same-event")]))
 
     with pytest.raises(ValueError, match="event_id has already been committed"):
@@ -122,7 +123,7 @@ def test_event_id_is_unique_across_branches() -> None:
 
 
 def test_logical_time_is_shared_equal_and_nondecreasing() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     first = store.commit_transition(
         transition_to_commit("branch", "first", 10, [event_to_commit("one")])
     )
@@ -145,7 +146,7 @@ def test_logical_time_is_shared_equal_and_nondecreasing() -> None:
 
 
 def test_causation_is_not_inferred_from_adjacency() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     committed = store.commit_transition(
         transition_to_commit(
             "branch",
@@ -160,7 +161,7 @@ def test_causation_is_not_inferred_from_adjacency() -> None:
 
 
 def test_store_preserves_the_complete_event_envelope() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     provenance = Provenance(
         "ENGINE",
         ProvenanceSourceRef("operation", "commit"),
@@ -196,7 +197,7 @@ def test_store_preserves_the_complete_event_envelope() -> None:
 
 
 def test_reader_snapshots_are_complete_immutable_and_stable() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     first = store.commit_transition(
         transition_to_commit(
             "branch",
@@ -219,14 +220,14 @@ def test_reader_snapshots_are_complete_immutable_and_stable() -> None:
 
 
 def test_store_has_no_update_or_delete_operations() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store()
 
     assert not hasattr(store, "update")
     assert not hasattr(store, "delete")
 
 
 def test_store_rejects_invalid_argument_types() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store()
 
     with pytest.raises(TypeError, match="TransitionToCommit"):
         store.commit_transition(cast(TransitionToCommit, "transition"))
@@ -234,14 +235,15 @@ def test_store_rejects_invalid_argument_types() -> None:
         store.read_transitions(cast(BranchId, "branch"))
 
 
-def test_unknown_branch_has_no_recorded_transitions() -> None:
-    store = InMemoryEventStore()
+def test_unknown_branch_is_rejected() -> None:
+    store = rooted_store()
 
-    assert store.read_transitions(stable_id(BranchId, "unknown")) == ()
+    with pytest.raises(ValueError, match="has not been registered"):
+        store.read_transitions(stable_id(BranchId, "unknown"))
 
 
 def test_concurrent_commits_publish_complete_non_overlapping_sequences() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     transition_count = 20
 
     def commit(index: int) -> None:

@@ -46,6 +46,8 @@ These are deterministic projections of the same Event history, not independent s
 
 `ProjectionPosition` records the branch-origin history completely applied to a `SimulationState`: `branch_id`, optional last `TransitionRef`, last Event sequence, and optional logical time. Empty history has sequence zero and no transition/time. This is projection metadata, not the ancestry-aware branch cursor introduced with branching.
 
+`HistoryPosition` is that separate ancestry-aware cursor: a viewed branch ID plus an optional last visible complete `TransitionRef`. The reference may originate on an ancestor and denotes state after the whole transition. Logical time and sequence are derived from canonical history rather than duplicated in this cursor.
+
 Projection applies one complete `CommittedTransition` to private candidate data and publishes one new immutable `SimulationState` only after every Event and final structural invariant succeeds. Unknown Events, unsupported versions, malformed payloads, sequence gaps, wrong branches, and invalid lifecycle history fail explicitly rather than producing partial state.
 
 ### 3.1 WorldState
@@ -766,13 +768,19 @@ Normal replay reconstructs `SimulationState` using persisted Events and determin
 
 Calling those components again from a historical point creates new continuation/history.
 
-A branch has a parent and fork position. Shared prefix is immutable; continuation is independent.
+A branch has a parent and fork position. Roots are registered explicitly; a child is created from an explicit non-empty `HistoryPosition` in its direct parent's visible history. The referenced transition may originate on any ancestor visible through that parent. Shared prefix is immutable; continuation is independent.
+
+Branch topology is canonical EventStore metadata, not simulated world state. Origin-history reads contain only transitions committed directly to one branch. Visible-history reads traverse the captured root-to-fork prefixes and return the original transitions without copying, rewriting, or renumbering inherited Events.
+
+Child-origin Event sequence starts at one. Its first transition cannot precede the fork transition's logical time. Parent transitions committed after the fork do not enter the child's visible history.
 
 A branch created before a recorded decision may invoke cognition again when it reaches the DecisionPoint. A branch created after a recorded decision inherits that decision/Plan as part of the shared prefix unless an explicit earlier fork/regeneration/intervention is selected.
 
 Because `transition_id` is atomic, externally valid replay/fork positions are **committed transition boundaries**, not intermediate Events inside one transition. Readers observe state before or after the complete transition, never a partial authoritative state.
 
 Snapshots/checkpoints accelerate reconstruction but are not canonical history.
+
+An optional checkpoint loader may provide a trusted derived `SimulationState` at an applicable `HistoryPosition`. Reconstruction validates that the checkpoint history is a prefix of the target history, then applies subsequent canonical transitions. Full Event replay remains available and authoritative when no checkpoint exists.
 
 ## 17. Operator interaction
 

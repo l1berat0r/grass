@@ -13,6 +13,7 @@ from grass.core import (
     EventId,
     EventPayload,
     EventToCommit,
+    InMemoryEventStore,
     LogicalTime,
     Provenance,
     RelationId,
@@ -39,6 +40,15 @@ def stable_id(identifier_type: type[IdentifierT], label: str) -> IdentifierT:
 
 
 FIXED_LOGICAL_TIME = LogicalTime(12_345_678_901)
+
+
+def rooted_store(*branches: str) -> InMemoryEventStore:
+    """Create a store with deterministic explicitly registered roots."""
+
+    store = InMemoryEventStore()
+    for branch in branches:
+        store.create_root_branch(stable_id(BranchId, branch))
+    return store
 
 
 def event_to_commit(

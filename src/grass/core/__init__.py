@@ -2,6 +2,7 @@
 
 """Foundational GRASS value objects."""
 
+from grass.core.branches import Branch, HistoryPosition
 from grass.core.event_store import InMemoryEventStore
 from grass.core.events import (
     CauseRef,
@@ -23,6 +24,7 @@ from grass.core.logical_time import LogicalTime
 from grass.core.projections import ProjectionError, project_transition, replay_transitions
 from grass.core.provenance import Provenance, ProvenanceSourceRef
 from grass.core.references import TransitionRef
+from grass.core.replay import CheckpointLoader, StateCheckpoint, replay_branch
 from grass.core.state import (
     CognitionState,
     Entity,
@@ -55,7 +57,9 @@ from grass.core.world_events import (
 
 __all__ = [
     "BranchId",
+    "Branch",
     "CauseRef",
+    "CheckpointLoader",
     "CognitionState",
     "CommittedTransition",
     "CorrelationId",
@@ -70,6 +74,7 @@ __all__ = [
     "EventPayload",
     "EventToCommit",
     "ExecutionState",
+    "HistoryPosition",
     "InMemoryEventStore",
     "LogicalTime",
     "ProjectionError",
@@ -89,6 +94,7 @@ __all__ = [
     "StateVariableChangedPayload",
     "StateVariableKey",
     "StateVariableScope",
+    "StateCheckpoint",
     "TransitionId",
     "TransitionRef",
     "TransitionToCommit",
@@ -98,5 +104,6 @@ __all__ = [
     "WorldState",
     "decode_world_event",
     "project_transition",
+    "replay_branch",
     "replay_transitions",
 ]

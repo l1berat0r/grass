@@ -35,7 +35,7 @@ from grass.core.world_events import (
     RESOURCE_CHANGED,
     STATE_VARIABLE_CHANGED,
 )
-from tests.support import event_to_commit, transition_to_commit
+from tests.support import event_to_commit, rooted_store, transition_to_commit
 
 
 def commit_world_transition(
@@ -81,7 +81,7 @@ def relation_created(relation_id: str, entity_id: str) -> tuple[str, EventPayloa
 
 
 def test_projects_complete_transition_using_final_state_references() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     transition = commit_world_transition(
         store,
         "genesis",
@@ -138,7 +138,7 @@ def test_projects_complete_transition_using_final_state_references() -> None:
 
 
 def test_update_payloads_replace_complete_values_and_deactivation_preserves_identity() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     genesis = commit_world_transition(
         store,
         "genesis",
@@ -222,7 +222,7 @@ def test_update_payloads_replace_complete_values_and_deactivation_preserves_iden
 def test_inactive_entity_cannot_be_updated_or_deactivated_again(
     invalid_event: tuple[str, EventPayload], message: str
 ) -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     state = replay_transitions(
         BranchId("test:branch"),
         (
@@ -261,7 +261,7 @@ def test_inactive_entity_cannot_be_updated_or_deactivated_again(
 def test_inactive_relation_cannot_be_updated_or_deactivated_again(
     invalid_event: tuple[str, EventPayload],
 ) -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     state = replay_transitions(
         BranchId("test:branch"),
         (
@@ -304,7 +304,7 @@ def test_inactive_relation_cannot_be_updated_or_deactivated_again(
 def test_missing_entity_or_relation_cannot_be_updated_or_deactivated(
     event: tuple[str, EventPayload],
 ) -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     base_transition = commit_world_transition(store, "base", 1, [entity_created("entity")])
     state = project_transition(SimulationState.empty(BranchId("test:branch")), base_transition)
     invalid = commit_world_transition(store, "invalid", 2, [event])
@@ -314,7 +314,7 @@ def test_missing_entity_or_relation_cannot_be_updated_or_deactivated(
 
 
 def test_existing_entity_and_relation_cannot_be_created_again() -> None:
-    entity_store = InMemoryEventStore()
+    entity_store = rooted_store("branch")
     entity_state = project_transition(
         SimulationState.empty(BranchId("test:branch")),
         commit_world_transition(
@@ -330,7 +330,7 @@ def test_existing_entity_and_relation_cannot_be_created_again() -> None:
     with pytest.raises(ProjectionError, match="Entity already exists"):
         project_transition(entity_state, duplicate_entity)
 
-    relation_store = InMemoryEventStore()
+    relation_store = rooted_store("branch")
     relation_state = project_transition(
         SimulationState.empty(BranchId("test:branch")),
         commit_world_transition(
@@ -413,7 +413,7 @@ def test_existing_entity_and_relation_cannot_be_created_again() -> None:
 def test_duplicate_target_writes_fail_without_publishing_partial_state(
     events: Sequence[tuple[str, EventPayload]], message: str
 ) -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     transition = commit_world_transition(store, "invalid", 1, events)
     original = SimulationState.empty(BranchId("test:branch"))
 
@@ -424,7 +424,7 @@ def test_duplicate_target_writes_fail_without_publishing_partial_state(
 
 
 def test_unknown_or_malformed_event_fails_complete_transition_atomically() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     original = SimulationState.empty(BranchId("test:branch"))
     unknown = commit_world_transition(
         store,
@@ -438,7 +438,7 @@ def test_unknown_or_malformed_event_fails_complete_transition_atomically() -> No
     assert original.world.entities == {}
     assert original.position.last_sequence == 0
 
-    malformed_store = InMemoryEventStore()
+    malformed_store = rooted_store("branch")
     malformed = commit_world_transition(
         malformed_store,
         "malformed",
@@ -474,7 +474,7 @@ def test_unknown_or_malformed_event_fails_complete_transition_atomically() -> No
 def test_dangling_final_state_references_fail_atomically(
     event: tuple[str, EventPayload],
 ) -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     original = SimulationState.empty(BranchId("test:branch"))
     transition = commit_world_transition(store, "dangling", 1, [event])
 
@@ -485,7 +485,7 @@ def test_dangling_final_state_references_fail_atomically(
 
 
 def test_projection_rejects_unsupported_known_event_version() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     transition = store.commit_transition(
         transition_to_commit(
             "branch",
@@ -511,7 +511,7 @@ def test_projection_rejects_unsupported_known_event_version() -> None:
 
 
 def test_projection_rejects_wrong_branch_sequence_gap_and_decreasing_time() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     first = commit_world_transition(store, "first", 10, [entity_created("one")])
     second = commit_world_transition(store, "second", 10, [entity_created("two")])
     state = project_transition(SimulationState.empty(BranchId("test:branch")), first)
@@ -519,7 +519,7 @@ def test_projection_rejects_wrong_branch_sequence_gap_and_decreasing_time() -> N
     with pytest.raises(ProjectionError, match="expected Event sequence 1"):
         project_transition(SimulationState.empty(BranchId("test:branch")), second)
 
-    other_store = InMemoryEventStore()
+    other_store = rooted_store("other")
     other = commit_world_transition(
         other_store, "other", 10, [entity_created("other")], branch="other"
     )
@@ -550,7 +550,7 @@ def test_projection_rejects_wrong_branch_sequence_gap_and_decreasing_time() -> N
 
 
 def test_incremental_projection_matches_full_replay() -> None:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     transitions = (
         commit_world_transition(store, "create", 1, [entity_created("entity")]),
         commit_world_transition(

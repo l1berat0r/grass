@@ -10,7 +10,6 @@ from grass.core import (
     EntityScope,
     Event,
     EventPayload,
-    InMemoryEventStore,
     RelationCreatedPayload,
     ResourceChangedPayload,
     StateVariableChangedPayload,
@@ -25,7 +24,7 @@ from grass.core.world_events import (
     RESOURCE_CHANGED,
     STATE_VARIABLE_CHANGED,
 )
-from tests.support import event_to_commit, transition_to_commit
+from tests.support import event_to_commit, rooted_store, transition_to_commit
 
 
 def committed_event(
@@ -34,7 +33,7 @@ def committed_event(
     *,
     event_version: int = 1,
 ) -> Event:
-    store = InMemoryEventStore()
+    store = rooted_store("branch")
     transition = store.commit_transition(
         transition_to_commit(
             "branch",
