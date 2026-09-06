@@ -72,6 +72,12 @@ world truth
 != belief
 ```
 
+### 3.4 LogicalTime
+
+`LogicalTime` is a non-negative integer number of nanoseconds from a run-local logical origin. `LogicalTime(0)` identifies that run's configured logical origin and has no wall-clock, UTC, timezone, calendar, or system-clock meaning.
+
+Nanoseconds provide exact coordinate precision; they do not define a simulation tick. Slice 0 exposes immutable, hashable values with equality and total ordering only. Duration arithmetic, implicit current-time factories, mutable clocks, scheduling behavior, and calendar conversion are deferred.
+
 ## 4. WorldDefinition and SimulationRunConfig
 
 `WorldDefinition` defines scenario semantics. `SimulationRunConfig` defines how one experimental run executes that scenario.
