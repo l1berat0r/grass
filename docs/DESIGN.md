@@ -160,6 +160,22 @@ WorldDefinition.initial_conditions
     -> SimulationState
 ```
 
+Slice 4 defines `WorldDefinition` document schema version 1 as a strict already-parsed mapping. It contains an opaque `world_definition_id`, an opaque non-empty semantic version string, a positive `schema_version`, explicit vocabulary registries, initial conditions, and immutable structured metadata. The loader performs no file I/O.
+
+`WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
+
+The version-1 vocabulary registries contain unique non-empty legal names for Entity, Relation, Resource, and StateVariable types. Individual registries may be empty. They define names only: property schemas, relation role/arity constraints, Resource units/bounds, StateVariable schemas/defaults, mechanics, Blueprints, and schema-expression infrastructure remain deferred.
+
+Version-1 initial conditions contain one logical time and ordered Entity, Relation, Resource, and StateVariable declarations. Empty initial conditions are valid. Initial Resource declarations use `quantity`, and initial StateVariable declarations use `value`; genesis translates these declarations to the existing resulting-state Event payload fields.
+
+Slice 4 `SimulationRunConfig` contains only the exact `world_definition_ref`. Fields owned by future resolver, provider, randomness, execution, and reproducibility slices are not represented by opaque placeholders.
+
+Every genesis transition begins with exactly one version-1 `SimulationInitialized` Event, followed by Entity, Relation, Resource, and StateVariable Events in that category order. Declaration order is preserved within each category. Relation participants remain semantically unordered and use deterministic `(role, entity_id)` payload ordering. Event sequence remains replay/storage ordering rather than causality or intermediate-world semantics.
+
+`SimulationInitialized` records the nested `WorldDefinitionRef` and the document schema version separately. It is an explicitly recognized semantic historical Event that does not mutate `WorldState`, `ExecutionState`, or `CognitionState`; no `RunState` or WorldDefinition reference is added to `WorldState`.
+
+The caller supplies the genesis `TransitionId` and every `EventId`. The pure genesis builder requires an exact, unique, sufficient Event-ID sequence, creates `ENGINE` provenance tied to the definition version, validates the complete candidate initial world, and returns a `TransitionToCommit` without committing it. The EventStore remains responsible only for generic structural history invariants.
+
 ## 5. Scenario mechanics and GEL
 
 Built-in formulas are convenience models, not the expressiveness boundary of GRASS.
@@ -746,6 +762,8 @@ PlanRevised
 PlanReplaced
 ```
 
+`SimulationInitialized` version 1 is the Slice 4 non-mutating genesis Event. Its payload contains `world_definition_ref` (`world_definition_id` plus semantic `version`) and a separate `world_definition_schema_version`. Projection validates and recognizes it explicitly while leaving all authoritative state projections unchanged apart from their shared history position.
+
 The exact complete v0.1 catalog is implementation-driven and versioned.
 
 Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid. Multiple writes to the same projected identity/key within one transition are invalid.
@@ -841,7 +859,7 @@ The design baseline intentionally leaves lower-level choices open where they do 
 - exact Pydantic/serialization schemas and identifier formats;
 - EventStore/database technology and snapshot cadence;
 - exact initial Event payload catalog and historical upcasting implementation;
-- exact `WorldDefinition` file format and schema tooling;
+- physical `WorldDefinition` file format and schema tooling beyond the strict Slice 4 parsed-mapping schema;
 - exact GEL textual grammar, primitive type set, safe standard library, numeric policy, and parser implementation;
 - random-stream key derivation;
 - exact scheduler priority/index data structure, stale-entry compaction/rebuild thresholds, and conflict-component algorithm;

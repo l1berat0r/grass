@@ -23,7 +23,8 @@ After the baseline, material changes to core architectural contracts should norm
 - ADR-0007 — logical time representation;
 - ADR-0008 — minimal Event commit and ordering semantics;
 - ADR-0009 — SimulationState projection and initial world-state contracts;
-- ADR-0010 — branch history positions and reconstruction.
+- ADR-0010 — branch history positions and reconstruction;
+- ADR-0011 — minimal WorldDefinition and genesis contracts.
 
 ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 
