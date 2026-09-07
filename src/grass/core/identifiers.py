@@ -40,6 +40,11 @@ class RelationId(_Identifier):
 
 
 @dataclass(frozen=True, slots=True)
+class WorldDefinitionId(_Identifier):
+    """Opaque identity of a versioned WorldDefinition."""
+
+
+@dataclass(frozen=True, slots=True)
 class TransitionId(_Identifier):
     """Opaque identity of an atomic authoritative transition."""
 

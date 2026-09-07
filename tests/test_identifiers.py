@@ -12,6 +12,7 @@ from grass.core import (
     EventId,
     RelationId,
     TransitionId,
+    WorldDefinitionId,
 )
 from tests.support import stable_id
 
@@ -29,11 +30,20 @@ def test_identifier_types_are_nominally_distinct() -> None:
     assert cast(object, EntityId("same")) != RelationId("same")
     assert cast(object, RelationId("same")) != TransitionId("same")
     assert cast(object, TransitionId("same")) != CorrelationId("same")
+    assert cast(object, CorrelationId("same")) != WorldDefinitionId("same")
 
 
 @pytest.mark.parametrize(
     "identifier_type",
-    [EventId, BranchId, EntityId, RelationId, TransitionId, CorrelationId],
+    [
+        EventId,
+        BranchId,
+        EntityId,
+        RelationId,
+        TransitionId,
+        CorrelationId,
+        WorldDefinitionId,
+    ],
 )
 def test_identifier_rejects_empty_value(
     identifier_type: (
@@ -43,6 +53,7 @@ def test_identifier_rejects_empty_value(
         | type[RelationId]
         | type[TransitionId]
         | type[CorrelationId]
+        | type[WorldDefinitionId]
     ),
 ) -> None:
     with pytest.raises(ValueError, match="must not be empty"):

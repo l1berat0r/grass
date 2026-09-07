@@ -12,6 +12,7 @@ from grass.core.events import (
     EventToCommit,
     TransitionToCommit,
 )
+from grass.core.genesis import GenesisError, build_genesis_transition
 from grass.core.identifiers import (
     BranchId,
     CorrelationId,
@@ -19,6 +20,12 @@ from grass.core.identifiers import (
     EventId,
     RelationId,
     TransitionId,
+    WorldDefinitionId,
+)
+from grass.core.initialization_events import (
+    InitializationEventPayloadError,
+    SimulationInitializedPayload,
+    decode_initialization_event,
 )
 from grass.core.logical_time import LogicalTime
 from grass.core.projections import ProjectionError, project_transition, replay_transitions
@@ -40,6 +47,20 @@ from grass.core.state import (
     StateVariableScope,
     WorldScope,
     WorldState,
+)
+from grass.core.world_definitions import (
+    WORLD_DEFINITION_SCHEMA_VERSION,
+    InitialConditions,
+    InitialEntity,
+    InitialRelation,
+    InitialResource,
+    InitialStateVariable,
+    SimulationRunConfig,
+    WorldDefinition,
+    WorldDefinitionError,
+    WorldDefinitionRef,
+    WorldVocabulary,
+    load_world_definition,
 )
 from grass.core.world_events import (
     EntityCreatedPayload,
@@ -74,8 +95,15 @@ __all__ = [
     "EventPayload",
     "EventToCommit",
     "ExecutionState",
+    "GenesisError",
     "HistoryPosition",
+    "InitialConditions",
+    "InitialEntity",
+    "InitialRelation",
+    "InitialResource",
+    "InitialStateVariable",
     "InMemoryEventStore",
+    "InitializationEventPayloadError",
     "LogicalTime",
     "ProjectionError",
     "ProjectionPosition",
@@ -91,6 +119,8 @@ __all__ = [
     "ResourceKey",
     "ResourceQuantity",
     "SimulationState",
+    "SimulationInitializedPayload",
+    "SimulationRunConfig",
     "StateVariableChangedPayload",
     "StateVariableKey",
     "StateVariableScope",
@@ -100,9 +130,18 @@ __all__ = [
     "TransitionToCommit",
     "WorldEventPayloadError",
     "WorldEventPayload",
+    "WorldDefinition",
+    "WorldDefinitionError",
+    "WorldDefinitionId",
+    "WorldDefinitionRef",
     "WorldScope",
     "WorldState",
+    "WorldVocabulary",
+    "WORLD_DEFINITION_SCHEMA_VERSION",
+    "build_genesis_transition",
+    "decode_initialization_event",
     "decode_world_event",
+    "load_world_definition",
     "project_transition",
     "replay_branch",
     "replay_transitions",

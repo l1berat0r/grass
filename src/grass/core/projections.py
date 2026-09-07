@@ -9,6 +9,12 @@ from typing import TypeVar
 
 from grass.core.events import CommittedTransition
 from grass.core.identifiers import BranchId, EntityId, RelationId
+from grass.core.initialization_events import (
+    SIMULATION_INITIALIZED,
+    InitializationEventPayloadError,
+    SimulationInitializedPayload,
+    decode_initialization_event,
+)
 from grass.core.state import (
     Entity,
     ProjectionPosition,
@@ -34,6 +40,7 @@ from grass.core.world_events import (
 )
 
 Identity = TypeVar("Identity")
+ProjectionEventPayload = WorldEventPayload | SimulationInitializedPayload
 
 
 class ProjectionError(ValueError):
@@ -57,16 +64,19 @@ def _validate_position(state: SimulationState, transition: CommittedTransition) 
 
 def _decode_transition(
     transition: CommittedTransition,
-) -> tuple[WorldEventPayload, ...]:
-    decoded: list[WorldEventPayload] = []
+) -> tuple[ProjectionEventPayload, ...]:
+    decoded: list[ProjectionEventPayload] = []
     for event in transition.events:
         # Routing is owned here so future execution/cognition Events can be added
         # without weakening strict unknown-Event handling.
-        if event.event_type not in WORLD_EVENT_TYPES:
-            raise ProjectionError(f"unknown Event type: {event.event_type}")
         try:
-            decoded.append(decode_world_event(event))
-        except WorldEventPayloadError as error:
+            if event.event_type in WORLD_EVENT_TYPES:
+                decoded.append(decode_world_event(event))
+            elif event.event_type == SIMULATION_INITIALIZED:
+                decoded.append(decode_initialization_event(event))
+            else:
+                raise ProjectionError(f"unknown Event type: {event.event_type}")
+        except (InitializationEventPayloadError, WorldEventPayloadError) as error:
             raise ProjectionError(str(error)) from error
     return tuple(decoded)
 
@@ -77,14 +87,21 @@ def _record_write(seen: set[Identity], identity: Identity, description: str) -> 
     seen.add(identity)
 
 
-def _validate_unique_writes(payloads: tuple[WorldEventPayload, ...]) -> None:
+def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> None:
     entity_writes: set[EntityId] = set()
     relation_writes: set[RelationId] = set()
     resource_writes: set[ResourceKey] = set()
     state_variable_writes: set[StateVariableKey] = set()
+    initialization_count = 0
 
-    for payload in payloads:
-        if isinstance(
+    for index, payload in enumerate(payloads):
+        if type(payload) is SimulationInitializedPayload:
+            initialization_count += 1
+            if initialization_count > 1:
+                raise ProjectionError("duplicate SimulationInitialized Event in one transition")
+            if index != 0:
+                raise ProjectionError("SimulationInitialized must be the first Event")
+        elif isinstance(
             payload,
             (
                 EntityCreatedPayload,
@@ -148,6 +165,8 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
     state_variables = dict(state.world.state_variables)
 
     for payload in payloads:
+        if type(payload) is SimulationInitializedPayload:
+            continue
         if type(payload) is EntityCreatedPayload:
             if payload.entity_id in entities:
                 raise ProjectionError("Entity already exists")

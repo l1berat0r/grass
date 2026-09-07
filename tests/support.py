@@ -20,6 +20,7 @@ from grass.core import (
     TransitionId,
     TransitionRef,
     TransitionToCommit,
+    WorldDefinitionId,
 )
 
 IdentifierT = TypeVar(
@@ -30,6 +31,7 @@ IdentifierT = TypeVar(
     CorrelationId,
     EntityId,
     RelationId,
+    WorldDefinitionId,
 )
 
 
