@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import TypeVar
 
 from grass.core import (
+    BlueprintId,
     BranchId,
     CauseRef,
     CorrelationId,
@@ -14,7 +15,10 @@ from grass.core import (
     EventPayload,
     EventToCommit,
     InMemoryEventStore,
+    JobId,
     LogicalTime,
+    PlanId,
+    PlanStepId,
     Provenance,
     RelationId,
     TransitionId,
@@ -32,6 +36,10 @@ IdentifierT = TypeVar(
     EntityId,
     RelationId,
     WorldDefinitionId,
+    PlanId,
+    PlanStepId,
+    JobId,
+    BlueprintId,
 )
 
 

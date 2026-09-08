@@ -15,7 +15,8 @@ from grass.core._structured_data import (
     freeze_structured_mapping,
     freeze_structured_value,
 )
-from grass.core.identifiers import BranchId, EntityId, RelationId
+from grass.core.execution import Job, Plan, PlanRef
+from grass.core.identifiers import BranchId, EntityId, JobId, PlanId, PlanStepId, RelationId
 from grass.core.logical_time import LogicalTime
 from grass.core.references import TransitionRef
 
@@ -199,7 +200,80 @@ class WorldState:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionState:
-    """Projection boundary reserved for Plan and Job state."""
+    """Immutable projection of persistent Plan and Job state."""
+
+    __hash__: ClassVar[None] = None  # type: ignore[assignment]
+
+    plans: Mapping[PlanRef, Plan] = field(default_factory=dict)
+    jobs: Mapping[JobId, Job] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        plans = dict(self.plans)
+        jobs = dict(self.jobs)
+
+        versions_by_plan: dict[PlanId, set[int]] = {}
+        step_owners: dict[PlanStepId, PlanId] = {}
+        for plan_ref, plan in plans.items():
+            if type(plan_ref) is not PlanRef or type(plan) is not Plan:
+                raise TypeError("plans must map PlanRef to Plan")
+            if plan_ref != plan.ref:
+                raise ValueError("Plan key must match Plan.ref")
+            versions_by_plan.setdefault(plan.plan_id, set()).add(plan.version)
+            for step in plan.steps:
+                owner = step_owners.setdefault(step.step_id, plan.plan_id)
+                if owner != plan.plan_id:
+                    raise ValueError("PlanStepId cannot belong to more than one PlanId")
+
+        latest_by_plan: dict[PlanId, PlanRef] = {}
+        for plan_id, versions in versions_by_plan.items():
+            latest_version = max(versions)
+            if versions != set(range(1, latest_version + 1)):
+                raise ValueError("Plan versions must be contiguous from version 1")
+            latest_by_plan[plan_id] = PlanRef(plan_id, latest_version)
+
+            first = plans[PlanRef(plan_id, 1)]
+            for version in range(2, latest_version + 1):
+                if plans[PlanRef(plan_id, version)].replaces_plan_ref != first.replaces_plan_ref:
+                    raise ValueError("Plan revisions must preserve replaces_plan_ref")
+
+        replaced_by: dict[PlanId, PlanId] = {}
+        for plan_id in versions_by_plan:
+            first = plans[PlanRef(plan_id, 1)]
+            replaced = first.replaces_plan_ref
+            if replaced is None:
+                continue
+            if replaced not in plans:
+                raise ValueError("replacement must reference an existing Plan")
+            if latest_by_plan[replaced.plan_id] != replaced:
+                raise ValueError("replacement must reference the latest Plan version")
+            if replaced.plan_id in replaced_by:
+                raise ValueError("a PlanId cannot be replaced more than once")
+            replaced_by[replaced.plan_id] = plan_id
+
+        for starting_plan_id in replaced_by:
+            seen: set[PlanId] = set()
+            plan_id = starting_plan_id
+            while plan_id in replaced_by:
+                if plan_id in seen:
+                    raise ValueError("Plan replacements must not form a cycle")
+                seen.add(plan_id)
+                plan_id = replaced_by[plan_id]
+
+        jobs_by_step: dict[PlanStepId, JobId] = {}
+        for job_id, job in jobs.items():
+            if type(job_id) is not JobId or type(job) is not Job:
+                raise TypeError("jobs must map JobId to Job")
+            if job_id != job.job_id:
+                raise ValueError("Job key must match job_id")
+            referenced_plan = plans.get(job.plan_step_ref.plan_ref)
+            if referenced_plan is None or referenced_plan.step(job.plan_step_ref.step_id) is None:
+                raise ValueError("Job must reference an existing exact PlanStep")
+            previous_job_id = jobs_by_step.setdefault(job.plan_step_ref.step_id, job_id)
+            if previous_job_id != job_id:
+                raise ValueError("a logical PlanStep may have at most one Job")
+
+        object.__setattr__(self, "plans", MappingProxyType(plans))
+        object.__setattr__(self, "jobs", MappingProxyType(jobs))
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +323,8 @@ class SimulationState:
             raise TypeError("execution must be an ExecutionState")
         if type(self.cognition) is not CognitionState:
             raise TypeError("cognition must be a CognitionState")
+        if any(plan.actor_id not in self.world.entities for plan in self.execution.plans.values()):
+            raise ValueError("Plan actors must reference existing Entities")
 
     @classmethod
     def empty(cls, branch_id: BranchId) -> SimulationState:

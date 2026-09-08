@@ -40,6 +40,26 @@ class RelationId(_Identifier):
 
 
 @dataclass(frozen=True, slots=True)
+class PlanId(_Identifier):
+    """Opaque identity of a persistent logical Plan."""
+
+
+@dataclass(frozen=True, slots=True)
+class PlanStepId(_Identifier):
+    """Opaque identity of one logical PlanStep."""
+
+
+@dataclass(frozen=True, slots=True)
+class JobId(_Identifier):
+    """Opaque identity of one PlanStep execution attempt."""
+
+
+@dataclass(frozen=True, slots=True)
+class BlueprintId(_Identifier):
+    """Opaque identity of a versioned Blueprint."""
+
+
+@dataclass(frozen=True, slots=True)
 class WorldDefinitionId(_Identifier):
     """Opaque identity of a versioned WorldDefinition."""
 

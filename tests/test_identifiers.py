@@ -6,10 +6,14 @@ from typing import cast
 import pytest
 
 from grass.core import (
+    BlueprintId,
     BranchId,
     CorrelationId,
     EntityId,
     EventId,
+    JobId,
+    PlanId,
+    PlanStepId,
     RelationId,
     TransitionId,
     WorldDefinitionId,
@@ -31,6 +35,10 @@ def test_identifier_types_are_nominally_distinct() -> None:
     assert cast(object, RelationId("same")) != TransitionId("same")
     assert cast(object, TransitionId("same")) != CorrelationId("same")
     assert cast(object, CorrelationId("same")) != WorldDefinitionId("same")
+    assert cast(object, WorldDefinitionId("same")) != PlanId("same")
+    assert cast(object, PlanId("same")) != PlanStepId("same")
+    assert cast(object, PlanStepId("same")) != JobId("same")
+    assert cast(object, JobId("same")) != BlueprintId("same")
 
 
 @pytest.mark.parametrize(
@@ -43,6 +51,10 @@ def test_identifier_types_are_nominally_distinct() -> None:
         TransitionId,
         CorrelationId,
         WorldDefinitionId,
+        PlanId,
+        PlanStepId,
+        JobId,
+        BlueprintId,
     ],
 )
 def test_identifier_rejects_empty_value(
@@ -54,6 +66,10 @@ def test_identifier_rejects_empty_value(
         | type[TransitionId]
         | type[CorrelationId]
         | type[WorldDefinitionId]
+        | type[PlanId]
+        | type[PlanStepId]
+        | type[JobId]
+        | type[BlueprintId]
     ),
 ) -> None:
     with pytest.raises(ValueError, match="must not be empty"):

@@ -8,6 +8,14 @@ from collections.abc import Iterable
 from typing import TypeVar
 
 from grass.core.events import CommittedTransition
+from grass.core.execution_events import (
+    EXECUTION_EVENT_TYPES,
+    ExecutionEventPayload,
+    ExecutionEventPayloadError,
+    decode_execution_event,
+    is_execution_event_payload,
+)
+from grass.core.execution_projection import ExecutionProjectionError, project_execution_state
 from grass.core.identifiers import BranchId, EntityId, RelationId
 from grass.core.initialization_events import (
     SIMULATION_INITIALIZED,
@@ -40,7 +48,7 @@ from grass.core.world_events import (
 )
 
 Identity = TypeVar("Identity")
-ProjectionEventPayload = WorldEventPayload | SimulationInitializedPayload
+ProjectionEventPayload = WorldEventPayload | SimulationInitializedPayload | ExecutionEventPayload
 
 
 class ProjectionError(ValueError):
@@ -72,11 +80,17 @@ def _decode_transition(
         try:
             if event.event_type in WORLD_EVENT_TYPES:
                 decoded.append(decode_world_event(event))
+            elif event.event_type in EXECUTION_EVENT_TYPES:
+                decoded.append(decode_execution_event(event))
             elif event.event_type == SIMULATION_INITIALIZED:
                 decoded.append(decode_initialization_event(event))
             else:
                 raise ProjectionError(f"unknown Event type: {event.event_type}")
-        except (InitializationEventPayloadError, WorldEventPayloadError) as error:
+        except (
+            ExecutionEventPayloadError,
+            InitializationEventPayloadError,
+            WorldEventPayloadError,
+        ) as error:
             raise ProjectionError(str(error)) from error
     return tuple(decoded)
 
@@ -101,6 +115,8 @@ def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> Non
                 raise ProjectionError("duplicate SimulationInitialized Event in one transition")
             if index != 0:
                 raise ProjectionError("SimulationInitialized must be the first Event")
+        elif is_execution_event_payload(payload):
+            continue
         elif isinstance(
             payload,
             (
@@ -165,7 +181,7 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
     state_variables = dict(state.world.state_variables)
 
     for payload in payloads:
-        if type(payload) is SimulationInitializedPayload:
+        if type(payload) is SimulationInitializedPayload or is_execution_event_payload(payload):
             continue
         if type(payload) is EntityCreatedPayload:
             if payload.entity_id in entities:
@@ -237,6 +253,18 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
     except (TypeError, ValueError) as error:
         raise ProjectionError(str(error)) from error
 
+    execution_payloads = tuple(
+        payload for payload in payloads if is_execution_event_payload(payload)
+    )
+    try:
+        execution = project_execution_state(
+            state.execution,
+            execution_payloads,
+            frozenset(world.entities),
+        )
+    except ExecutionProjectionError as error:
+        raise ProjectionError(str(error)) from error
+
     final_event = transition.events[-1]
     return SimulationState(
         position=ProjectionPosition(
@@ -246,7 +274,7 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
             logical_time=transition.logical_time,
         ),
         world=world,
-        execution=state.execution,
+        execution=execution,
         cognition=state.cognition,
     )
 
