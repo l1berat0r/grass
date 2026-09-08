@@ -464,6 +464,22 @@ The final three are terminal. Retry after terminal failure/cancellation is a new
 
 Progress is structured, not universally a percentage; v0.1 supports at least LINEAR and BINARY models.
 
+Slice 5 uses nominal `PlanId`, `PlanStepId`, `JobId`, and `BlueprintId` values. `PlanRef` is a PlanId plus positive integer version; `PlanStepRef` pins one PlanRef and globally unique logical PlanStepId; `BlueprintRef` is identity-only BlueprintId plus positive integer version. Blueprint existence and primitive compatibility remain deferred, while the PlanStep's primitive is authoritative.
+
+The version-1 primitive vocabulary is `CREATE`, `MODIFY`, `RELATE`, `TRANSFER`, `MOVE`, `COMMUNICATE`, `OBSERVE`, `WAIT`, and `REST`. PlanStep origin is `ACTOR_INTENT` or `PLANNER_DERIVED`. Dependencies are unordered unique `(step_id, condition)` values with explicit `SUCCESS` or `TERMINAL`; they target the same complete Plan version and must form a DAG. Authored step order has no dependency/readiness meaning.
+
+`PlanCreated` creates version 1. `PlanRevised` creates the exact next version as a complete immutable snapshot and preserves `replaces_plan_ref`. `PlanReplaced` creates a new PlanId at version 1 and points to the current latest version of an unreplaced pre-transition PlanId. Replacement is final for that PlanId in one branch continuation. At most one Plan operation affects a PlanId per transition, and replacement affects both old and new IDs. Existing Jobs remain pinned to their original exact PlanStepRef.
+
+Plan Events contain only a complete `plan` snapshot with `plan_id`, `version`, `actor_id`, non-empty `objective`, non-empty ordered `steps`, and nullable `replaces_plan_ref`. Step snapshots contain `step_id`, primitive, nullable BlueprintRef, required structured bindings/parameters, explicit dependencies, origin, and nullable non-empty description. Event provenance and logical time project as Plan `provenance` and `recorded_at`. The actor Entity must exist in the complete transition's final WorldState; active state and ActorFacet are not required in Slice 5.
+
+`JobCreated` is the unique PlanStep-start fact. It creates one PENDING Job with an exact PlanStepRef and explicit initial progress. Across all versions containing one logical PlanStepId, at most one Job may exist in branch-visible state. Retry therefore uses a new PlanStepId and JobId.
+
+Legal Job lifecycle edges are `PENDING -> ACTIVE|COMPLETED|FAILED|CANCELLED`, `ACTIVE -> PAUSED|COMPLETED|FAILED|CANCELLED`, and `PAUSED -> ACTIVE|FAILED|CANCELLED`. COMPLETED, FAILED, and CANCELLED are terminal. Per Job, one transition may contain at most one creation, one lifecycle Event, and one full-result progress Event; projection validates their combined candidate without assigning precedence to Event sequence.
+
+LINEAR progress contains exact finite numeric `completed` and `total`, rejects booleans, requires `total > 0` and `0 <= completed <= total`, starts at zero, and keeps total immutable. BINARY progress contains `complete: bool` and starts false. Progress is monotonic and model kind is immutable. Standalone progress requires ACTIVE; it may also accompany activation, instantaneous PENDING completion, or an ACTIVE Job's pause/completion/failure/cancellation. JobCompleted requires terminal final progress.
+
+Slice 5 `ExecutionState` contains only immutable `plans: Mapping[PlanRef, Plan]` and `jobs: Mapping[JobId, Job]`. It contains no current/latest/readiness/job-by-step indexes, PlanStep status, PlanExecution, or scheduler data. Job creation provenance/time are retained; later lifecycle audit remains in canonical Events.
+
 ## 10. Capability evaluation
 
 Capability/feasibility evaluation is a replaceable boundary:
@@ -763,6 +779,8 @@ PlanReplaced
 ```
 
 `SimulationInitialized` version 1 is the Slice 4 non-mutating genesis Event. Its payload contains `world_definition_ref` (`world_definition_id` plus semantic `version`) and a separate `world_definition_schema_version`. Projection validates and recognizes it explicitly while leaving all authoritative state projections unchanged apart from their shared history position.
+
+Slice 5 defines strict version-1 `PlanCreated`, `PlanRevised`, and `PlanReplaced` Events containing one complete `plan` snapshot. It also defines `JobCreated`, `JobActivated`, `JobPaused`, `JobProgressUpdated`, `JobCompleted`, `JobFailed`, and `JobCancelled`. JobCreated carries only Job identity, exact PlanStepRef, and initial progress; JobProgressUpdated carries complete `progress_after`; other lifecycle payloads carry Job identity.
 
 The exact complete v0.1 catalog is implementation-driven and versioned.
 
