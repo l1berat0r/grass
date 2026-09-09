@@ -62,11 +62,22 @@ from grass.core.initialization_events import (
     SimulationInitializedPayload,
     decode_initialization_event,
 )
-from grass.core.logical_time import LogicalTime
+from grass.core.logical_time import LogicalDuration, LogicalTime
 from grass.core.projections import ProjectionError, project_transition, replay_transitions
 from grass.core.provenance import Provenance, ProvenanceSourceRef
 from grass.core.references import TransitionRef
 from grass.core.replay import CheckpointLoader, StateCheckpoint, replay_branch
+from grass.core.scheduler import (
+    ProgressAnchor,
+    ScheduledResolution,
+    ScheduledResolutionIndex,
+    ScheduleProjector,
+    SchedulerError,
+    SchedulerHistoryError,
+    SchedulerStep,
+    derive_progress_anchors,
+    group_conflict_components,
+)
 from grass.core.state import (
     CognitionState,
     Entity,
@@ -157,6 +168,7 @@ __all__ = [
     "JobProgressUpdatedPayload",
     "JobStatus",
     "LinearProgress",
+    "LogicalDuration",
     "LogicalTime",
     "ProjectionError",
     "ProjectionPosition",
@@ -183,6 +195,13 @@ __all__ = [
     "ResourceChangedPayload",
     "ResourceKey",
     "ResourceQuantity",
+    "ProgressAnchor",
+    "ScheduledResolution",
+    "ScheduledResolutionIndex",
+    "SchedulerError",
+    "SchedulerHistoryError",
+    "SchedulerStep",
+    "ScheduleProjector",
     "SimulationState",
     "SimulationInitializedPayload",
     "SimulationRunConfig",
@@ -207,6 +226,8 @@ __all__ = [
     "decode_initialization_event",
     "decode_execution_event",
     "decode_world_event",
+    "derive_progress_anchors",
+    "group_conflict_components",
     "load_world_definition",
     "project_transition",
     "replay_branch",
