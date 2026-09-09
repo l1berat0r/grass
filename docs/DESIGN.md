@@ -670,6 +670,22 @@ Temporal projections are predictions, not promises. Use anchor + elapsed-time mo
 
 When relevant state changes, predictions are invalidated/rederived. Continuous/recurring processes resolve one material boundary and then project the next.
 
+### 13.4 Slice 6 scheduler contracts
+
+Slice 6 represents exact elapsed time as immutable non-negative integer-nanosecond `LogicalDuration`. It supports only `LogicalTime + LogicalDuration` and later/equal `LogicalTime - earlier LogicalTime`; backward elapsed-time calculation is invalid. This adds no wall-clock, calendar, mutable-clock, timer, sleeping, or tick semantics.
+
+The scheduler receives current `LogicalTime` explicitly and never infers it from branch-origin-local `ProjectionPosition`. A branch-history-aware scheduler helper validates that explicit time against the current branch-visible committed history position. Selecting a target time does not commit an authoritative clock change.
+
+For currently ACTIVE Jobs, `ProgressAnchor(job_id, baseline_progress, anchor_time)` is ephemeral derived input. Baseline progress is always the latest committed Job progress. Anchor time is the activation/resume beginning the current active segment or a later committed JobProgressUpdated boundary in that segment. Pause/resume establishes the resume time as the new anchor while retaining committed baseline progress. No anchor field is added to Job or SimulationState, and no uncommitted progress is inferred.
+
+`ScheduleProjector` is a pure deterministic boundary receiving explicit SimulationState, current LogicalTime, and derived progress anchors. It returns ephemeral `ScheduledResolution` values and does not infer temporal mechanics from opaque PlanStep data. ScheduledResolution is generic over a typed hashable source reference, has absolute logical time, a non-empty operational kind, and immutable derived metadata. Candidates before current time fail; candidates at current time are valid.
+
+`ScheduledResolutionIndex` is disposable and supports full rebuild plus complete source-level replacement/removal, including multiple candidates from one source. It owns no clock and stores no persisted entry IDs or generation tokens. Earliest reads are non-destructive.
+
+One invocation gathers the complete earliest same-time candidate set, then computes undirected connected conflict components using an injected pure deterministic symmetric pairwise predicate. The scheduler does not invent conflict semantics, allocate resources, select winners, or assign causal meaning to ordering. `SchedulerStep` records explicit current/target time, elapsed LogicalDuration, the complete due set, and conflict components. Zero-duration steps are valid. Newly projected same-time work is handled by a subsequent invocation rather than an internal fixed-point loop.
+
+Incremental maintenance and complete reconstruction from identical authoritative inputs must produce semantically equivalent candidates and, with deterministic test orchestration, identical authoritative history. Slice 6 may prove this with a test-only Job Event materializer but adds no production resolution or Event-materialization path. Plan selection, dependency readiness, capability checks, and Job creation remain deferred.
+
 ## 14. World resolution and WorldEffects
 
 World adjudication is replaceable behind a narrow conceptual boundary:

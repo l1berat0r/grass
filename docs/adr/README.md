@@ -25,7 +25,8 @@ After the baseline, material changes to core architectural contracts should norm
 - ADR-0009 — SimulationState projection and initial world-state contracts;
 - ADR-0010 — branch history positions and reconstruction;
 - ADR-0011 — minimal WorldDefinition and genesis contracts;
-- ADR-0012 — minimal Plan, PlanStep, and Job contracts.
+- ADR-0012 — minimal Plan, PlanStep, and Job contracts;
+- ADR-0013 — minimal event-driven scheduler contracts.
 
 ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 
