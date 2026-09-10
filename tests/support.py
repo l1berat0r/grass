@@ -10,6 +10,7 @@ from grass.core import (
     BranchId,
     CauseRef,
     CorrelationId,
+    DecisionPointId,
     EntityId,
     EventId,
     EventPayload,
@@ -17,6 +18,7 @@ from grass.core import (
     InMemoryEventStore,
     JobId,
     LogicalTime,
+    ObservationId,
     PlanId,
     PlanStepId,
     Provenance,
@@ -40,6 +42,8 @@ IdentifierT = TypeVar(
     PlanStepId,
     JobId,
     BlueprintId,
+    ObservationId,
+    DecisionPointId,
 )
 
 

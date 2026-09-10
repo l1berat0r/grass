@@ -60,6 +60,16 @@ class BlueprintId(_Identifier):
 
 
 @dataclass(frozen=True, slots=True)
+class ObservationId(_Identifier):
+    """Opaque identity of one actor-relative Observation."""
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionPointId(_Identifier):
+    """Opaque identity of one actor DecisionPoint."""
+
+
+@dataclass(frozen=True, slots=True)
 class WorldDefinitionId(_Identifier):
     """Opaque identity of a versioned WorldDefinition."""
 

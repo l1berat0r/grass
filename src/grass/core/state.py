@@ -15,8 +15,26 @@ from grass.core._structured_data import (
     freeze_structured_mapping,
     freeze_structured_value,
 )
+from grass.core.cognition import (
+    BoundedReactionDecision,
+    ContinuePlanDecision,
+    Decision,
+    DecisionPoint,
+    Observation,
+    ReplacePlanDecision,
+    RevisePlanDecision,
+)
 from grass.core.execution import Job, Plan, PlanRef
-from grass.core.identifiers import BranchId, EntityId, JobId, PlanId, PlanStepId, RelationId
+from grass.core.identifiers import (
+    BranchId,
+    DecisionPointId,
+    EntityId,
+    JobId,
+    ObservationId,
+    PlanId,
+    PlanStepId,
+    RelationId,
+)
 from grass.core.logical_time import LogicalTime
 from grass.core.references import TransitionRef
 
@@ -278,7 +296,58 @@ class ExecutionState:
 
 @dataclass(frozen=True, slots=True)
 class CognitionState:
-    """Projection boundary reserved for material actor cognition state."""
+    """Immutable projection of material actor cognition state."""
+
+    __hash__: ClassVar[None] = None  # type: ignore[assignment]
+
+    observations: Mapping[ObservationId, Observation] = field(default_factory=dict)
+    decision_points: Mapping[DecisionPointId, DecisionPoint] = field(default_factory=dict)
+    decisions: Mapping[DecisionPointId, Decision] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        observations = dict(self.observations)
+        decision_points = dict(self.decision_points)
+        decisions = dict(self.decisions)
+        for observation_id, observation in observations.items():
+            if type(observation_id) is not ObservationId or type(observation) is not Observation:
+                raise TypeError("observations must map ObservationId to Observation")
+            if observation_id != observation.observation_id:
+                raise ValueError("Observation key must match observation_id")
+        for decision_point_id, decision_point in decision_points.items():
+            if (
+                type(decision_point_id) is not DecisionPointId
+                or type(decision_point) is not DecisionPoint
+            ):
+                raise TypeError("decision_points must map DecisionPointId to DecisionPoint")
+            if decision_point_id != decision_point.decision_point_id:
+                raise ValueError("DecisionPoint key must match decision_point_id")
+            if any(item not in observations for item in decision_point.observation_ids):
+                raise ValueError("DecisionPoint must reference existing Observations")
+            if any(
+                observations[item].actor_id != decision_point.actor_id
+                for item in decision_point.observation_ids
+            ):
+                raise ValueError("DecisionPoint Observations must belong to its actor")
+        for decision_point_id, decision in decisions.items():
+            if type(decision_point_id) is not DecisionPointId or type(decision) is not Decision:
+                raise TypeError("decisions must map DecisionPointId to Decision")
+            if decision_point_id != decision.decision_point_id:
+                raise ValueError("Decision key must match decision_point_id")
+            if decision_point_id not in decision_points:
+                raise ValueError("Decision must reference an existing DecisionPoint")
+
+        object.__setattr__(self, "observations", MappingProxyType(observations))
+        object.__setattr__(self, "decision_points", MappingProxyType(decision_points))
+        object.__setattr__(self, "decisions", MappingProxyType(decisions))
+
+    def is_pending(self, decision_point_id: DecisionPointId) -> bool:
+        """Return whether an existing DecisionPoint has no accepted Decision."""
+
+        if type(decision_point_id) is not DecisionPointId:
+            raise TypeError("decision_point_id must be a DecisionPointId")
+        if decision_point_id not in self.decision_points:
+            raise KeyError(decision_point_id)
+        return decision_point_id not in self.decisions
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +394,50 @@ class SimulationState:
             raise TypeError("cognition must be a CognitionState")
         if any(plan.actor_id not in self.world.entities for plan in self.execution.plans.values()):
             raise ValueError("Plan actors must reference existing Entities")
+        if any(
+            observation.actor_id not in self.world.entities
+            for observation in self.cognition.observations.values()
+        ):
+            raise ValueError("Observation actors must reference existing Entities")
+        if any(
+            point.actor_id not in self.world.entities
+            for point in self.cognition.decision_points.values()
+        ):
+            raise ValueError("DecisionPoint actors must reference existing Entities")
+        for point in self.cognition.decision_points.values():
+            if point.subject_plan_ref is None:
+                continue
+            plan = self.execution.plans.get(point.subject_plan_ref)
+            if plan is None or plan.actor_id != point.actor_id:
+                raise ValueError("DecisionPoint subject must be an exact same-actor Plan")
+        for decision_point_id, decision in self.cognition.decisions.items():
+            point = self.cognition.decision_points[decision_point_id]
+            outcome = decision.outcome
+            subject = point.subject_plan_ref
+            if type(outcome) is ContinuePlanDecision:
+                if subject is None:
+                    raise ValueError("CONTINUE_PLAN requires an exact subject Plan")
+                continue
+            if type(outcome) is BoundedReactionDecision:
+                continue
+            if not isinstance(outcome, (RevisePlanDecision, ReplacePlanDecision)):
+                raise AssertionError("unsupported DecisionOutcome")
+            resulting_ref = outcome.resulting_plan_ref
+            plan = self.execution.plans.get(resulting_ref)
+            if plan is None or plan.actor_id != point.actor_id:
+                raise ValueError("Decision resulting Plan must exist and belong to its actor")
+            if type(outcome) is RevisePlanDecision:
+                if subject is None or resulting_ref != PlanRef(
+                    subject.plan_id, subject.version + 1
+                ):
+                    raise ValueError("REVISE_PLAN must identify the next subject Plan version")
+            elif type(outcome) is ReplacePlanDecision:
+                if (
+                    resulting_ref.version != 1
+                    or plan.replaces_plan_ref != subject
+                    or (subject is not None and resulting_ref.plan_id == subject.plan_id)
+                ):
+                    raise ValueError("REPLACE_PLAN must preserve its exact subject relationship")
 
     @classmethod
     def empty(cls, branch_id: BranchId) -> SimulationState:

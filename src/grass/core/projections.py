@@ -7,11 +7,22 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TypeVar
 
+from grass.core.cognition_events import (
+    COGNITION_EVENT_TYPES,
+    CognitionEventPayload,
+    CognitionEventPayloadError,
+    decode_cognition_event,
+    is_cognition_event_payload,
+)
+from grass.core.cognition_projection import CognitionProjectionError, project_cognition_state
 from grass.core.events import CommittedTransition
 from grass.core.execution_events import (
     EXECUTION_EVENT_TYPES,
     ExecutionEventPayload,
     ExecutionEventPayloadError,
+    PlanCreatedPayload,
+    PlanReplacedPayload,
+    PlanRevisedPayload,
     decode_execution_event,
     is_execution_event_payload,
 )
@@ -59,6 +70,7 @@ ProjectionEventPayload = (
     | SimulationInitializedPayload
     | ExecutionEventPayload
     | ResolutionOutcomeRecordedPayload
+    | CognitionEventPayload
 )
 
 
@@ -97,9 +109,12 @@ def _decode_transition(
                 decoded.append(decode_initialization_event(event))
             elif event.event_type in RESOLUTION_EVENT_TYPES:
                 decoded.append(decode_resolution_event(event))
+            elif event.event_type in COGNITION_EVENT_TYPES:
+                decoded.append(decode_cognition_event(event))
             else:
                 raise ProjectionError(f"unknown Event type: {event.event_type}")
         except (
+            CognitionEventPayloadError,
             ExecutionEventPayloadError,
             InitializationEventPayloadError,
             ResolutionEventPayloadError,
@@ -131,6 +146,8 @@ def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> Non
             if index != 0:
                 raise ProjectionError("SimulationInitialized must be the first Event")
         elif is_execution_event_payload(payload):
+            continue
+        elif is_cognition_event_payload(payload):
             continue
         elif type(payload) is ResolutionOutcomeRecordedPayload:
             _record_write(resolution_outcomes, payload.job_id, "Resolution outcome")
@@ -198,10 +215,15 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
     state_variables = dict(state.world.state_variables)
 
     for payload in payloads:
-        if type(payload) in (
-            SimulationInitializedPayload,
-            ResolutionOutcomeRecordedPayload,
-        ) or is_execution_event_payload(payload):
+        if (
+            type(payload)
+            in (
+                SimulationInitializedPayload,
+                ResolutionOutcomeRecordedPayload,
+            )
+            or is_execution_event_payload(payload)
+            or is_cognition_event_payload(payload)
+        ):
             continue
         if type(payload) is EntityCreatedPayload:
             if payload.entity_id in entities:
@@ -292,6 +314,25 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
         ):
             raise ProjectionError("Resolution outcome must reference an existing Job")
 
+    cognition_payloads = tuple(
+        payload for payload in payloads if is_cognition_event_payload(payload)
+    )
+    plan_payloads = tuple(
+        payload
+        for payload in execution_payloads
+        if isinstance(payload, (PlanCreatedPayload, PlanRevisedPayload, PlanReplacedPayload))
+    )
+    try:
+        cognition = project_cognition_state(
+            state.cognition,
+            cognition_payloads,
+            frozenset(world.entities),
+            execution.plans,
+            plan_payloads,
+        )
+    except CognitionProjectionError as error:
+        raise ProjectionError(str(error)) from error
+
     final_event = transition.events[-1]
     return SimulationState(
         position=ProjectionPosition(
@@ -302,7 +343,7 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
         ),
         world=world,
         execution=execution,
-        cognition=state.cognition,
+        cognition=cognition,
     )
 
 
