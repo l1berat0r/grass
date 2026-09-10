@@ -6,25 +6,39 @@ from dataclasses import dataclass
 from grass.core import (
     BranchId,
     CommittedTransition,
+    EventId,
     EventPayload,
+    InitialConditions,
     InMemoryEventStore,
     JobId,
+    JobResolutionSubject,
+    JobStatus,
+    LinearProgress,
     LogicalDuration,
     LogicalTime,
     ProgressAnchor,
+    ResolutionOutcome,
+    ResolutionProposal,
+    ResolutionRequest,
     ScheduledResolution,
     ScheduledResolutionIndex,
     SchedulerStep,
     SimulationState,
+    SubjectResolutionOutcome,
+    TransitionId,
+    TransitionRef,
+    UpdateJobEffect,
+    WorldDefinition,
+    WorldDefinitionId,
+    WorldVocabulary,
     derive_progress_anchors,
+    prepare_deterministic_resolution,
     replay_branch,
 )
 from grass.core._structured_data import StructuredValue
 from grass.core.execution_events import (
     JOB_ACTIVATED,
-    JOB_COMPLETED,
     JOB_CREATED,
-    JOB_PROGRESS_UPDATED,
     PLAN_CREATED,
 )
 from grass.core.world_events import ENTITY_CREATED
@@ -164,43 +178,74 @@ def candidate_keys(
     }
 
 
+class CompletionResolver:
+    def resolve(self, request: ResolutionRequest, /) -> ResolutionProposal:
+        outcomes = tuple(
+            SubjectResolutionOutcome(subject.job_id, ResolutionOutcome.SUCCESS)
+            for subject in request.subjects
+        )
+        effects: list[UpdateJobEffect] = []
+        for subject in request.subjects:
+            effects.append(
+                UpdateJobEffect(
+                    subject.job_id,
+                    status_after=JobStatus.COMPLETED,
+                    progress_after=LinearProgress(10, 10),
+                )
+            )
+            if subject.job_id == JobId("first-job"):
+                effects.append(UpdateJobEffect(JobId("second-job"), status_after=JobStatus.ACTIVE))
+        return ResolutionProposal(outcomes, effects)
+
+
+def resolution_definition() -> WorldDefinition:
+    return WorldDefinition(
+        WorldDefinitionId("scheduler-world"),
+        "1.0",
+        1,
+        WorldVocabulary(entity_types=frozenset({"Person"})),
+        InitialConditions(LogicalTime(0)),
+    )
+
+
 def materialize_due_batch(
     store: InMemoryEventStore,
     step: SchedulerStep[JobId],
     transition_number: int,
 ) -> frozenset[JobId]:
-    due_sources = sorted(
-        (candidate.source_ref for candidate in step.due_candidates),
-        key=lambda job_id: job_id.value,
+    assert len(step.conflict_components) == 1
+    component = step.conflict_components[0]
+    grouped: dict[JobId, list[ScheduledResolution[JobId]]] = {}
+    for candidate in component:
+        grouped.setdefault(candidate.source_ref, []).append(candidate)
+    subjects = tuple(
+        JobResolutionSubject(job_id, candidates)
+        for job_id, candidates in sorted(grouped.items(), key=lambda item: item[0].value)
     )
-    events: list[tuple[str, EventPayload]] = []
-    affected = set(due_sources)
-    for job_id in due_sources:
-        events.extend(
-            [
-                (
-                    JOB_PROGRESS_UPDATED,
-                    {
-                        "job_id": job_id.value,
-                        "progress_after": {
-                            "kind": "LINEAR",
-                            "completed": 10,
-                            "total": 10,
-                        },
-                    },
-                ),
-                (JOB_COMPLETED, {"job_id": job_id.value}),
-            ]
-        )
-        if job_id == JobId("first-job"):
-            events.append((JOB_ACTIVATED, {"job_id": "second-job"}))
-            affected.add(JobId("second-job"))
-    commit(
-        store,
-        f"resolve-{transition_number}",
-        step.target_time.nanoseconds_from_origin,
-        events,
+    root_id = stable_id(BranchId, "root")
+    base = store.head_position(root_id)
+    state = replay_branch(store, base)
+    request = ResolutionRequest(base, step.target_time, step.elapsed, subjects, state)
+    effect_event_count = 2 * len(subjects) + (1 if JobId("first-job") in grouped else 0)
+    event_count = len(subjects) + effect_event_count
+    prepared = prepare_deterministic_resolution(
+        CompletionResolver(),
+        request,
+        resolution_definition(),
+        TransitionRef(root_id, stable_id(TransitionId, f"resolve-{transition_number}")),
+        tuple(
+            stable_id(EventId, f"root:resolve-{transition_number}:{index}")
+            for index in range(event_count)
+        ),
+        base_history=store.read_visible_transitions(base),
     )
+    store.commit_transition(
+        prepared.transition,
+        expected_head=prepared.expected_head,
+    )
+    affected = set(grouped)
+    if JobId("first-job") in grouped:
+        affected.add(JobId("second-job"))
     return frozenset(affected)
 
 

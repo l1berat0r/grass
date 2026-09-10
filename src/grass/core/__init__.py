@@ -3,7 +3,7 @@
 """Foundational GRASS value objects."""
 
 from grass.core.branches import Branch, HistoryPosition
-from grass.core.event_store import InMemoryEventStore
+from grass.core.event_store import InMemoryEventStore, StaleHistoryError
 from grass.core.events import (
     CauseRef,
     CommittedTransition,
@@ -67,6 +67,12 @@ from grass.core.projections import ProjectionError, project_transition, replay_t
 from grass.core.provenance import Provenance, ProvenanceSourceRef
 from grass.core.references import TransitionRef
 from grass.core.replay import CheckpointLoader, StateCheckpoint, replay_branch
+from grass.core.resolution_events import (
+    ResolutionEventPayloadError,
+    ResolutionOutcome,
+    ResolutionOutcomeRecordedPayload,
+    decode_resolution_event,
+)
 from grass.core.scheduler import (
     ProgressAnchor,
     ScheduledResolution,
@@ -108,6 +114,18 @@ from grass.core.world_definitions import (
     WorldVocabulary,
     load_world_definition,
 )
+from grass.core.world_effects import (
+    ChangeResourceEffect,
+    CreateEntityEffect,
+    CreateRelationEffect,
+    DeactivateEntityEffect,
+    DeactivateRelationEffect,
+    SetStateVariableEffect,
+    UpdateEntityEffect,
+    UpdateJobEffect,
+    UpdateRelationEffect,
+    WorldEffect,
+)
 from grass.core.world_events import (
     EntityCreatedPayload,
     EntityDeactivatedPayload,
@@ -121,6 +139,18 @@ from grass.core.world_events import (
     WorldEventPayloadError,
     decode_world_event,
 )
+from grass.core.world_resolution import (
+    DeterministicResolutionIntegrityError,
+    JobResolutionSubject,
+    PreparedResolution,
+    ResolutionProposal,
+    ResolutionRequest,
+    ResolutionValidationError,
+    SubjectResolutionOutcome,
+    WorldResolutionProvider,
+    prepare_deterministic_resolution,
+    validate_resolution_proposal,
+)
 
 __all__ = [
     "ActionPrimitive",
@@ -130,10 +160,16 @@ __all__ = [
     "BranchId",
     "Branch",
     "CauseRef",
+    "ChangeResourceEffect",
     "CheckpointLoader",
     "CognitionState",
     "CommittedTransition",
     "CorrelationId",
+    "CreateEntityEffect",
+    "CreateRelationEffect",
+    "DeactivateEntityEffect",
+    "DeactivateRelationEffect",
+    "DeterministicResolutionIntegrityError",
     "Entity",
     "EntityCreatedPayload",
     "EntityDeactivatedPayload",
@@ -167,11 +203,13 @@ __all__ = [
     "JobProgress",
     "JobProgressUpdatedPayload",
     "JobStatus",
+    "JobResolutionSubject",
     "LinearProgress",
     "LogicalDuration",
     "LogicalTime",
     "ProjectionError",
     "ProjectionPosition",
+    "PreparedResolution",
     "Provenance",
     "ProvenanceSourceRef",
     "Plan",
@@ -192,6 +230,12 @@ __all__ = [
     "RelationId",
     "RelationParticipant",
     "RelationUpdatedPayload",
+    "ResolutionEventPayloadError",
+    "ResolutionOutcome",
+    "ResolutionOutcomeRecordedPayload",
+    "ResolutionProposal",
+    "ResolutionRequest",
+    "ResolutionValidationError",
     "ResourceChangedPayload",
     "ResourceKey",
     "ResourceQuantity",
@@ -205,15 +249,23 @@ __all__ = [
     "SimulationState",
     "SimulationInitializedPayload",
     "SimulationRunConfig",
+    "SetStateVariableEffect",
     "StateVariableChangedPayload",
     "StateVariableKey",
     "StateVariableScope",
+    "SubjectResolutionOutcome",
     "StateCheckpoint",
+    "StaleHistoryError",
     "TransitionId",
     "TransitionRef",
     "TransitionToCommit",
+    "UpdateEntityEffect",
+    "UpdateJobEffect",
+    "UpdateRelationEffect",
+    "WorldEffect",
     "WorldEventPayloadError",
     "WorldEventPayload",
+    "WorldResolutionProvider",
     "WorldDefinition",
     "WorldDefinitionError",
     "WorldDefinitionId",
@@ -224,12 +276,15 @@ __all__ = [
     "WORLD_DEFINITION_SCHEMA_VERSION",
     "build_genesis_transition",
     "decode_initialization_event",
+    "decode_resolution_event",
     "decode_execution_event",
     "decode_world_event",
     "derive_progress_anchors",
     "group_conflict_components",
     "load_world_definition",
+    "prepare_deterministic_resolution",
     "project_transition",
     "replay_branch",
     "replay_transitions",
+    "validate_resolution_proposal",
 ]

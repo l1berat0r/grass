@@ -11,9 +11,11 @@ from grass.core import (
     CauseRef,
     CorrelationId,
     EventId,
+    HistoryPosition,
     LogicalTime,
     Provenance,
     ProvenanceSourceRef,
+    StaleHistoryError,
     TransitionId,
     TransitionRef,
     TransitionToCommit,
@@ -240,6 +242,107 @@ def test_unknown_branch_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="has not been registered"):
         store.read_transitions(stable_id(BranchId, "unknown"))
+
+
+def test_expected_head_commit_accepts_current_empty_root() -> None:
+    store = rooted_store("branch")
+    branch_id = stable_id(BranchId, "branch")
+    transition = transition_to_commit("branch", "first", 10, [event_to_commit("event")])
+
+    committed = store.commit_transition(
+        transition,
+        expected_head=HistoryPosition(branch_id, None),
+    )
+
+    assert store.head_position(branch_id).transition_ref == committed.transition_ref
+
+
+def test_expected_head_commit_accepts_inherited_child_head() -> None:
+    store = rooted_store("root")
+    root = store.commit_transition(
+        transition_to_commit("root", "root-transition", 10, [event_to_commit("root-event")])
+    )
+    child_id = stable_id(BranchId, "child")
+    store.fork_branch(
+        child_id,
+        HistoryPosition(stable_id(BranchId, "root"), root.transition_ref),
+    )
+    expected = HistoryPosition(child_id, root.transition_ref)
+
+    child = store.commit_transition(
+        transition_to_commit("child", "child-transition", 10, [event_to_commit("child-event")]),
+        expected_head=expected,
+    )
+
+    assert child.events[0].sequence == 1
+    assert store.head_position(child_id).transition_ref == child.transition_ref
+
+
+def test_stale_head_rejection_consumes_no_transition_or_event_identity() -> None:
+    store = rooted_store("branch")
+    branch_id = stable_id(BranchId, "branch")
+    empty_head = HistoryPosition(branch_id, None)
+    store.commit_transition(
+        transition_to_commit("branch", "first", 10, [event_to_commit("first-event")]),
+        expected_head=empty_head,
+    )
+    reusable = transition_to_commit(
+        "branch",
+        "reusable",
+        10,
+        [event_to_commit("reusable-event")],
+    )
+
+    with pytest.raises(StaleHistoryError, match="current visible head"):
+        store.commit_transition(reusable, expected_head=empty_head)
+
+    committed = store.commit_transition(reusable, expected_head=store.head_position(branch_id))
+    assert committed.events[0].sequence == 2
+
+
+def test_expected_head_branch_must_match_transition_branch() -> None:
+    store = rooted_store("a", "b")
+
+    with pytest.raises(StaleHistoryError, match="branch does not match"):
+        store.commit_transition(
+            transition_to_commit("a", "transition", 0, [event_to_commit("event")]),
+            expected_head=HistoryPosition(stable_id(BranchId, "b"), None),
+        )
+
+    assert store.read_transitions(stable_id(BranchId, "a")) == ()
+
+
+def test_concurrent_expected_head_commits_allow_only_one_winner() -> None:
+    store = rooted_store("branch")
+    branch_id = stable_id(BranchId, "branch")
+    expected = HistoryPosition(branch_id, None)
+    candidates = {
+        label: transition_to_commit(
+            "branch",
+            label,
+            10,
+            [event_to_commit(f"{label}-event")],
+        )
+        for label in ("one", "two")
+    }
+
+    def guarded_commit(label: str) -> tuple[str, bool]:
+        try:
+            store.commit_transition(candidates[label], expected_head=expected)
+        except StaleHistoryError:
+            return label, False
+        return label, True
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(guarded_commit, candidates))
+
+    assert sum(won for _label, won in results) == 1
+    losing_label = next(label for label, won in results if not won)
+    reused = store.commit_transition(
+        candidates[losing_label],
+        expected_head=store.head_position(branch_id),
+    )
+    assert reused.events[0].sequence == 2
 
 
 def test_concurrent_commits_publish_complete_non_overlapping_sequences() -> None:

@@ -16,12 +16,18 @@ from grass.core.execution_events import (
     is_execution_event_payload,
 )
 from grass.core.execution_projection import ExecutionProjectionError, project_execution_state
-from grass.core.identifiers import BranchId, EntityId, RelationId
+from grass.core.identifiers import BranchId, EntityId, JobId, RelationId
 from grass.core.initialization_events import (
     SIMULATION_INITIALIZED,
     InitializationEventPayloadError,
     SimulationInitializedPayload,
     decode_initialization_event,
+)
+from grass.core.resolution_events import (
+    RESOLUTION_EVENT_TYPES,
+    ResolutionEventPayloadError,
+    ResolutionOutcomeRecordedPayload,
+    decode_resolution_event,
 )
 from grass.core.state import (
     Entity,
@@ -48,7 +54,12 @@ from grass.core.world_events import (
 )
 
 Identity = TypeVar("Identity")
-ProjectionEventPayload = WorldEventPayload | SimulationInitializedPayload | ExecutionEventPayload
+ProjectionEventPayload = (
+    WorldEventPayload
+    | SimulationInitializedPayload
+    | ExecutionEventPayload
+    | ResolutionOutcomeRecordedPayload
+)
 
 
 class ProjectionError(ValueError):
@@ -84,11 +95,14 @@ def _decode_transition(
                 decoded.append(decode_execution_event(event))
             elif event.event_type == SIMULATION_INITIALIZED:
                 decoded.append(decode_initialization_event(event))
+            elif event.event_type in RESOLUTION_EVENT_TYPES:
+                decoded.append(decode_resolution_event(event))
             else:
                 raise ProjectionError(f"unknown Event type: {event.event_type}")
         except (
             ExecutionEventPayloadError,
             InitializationEventPayloadError,
+            ResolutionEventPayloadError,
             WorldEventPayloadError,
         ) as error:
             raise ProjectionError(str(error)) from error
@@ -106,6 +120,7 @@ def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> Non
     relation_writes: set[RelationId] = set()
     resource_writes: set[ResourceKey] = set()
     state_variable_writes: set[StateVariableKey] = set()
+    resolution_outcomes: set[JobId] = set()
     initialization_count = 0
 
     for index, payload in enumerate(payloads):
@@ -117,6 +132,8 @@ def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> Non
                 raise ProjectionError("SimulationInitialized must be the first Event")
         elif is_execution_event_payload(payload):
             continue
+        elif type(payload) is ResolutionOutcomeRecordedPayload:
+            _record_write(resolution_outcomes, payload.job_id, "Resolution outcome")
         elif isinstance(
             payload,
             (
@@ -181,7 +198,10 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
     state_variables = dict(state.world.state_variables)
 
     for payload in payloads:
-        if type(payload) is SimulationInitializedPayload or is_execution_event_payload(payload):
+        if type(payload) in (
+            SimulationInitializedPayload,
+            ResolutionOutcomeRecordedPayload,
+        ) or is_execution_event_payload(payload):
             continue
         if type(payload) is EntityCreatedPayload:
             if payload.entity_id in entities:
@@ -264,6 +284,13 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
         )
     except ExecutionProjectionError as error:
         raise ProjectionError(str(error)) from error
+
+    for payload in payloads:
+        if (
+            type(payload) is ResolutionOutcomeRecordedPayload
+            and payload.job_id not in execution.jobs
+        ):
+            raise ProjectionError("Resolution outcome must reference an existing Job")
 
     final_event = transition.events[-1]
     return SimulationState(

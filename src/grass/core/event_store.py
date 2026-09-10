@@ -10,6 +10,10 @@ from grass.core.identifiers import BranchId, EventId
 from grass.core.references import TransitionRef
 
 
+class StaleHistoryError(ValueError):
+    """A guarded commit no longer targets the branch's current visible head."""
+
+
 class InMemoryEventStore:
     """Store branch-origin Event transitions as immutable snapshots."""
 
@@ -78,25 +82,31 @@ class InMemoryEventStore:
             raise TypeError("branch_id must be a BranchId")
         with self._lock:
             branch = self._require_branch(branch_id)
-            local = self._transitions_by_branch[branch_id]
-            transition_ref: TransitionRef | None
-            if local:
-                transition_ref = local[-1].transition_ref
-            elif branch.fork_position is not None:
-                transition_ref = branch.fork_position.transition_ref
-            else:
-                transition_ref = None
-            return HistoryPosition(branch_id, transition_ref)
+            return self._head_position(branch)
 
-    def commit_transition(self, transition: TransitionToCommit) -> CommittedTransition:
+    def commit_transition(
+        self,
+        transition: TransitionToCommit,
+        *,
+        expected_head: HistoryPosition | None = None,
+    ) -> CommittedTransition:
         """Validate and atomically publish one complete transition."""
 
         if type(transition) is not TransitionToCommit:
             raise TypeError("transition must be a TransitionToCommit")
+        if expected_head is not None and type(expected_head) is not HistoryPosition:
+            raise TypeError("expected_head must be a HistoryPosition or None")
 
         with self._lock:
             branch_id = transition.transition_ref.branch_id
             branch = self._require_branch(branch_id)
+            if expected_head is not None:
+                if expected_head.branch_id != branch_id:
+                    raise StaleHistoryError("expected_head branch does not match transition branch")
+                if expected_head != self._head_position(branch):
+                    raise StaleHistoryError(
+                        "expected_head is not the branch's current visible head"
+                    )
             if transition.transition_ref in self._transitions_by_ref:
                 raise ValueError("transition_ref has already been committed")
 
@@ -146,6 +156,17 @@ class InMemoryEventStore:
             self._event_ids = updated_event_ids
             self._transitions_by_ref = updated_transitions_by_ref
             return committed
+
+    def _head_position(self, branch: Branch) -> HistoryPosition:
+        local = self._transitions_by_branch[branch.branch_id]
+        transition_ref: TransitionRef | None
+        if local:
+            transition_ref = local[-1].transition_ref
+        elif branch.fork_position is not None:
+            transition_ref = branch.fork_position.transition_ref
+        else:
+            transition_ref = None
+        return HistoryPosition(branch.branch_id, transition_ref)
 
     def read_transitions(self, branch_id: BranchId) -> tuple[CommittedTransition, ...]:
         """Return a complete immutable snapshot of branch-origin transitions."""
