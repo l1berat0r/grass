@@ -737,6 +737,62 @@ Invalid deterministic resolver output is a fatal execution/integrity error. Gene
 
 Normal infeasibility is a valid FAILED/BLOCKED/PARTIAL/etc. world outcome, not an integrity failure.
 
+### 14.3 Slice 7 deterministic resolution contracts
+
+Slice 7 resolves one coherent scheduler conflict component per immutable
+`ResolutionRequest`. Initial resolution subjects are Jobs only. One Job subject
+groups all due `ScheduledResolution[JobId]` values for that Job in the component.
+The request records its exact ancestry-aware base `HistoryPosition`, target
+LogicalTime, scheduler-supplied elapsed LogicalDuration, one or more unique Job
+subjects, and the immutable authoritative SimulationState at that base position.
+
+Each subject receives exactly one `SUCCESS`, `PARTIAL`, `BLOCKED`, `FAILED`, or
+`INTERRUPTED` outcome. A ResolutionProposal has no required request-level
+outcome; it must cover every request subject exactly once and no others. Outcome
+does not imply a Job lifecycle transition.
+
+The closed transient Slice 7 WorldEffect union contains Create/Update/Deactivate
+Entity, Create/Update/Deactivate Relation, ChangeResource, SetStateVariable,
+and UpdateJob effects. Effects use resulting-state semantics and are not Events
+or persisted data. ChangeResource carries `quantity_after`. UpdateJob carries a
+Job ID plus optional `status_after` and/or `progress_after`, requires at least one
+resulting field, cannot target PENDING status, and may materialize both progress
+and one lifecycle Event. Multiple UpdateJob effects for one Job in a proposal
+are invalid. Information remains deferred.
+
+Slice 7 uses an injected pure deterministic WorldResolutionProvider. It does not
+change WorldDefinition schema version 1 or SimulationRunConfig. Candidate
+validation enforces only currently expressible state, vocabulary, Event, and Job
+contracts. Normal infeasibility is represented by outcomes. Malformed or invalid
+deterministic output is a `DeterministicResolutionIntegrityError`, never an
+invented FAILED/BLOCKED outcome.
+
+Preparation materializes outcome and effect Events, validates the complete
+candidate transition through existing deterministic projection rules, and
+returns an immutable prepared value containing the expected HistoryPosition and
+TransitionToCommit. It never commits. Resolution commits use EventStore
+expected-head protection so a stale candidate consumes no history identity or
+sequence. The trusted caller supplies TransitionRef, exact EventIds, optional
+resolver provenance metadata/source reference, explicit CauseRefs, and optional
+CorrelationId; the resolver supplies none of those authoritative envelope
+values.
+
+Preparation receives read-only branch-visible committed history ending at the
+base HistoryPosition so it can validate elapsed time against canonical logical
+time even when a child has no local ProjectionPosition time. This history is not
+resolver input.
+
+One version-1 non-mutating `ResolutionOutcomeRecorded(job_id, outcome)` Event is
+persisted per request subject. Projection explicitly validates and recognizes
+it. Outcome Events precede effect Events in deterministic storage encoding;
+effect order follows proposal order, and combined UpdateJob progress precedes
+lifecycle. None of this ordering implies causality or priority.
+
+Future handling of several independent same-time components must derive every
+request from the same pre-step authoritative snapshot. Slice 7 deliberately
+does not implement the coordinator needed to publish them without accidental
+sequential same-time semantics.
+
 ## 15. Event contract and semantic Event types
 
 `WorldEffect != Event`.
@@ -798,6 +854,12 @@ PlanReplaced
 
 Slice 5 defines strict version-1 `PlanCreated`, `PlanRevised`, and `PlanReplaced` Events containing one complete `plan` snapshot. It also defines `JobCreated`, `JobActivated`, `JobPaused`, `JobProgressUpdated`, `JobCompleted`, `JobFailed`, and `JobCancelled`. JobCreated carries only Job identity, exact PlanStepRef, and initial progress; JobProgressUpdated carries complete `progress_after`; other lifecycle payloads carry Job identity.
 
+Slice 7 defines strict version-1 `ResolutionOutcomeRecorded` with `job_id` and
+`outcome`. It is a historically meaningful non-mutating Event. Every Job subject
+in one ResolutionRequest produces exactly one such Event, including when no
+WorldEffect is proposed. Projection requires the referenced Job to exist and
+rejects duplicate outcome records for one Job in one transition.
+
 The exact complete v0.1 catalog is implementation-driven and versioned.
 
 Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid. Multiple writes to the same projected identity/key within one transition are invalid.
@@ -825,6 +887,12 @@ A branch has a parent and fork position. Roots are registered explicitly; a chil
 Branch topology is canonical EventStore metadata, not simulated world state. Origin-history reads contain only transitions committed directly to one branch. Visible-history reads traverse the captured root-to-fork prefixes and return the original transitions without copying, rewriting, or renumbering inherited Events.
 
 Child-origin Event sequence starts at one. Its first transition cannot precede the fork transition's logical time. Parent transitions committed after the fork do not enter the child's visible history.
+
+Resolution commits use optimistic expected-head protection. The expected
+ancestry-aware HistoryPosition must match the transition branch and equal its
+current visible head under the same atomic store lock used for publication.
+Stale rejection consumes no Event sequence, EventId, or TransitionRef. Unchecked
+structural commit remains available for genesis and lower-level history use.
 
 A branch created before a recorded decision may invoke cognition again when it reaches the DecisionPoint. A branch created after a recorded decision inherits that decision/Plan as part of the shared prefix unless an explicit earlier fork/regeneration/intervention is selected.
 
@@ -898,7 +966,6 @@ The design baseline intentionally leaves lower-level choices open where they do 
 - random-stream key derivation;
 - exact scheduler priority/index data structure, stale-entry compaction/rebuild thresholds, and conflict-component algorithm;
 - exact source-ref/TemporalProjection schemas;
-- exact `ResolutionRequest` / `ResolutionProposal` DTOs;
 - detailed capability-evaluator default dimensions/UNKNOWN policy;
 - belief representation and memory retrieval/compaction;
 - exact bounded-reaction materialization in planning;
