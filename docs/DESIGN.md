@@ -566,6 +566,22 @@ No DecisionOutcome directly mutates reality.
 
 Material Observations, DecisionPoints, Decisions, and Plans are persisted through semantic Events to the degree required for replay, branching, continuation, observability, and the configured reproducibility level.
 
+Slice 8 uses nominal `ObservationId` and `DecisionPointId` values and no separate DecisionId. `CognitionState` contains immutable Observation, DecisionPoint, and Decision mappings; Decisions are keyed by DecisionPointId. A DecisionPoint is pending when no Decision has been recorded for it and resolved otherwise. Exactly one accepted Decision may resolve a DecisionPoint in one branch-visible history.
+
+Version-1 `ObservationCreated` contains exactly `observation_id`, Entity-backed `actor_id`, and immutable structured `content`. Event provenance and logical time project as Observation provenance and `observed_at`. Source Events are connected through explicit Event causation references where appropriate; content is actor-relative cognition and is not an unrestricted WorldState copy.
+
+Version-1 `DecisionPointCreated` contains exactly `decision_point_id`, `actor_id`, reason, scope, immutable referenced `observation_ids`, and nullable exact `subject_plan_ref`. Observation references may be empty for non-observation conditions such as `PLAN_REQUIRED`; core never infers a global/current Plan. Referenced Observations, the DecisionPoint, and any subject Plan belong to the same actor.
+
+`DecisionTriggerPolicy` receives one actor-relative Observation and an optional exact subject Plan. It returns trigger-policy `CONTINUE` or a DecisionPoint proposal. Trigger-policy `CONTINUE` creates no DecisionPoint and never calls a DecisionProvider; it is distinct from DecisionOutcome `CONTINUE_PLAN`, which records an explicit provider-generated choice for an existing DecisionPoint.
+
+Slice 8 `DecisionRequest` contains only the pending DecisionPoint, its exact referenced Observations, and its exact subject Plan snapshot when present. It exposes no unrestricted SimulationState/WorldState, unrelated Jobs, other actors' cognition, or hidden simulator state. A scripted deterministic DecisionProvider returns an untrusted structured Decision proposal and fails explicitly when no script exists.
+
+When revision or replacement is chosen, the provider supplies a typed `ProposedPlan` containing `plan_id`, version, actor, objective, steps, and nullable replacement reference, but no Event envelope fields. `REVISE_PLAN` requires the exact subject and next Plan version. `REPLACE_PLAN` with a subject creates a new version-1 Plan replacing that exact PlanRef; without a subject it adopts a new version-1 Plan through `PlanCreated` with no replacement reference. Existing ADR-0012 Plan validation remains authoritative.
+
+Version-1 `DecisionRecorded` contains exactly `decision_point_id` and a discriminated outcome. `CONTINUE_PLAN` has no Plan data. `REVISE_PLAN` and `REPLACE_PLAN` contain only `resulting_plan_ref`. `BOUNDED_REACTION` contains one `bounded_reaction` value with a required non-empty `intent_description` and nullable immutable structured `content`; it remains cognition and creates no ActionProposal, PlanStep, Job, or world effect in Slice 8. Event provenance and logical time project as Decision provenance and `recorded_at`.
+
+`DecisionRecorded` and any resulting existing version-1 Plan Event commit atomically. The Decision's resulting PlanRef must exactly match that Event; complete Plan content is not duplicated in the Decision payload. Perception/DecisionPoint creation and later Decision/Plan recording are separate transitions, preserving a valid fork point before provider cognition. Preparation validates against an exact expected history head; replay and checkpoint reconstruction invoke neither trigger policy nor DecisionProvider.
+
 ## 12. Provider architecture and security
 
 `DecisionProvider` may be LLM-backed, human, scripted, deterministic, random, or future implementations.
