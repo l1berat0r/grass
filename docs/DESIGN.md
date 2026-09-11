@@ -176,6 +176,15 @@ Every genesis transition begins with exactly one version-1 `SimulationInitialize
 
 The caller supplies the genesis `TransitionId` and every `EventId`. The pure genesis builder requires an exact, unique, sufficient Event-ID sequence, creates `ENGINE` provenance tied to the definition version, validates the complete candidate initial world, and returns a `TransitionToCommit` without committing it. The EventStore remains responsible only for generic structural history invariants.
 
+Slice 9 adds WorldDefinition document schema version 2 while preserving strict
+version-1 loading. Version 2 adds only required `scenario_event_rules`, an ordered
+collection that may be empty. Each rule has a unique opaque `rule_id` and one
+strict `AT_TIME` trigger containing an exact LogicalTime that cannot precede the
+initial logical time. Version 1 retains its exact original field set and projects
+an empty rule collection. Scenario rules remain declarations and add no genesis
+Events. RANDOM_TIME, AFTER_DURATION, recurrence, conditions, mechanic bindings,
+and sampling remain deferred.
+
 ## 5. Scenario mechanics and GEL
 
 Built-in formulas are convenience models, not the expressiveness boundary of GRASS.
@@ -252,6 +261,32 @@ Probability distributions belong to `WorldDefinition`; run seed/random-stream co
 Material random choices must be reproducible and must not accidentally depend on unrelated consumption of one global RNG stream. Keyed/sub-stream RNG based on run seed plus mechanic/rule/occurrence identity is the preferred direction; exact implementation remains open.
 
 Replay never resamples already-recorded history.
+
+### 6.1 Slice 9 one-shot AT_TIME occurrences
+
+Slice 9 gives each rule a `ScenarioEventRuleRef` containing the exact
+WorldDefinitionRef and rule ID. Because the supported rule is one-shot, its one
+concrete `ScenarioOccurrenceRef` nominally wraps that rule reference without an
+occurrence index or runtime-generated identity.
+
+A separate pure history-aware projector validates the branch's
+`SimulationInitialized` definition reference, reads complete branch-visible
+history, and emits `ScheduledResolution[ScenarioOccurrenceRef]` values with kind
+`SCENARIO_EVENT` only for unresolved rules. A resolved occurrence is identified
+solely by a committed version-1 `ScenarioOccurrenceResolved` Event. An unresolved
+occurrence before current time is an integrity error rather than silently skipped.
+No occurrence queue or consumed marker is added to SimulationState.
+
+Scenario occurrence resolution has a separate narrow request/proposal/provider
+boundary rather than broadening the Job-oriented ResolutionRequest. One request
+contains one exact occurrence, its AT_TIME rule, due candidate, base
+HistoryPosition, target time, elapsed duration, and immutable SimulationState.
+The deterministic provider proposes only existing closed WorldEffects. The
+trusted preparation boundary reads the exact ancestry-visible history for the
+request position, owns Event identities and provenance, validates the complete
+candidate projection, and returns an expected-head-protected transition.
+`ScenarioOccurrenceResolved` commits atomically with all effect-derived Events and
+is emitted even for a valid no-effect resolution.
 
 ## 7. Entity, Actor, Relation, Resource, and Information
 
@@ -702,6 +737,15 @@ One invocation gathers the complete earliest same-time candidate set, then compu
 
 Incremental maintenance and complete reconstruction from identical authoritative inputs must produce semantically equivalent candidates and, with deterministic test orchestration, identical authoritative history. Slice 6 may prove this with a test-only Job Event materializer but adds no production resolution or Event-materialization path. Plan selection, dependency readiness, capability checks, and Job creation remain deferred.
 
+Slice 9 composes Job scheduling with a separate scenario-occurrence projector.
+Both feed the existing generic ScheduledResolution index; the Job-oriented
+ScheduleProjector protocol remains unchanged. Complete visible history, rather
+than scheduler-local removal, suppresses resolved one-shot occurrences after a
+rebuild or inherited fork. The Slice 9 acceptance fixture exercises one isolated
+scenario occurrence and one interacting same-time Job component. Mixed
+Job/occurrence components and publication of multiple independent same-time
+components remain deferred.
+
 ## 14. World resolution and WorldEffects
 
 World adjudication is replaceable behind a narrow conceptual boundary:
@@ -809,6 +853,17 @@ request from the same pre-step authoritative snapshot. Slice 7 deliberately
 does not implement the coordinator needed to publish them without accidental
 sequential same-time semantics.
 
+### 14.4 Slice 9 scenario-occurrence resolution
+
+`ScenarioOccurrenceResolutionProvider` is separate from the Job-only
+WorldResolutionProvider. It receives one immutable occurrence request and returns
+only a `ScenarioOccurrenceResolutionProposal` containing existing WorldEffects.
+It cannot create Events, replace SimulationState, choose Event identity or
+provenance, or commit history. Validation reuses the closed WorldEffect Event
+materialization and vocabulary checks while preserving ADR-0014's public Job
+contracts unchanged. Invalid deterministic output is an integrity error and no
+partial occurrence/effect transition is committed.
+
 ## 15. Event contract and semantic Event types
 
 `WorldEffect != Event`.
@@ -876,6 +931,14 @@ in one ResolutionRequest produces exactly one such Event, including when no
 WorldEffect is proposed. Projection requires the referenced Job to exist and
 rejects duplicate outcome records for one Job in one transition.
 
+Slice 9 defines strict version-1 `ScenarioOccurrenceResolved` containing one
+complete `ScenarioOccurrenceRef`. It is a historically meaningful non-mutating
+Event recording that one deterministic one-shot occurrence was consumed. It is
+the first Event in the occurrence's atomic transition, followed by ordinary
+effect-derived semantic Events. This deterministic encoding does not imply Event
+sequence causality or priority. Cross-transition duplicate consumption is rejected
+by occurrence preparation and complete visible-history scheduling validation.
+
 The exact complete v0.1 catalog is implementation-driven and versioned.
 
 Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid. Multiple writes to the same projected identity/key within one transition are invalid.
@@ -911,6 +974,13 @@ Stale rejection consumes no Event sequence, EventId, or TransitionRef. Unchecked
 structural commit remains available for genesis and lower-level history use.
 
 A branch created before a recorded decision may invoke cognition again when it reaches the DecisionPoint. A branch created after a recorded decision inherits that decision/Plan as part of the shared prefix unless an explicit earlier fork/regeneration/intervention is selected.
+
+Likewise, a branch created before a scenario occurrence is resolved may resolve
+the same occurrence independently. A branch created after resolution inherits
+`ScenarioOccurrenceResolved`; rebuilding its scheduler from complete visible
+history does not schedule the occurrence again. Ordinary replay recognizes the
+recorded occurrence and effect Events without invoking either scenario scheduling
+or the scenario-occurrence resolver.
 
 Because `transition_id` is atomic, externally valid replay/fork positions are **committed transition boundaries**, not intermediate Events inside one transition. Readers observe state before or after the complete transition, never a partial authoritative state.
 

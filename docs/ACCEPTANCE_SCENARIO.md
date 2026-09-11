@@ -2,6 +2,23 @@
 
 This walkthrough is the integration target for the `design-0.1` architecture baseline. It is not a domain specification. Its purpose is to prove that core contracts compose coherently before richer scenarios are implemented.
 
+## Slice 9 executable scope
+
+The first executable integration slice intentionally covers the architectural
+composition without implementing every rich mechanism below. Slice 9 uses one
+deterministic one-shot `AT_TIME` network outage at 09:12 rather than RANDOM_TIME.
+It persists `ScenarioOccurrenceResolved`, rebuilds occurrence scheduling from
+canonical history, and resolves the occurrence through a separate deterministic
+proposal boundary. RANDOM_TIME, random streams, GEL, Commitments, ActionProposal,
+automatic readiness/Job creation, automatic perception propagation, capability
+evaluation, and the complete SimulationEngine loop remain later work.
+
+The Slice 9 harness explicitly starts nominated PlanSteps through validated
+Plan/Job Events. Communication is represented by a normal COMMUNICATE Job followed
+by an explicit actor-relative Observation; no general Information propagation
+model is implied. BOUNDED_REACTION remains persisted cognition and is not executed.
+The 10:00 fixture contains exactly one interacting Job conflict component.
+
 ## 1. Scenario setup
 
 A minimal corporate scenario contains:
