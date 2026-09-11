@@ -17,6 +17,7 @@ from grass.core import (
     PlanId,
     PlanStepId,
     RelationId,
+    ScenarioEventRuleId,
     TransitionId,
     WorldDefinitionId,
 )
@@ -43,6 +44,7 @@ def test_identifier_types_are_nominally_distinct() -> None:
     assert cast(object, JobId("same")) != BlueprintId("same")
     assert cast(object, BlueprintId("same")) != ObservationId("same")
     assert cast(object, ObservationId("same")) != DecisionPointId("same")
+    assert cast(object, DecisionPointId("same")) != ScenarioEventRuleId("same")
 
 
 @pytest.mark.parametrize(
@@ -61,6 +63,7 @@ def test_identifier_types_are_nominally_distinct() -> None:
         BlueprintId,
         ObservationId,
         DecisionPointId,
+        ScenarioEventRuleId,
     ],
 )
 def test_identifier_rejects_empty_value(
@@ -78,6 +81,7 @@ def test_identifier_rejects_empty_value(
         | type[BlueprintId]
         | type[ObservationId]
         | type[DecisionPointId]
+        | type[ScenarioEventRuleId]
     ),
 ) -> None:
     with pytest.raises(ValueError, match="must not be empty"):

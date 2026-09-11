@@ -17,15 +17,6 @@ from grass.core.events import (
     EventToCommit,
     TransitionToCommit,
 )
-from grass.core.execution import BinaryProgress, JobProgress, JobStatus, LinearProgress
-from grass.core.execution_events import (
-    JOB_ACTIVATED,
-    JOB_CANCELLED,
-    JOB_COMPLETED,
-    JOB_FAILED,
-    JOB_PAUSED,
-    JOB_PROGRESS_UPDATED,
-)
 from grass.core.identifiers import CorrelationId, EventId, JobId, TransitionId
 from grass.core.logical_time import LogicalDuration, LogicalTime
 from grass.core.projections import ProjectionError, project_transition
@@ -33,31 +24,15 @@ from grass.core.provenance import Provenance, ProvenanceSourceRef
 from grass.core.references import TransitionRef
 from grass.core.resolution_events import RESOLUTION_OUTCOME_RECORDED, ResolutionOutcome
 from grass.core.scheduler import ScheduledResolution
-from grass.core.state import EntityScope, RelationParticipant, SimulationState, WorldScope
+from grass.core.state import SimulationState
 from grass.core.world_definitions import WorldDefinition
-from grass.core.world_effects import (
-    WORLD_EFFECT_TYPES,
-    ChangeResourceEffect,
-    CreateEntityEffect,
-    CreateRelationEffect,
-    DeactivateEntityEffect,
-    DeactivateRelationEffect,
-    SetStateVariableEffect,
-    UpdateEntityEffect,
-    UpdateJobEffect,
-    UpdateRelationEffect,
-    WorldEffect,
+from grass.core.world_effect_materialization import (
+    WorldEffectMaterializationError,
+    validate_world_effect_vocabulary,
+    validate_world_effects,
+    world_effects_event_specs,
 )
-from grass.core.world_events import (
-    ENTITY_CREATED,
-    ENTITY_DEACTIVATED,
-    ENTITY_UPDATED,
-    RELATION_CREATED,
-    RELATION_DEACTIVATED,
-    RELATION_UPDATED,
-    RESOURCE_CHANGED,
-    STATE_VARIABLE_CHANGED,
-)
+from grass.core.world_effects import WorldEffect
 
 EventSpec = tuple[str, Mapping[str, StructuredValue]]
 
@@ -188,17 +163,12 @@ class ResolutionProposal:
         if not isinstance(self.effects, Sequence):
             raise TypeError("effects must be a sequence")
         outcomes = tuple(self.outcomes)
-        effects = tuple(self.effects)
+        effects = validate_world_effects(self.effects)
         if not all(type(outcome) is SubjectResolutionOutcome for outcome in outcomes):
             raise TypeError("outcomes must contain SubjectResolutionOutcome values")
         job_ids = tuple(outcome.job_id for outcome in outcomes)
         if len(set(job_ids)) != len(job_ids):
             raise ValueError("proposal outcomes must not contain duplicate Jobs")
-        if not all(type(effect) in WORLD_EFFECT_TYPES for effect in effects):
-            raise TypeError("effects must contain only supported WorldEffect values")
-        updated_jobs = tuple(effect.job_id for effect in effects if type(effect) is UpdateJobEffect)
-        if len(set(updated_jobs)) != len(updated_jobs):
-            raise ValueError("a proposal may contain at most one UpdateJobEffect per Job")
         object.__setattr__(self, "outcomes", outcomes)
         object.__setattr__(self, "effects", effects)
 
@@ -230,141 +200,6 @@ class PreparedResolution:
             raise ValueError("expected_head and transition branches must match")
 
 
-def _scope_payload(scope: WorldScope | EntityScope) -> Mapping[str, StructuredValue]:
-    if type(scope) is WorldScope:
-        return {"kind": "WORLD"}
-    if type(scope) is EntityScope:
-        return {"kind": "ENTITY", "entity_id": scope.entity_id.value}
-    raise AssertionError("unsupported StateVariable scope")
-
-
-def _participants_payload(
-    participants: frozenset[RelationParticipant],
-) -> list[StructuredValue]:
-    return [
-        {"role": participant.role, "entity_id": participant.entity_id.value}
-        for participant in sorted(
-            participants,
-            key=lambda participant: (participant.role, participant.entity_id.value),
-        )
-    ]
-
-
-def _progress_payload(progress: JobProgress) -> Mapping[str, StructuredValue]:
-    if type(progress) is LinearProgress:
-        return {
-            "kind": "LINEAR",
-            "completed": progress.completed,
-            "total": progress.total,
-        }
-    if type(progress) is BinaryProgress:
-        return {"kind": "BINARY", "complete": progress.complete}
-    raise AssertionError("unsupported Job progress")
-
-
-_JOB_STATUS_EVENTS = {
-    JobStatus.ACTIVE: JOB_ACTIVATED,
-    JobStatus.PAUSED: JOB_PAUSED,
-    JobStatus.COMPLETED: JOB_COMPLETED,
-    JobStatus.FAILED: JOB_FAILED,
-    JobStatus.CANCELLED: JOB_CANCELLED,
-}
-
-
-def _effect_specs(effect: WorldEffect) -> tuple[EventSpec, ...]:
-    if type(effect) is CreateEntityEffect:
-        return (
-            (
-                ENTITY_CREATED,
-                {
-                    "entity_id": effect.entity_id.value,
-                    "entity_type": effect.entity_type,
-                    "properties": effect.properties,
-                },
-            ),
-        )
-    if type(effect) is UpdateEntityEffect:
-        return (
-            (
-                ENTITY_UPDATED,
-                {
-                    "entity_id": effect.entity_id.value,
-                    "properties_after": effect.properties_after,
-                },
-            ),
-        )
-    if type(effect) is DeactivateEntityEffect:
-        return ((ENTITY_DEACTIVATED, {"entity_id": effect.entity_id.value}),)
-    if type(effect) is CreateRelationEffect:
-        return (
-            (
-                RELATION_CREATED,
-                {
-                    "relation_id": effect.relation_id.value,
-                    "relation_type": effect.relation_type,
-                    "participants": _participants_payload(effect.participants),
-                    "properties": effect.properties,
-                },
-            ),
-        )
-    if type(effect) is UpdateRelationEffect:
-        return (
-            (
-                RELATION_UPDATED,
-                {
-                    "relation_id": effect.relation_id.value,
-                    "participants_after": _participants_payload(effect.participants_after),
-                    "properties_after": effect.properties_after,
-                },
-            ),
-        )
-    if type(effect) is DeactivateRelationEffect:
-        return ((RELATION_DEACTIVATED, {"relation_id": effect.relation_id.value}),)
-    if type(effect) is ChangeResourceEffect:
-        return (
-            (
-                RESOURCE_CHANGED,
-                {
-                    "entity_id": effect.entity_id.value,
-                    "resource_type": effect.resource_type,
-                    "quantity_after": effect.quantity_after,
-                },
-            ),
-        )
-    if type(effect) is SetStateVariableEffect:
-        return (
-            (
-                STATE_VARIABLE_CHANGED,
-                {
-                    "scope": _scope_payload(effect.scope),
-                    "state_variable_type": effect.state_variable_type,
-                    "value_after": effect.value_after,
-                },
-            ),
-        )
-    if type(effect) is UpdateJobEffect:
-        records: list[EventSpec] = []
-        if effect.progress_after is not None:
-            records.append(
-                (
-                    JOB_PROGRESS_UPDATED,
-                    {
-                        "job_id": effect.job_id.value,
-                        "progress_after": _progress_payload(effect.progress_after),
-                    },
-                )
-            )
-        if effect.status_after is not None:
-            records.append(
-                (
-                    _JOB_STATUS_EVENTS[effect.status_after],
-                    {"job_id": effect.job_id.value},
-                )
-            )
-        return tuple(records)
-    raise AssertionError("unsupported WorldEffect")
-
-
 def _event_specs(
     request: ResolutionRequest,
     proposal: ResolutionProposal,
@@ -377,40 +212,15 @@ def _event_specs(
         )
         for subject in request.subjects
     ]
-    for effect in proposal.effects:
-        records.extend(_effect_specs(effect))
+    records.extend(world_effects_event_specs(proposal.effects))
     return tuple(records)
 
 
 def _validate_vocabulary(proposal: ResolutionProposal, world_definition: WorldDefinition) -> None:
-    vocabulary = world_definition.vocabulary
-    for effect in proposal.effects:
-        if type(effect) is CreateEntityEffect and effect.entity_type not in vocabulary.entity_types:
-            raise ResolutionValidationError(
-                f"CreateEntityEffect uses undeclared entity_type: {effect.entity_type}"
-            )
-        if (
-            type(effect) is CreateRelationEffect
-            and effect.relation_type not in vocabulary.relation_types
-        ):
-            raise ResolutionValidationError(
-                f"CreateRelationEffect uses undeclared relation_type: {effect.relation_type}"
-            )
-        if (
-            type(effect) is ChangeResourceEffect
-            and effect.resource_type not in vocabulary.resource_types
-        ):
-            raise ResolutionValidationError(
-                f"ChangeResourceEffect uses undeclared resource_type: {effect.resource_type}"
-            )
-        if (
-            type(effect) is SetStateVariableEffect
-            and effect.state_variable_type not in vocabulary.state_variable_types
-        ):
-            raise ResolutionValidationError(
-                "SetStateVariableEffect uses undeclared state_variable_type: "
-                f"{effect.state_variable_type}"
-            )
+    try:
+        validate_world_effect_vocabulary(proposal.effects, world_definition)
+    except WorldEffectMaterializationError as error:
+        raise ResolutionValidationError(str(error)) from error
 
 
 def _candidate_transition(

@@ -11,6 +11,7 @@ from grass.core import (
     InitialConditions,
     LogicalTime,
     RelationId,
+    ScenarioEventRuleId,
     SimulationRunConfig,
     WorldDefinitionError,
     WorldDefinitionId,
@@ -70,6 +71,18 @@ def valid_document() -> dict[str, object]:
     }
 
 
+def valid_version_two_document() -> dict[str, object]:
+    document = valid_document()
+    document["schema_version"] = 2
+    document["scenario_event_rules"] = [
+        {
+            "rule_id": "network-outage",
+            "trigger": {"kind": "AT_TIME", "logical_time": 200},
+        }
+    ]
+    return document
+
+
 def test_loads_complete_schema_and_preserves_declaration_order() -> None:
     definition = load_world_definition(valid_document())
 
@@ -86,6 +99,18 @@ def test_loads_complete_schema_and_preserves_declaration_order() -> None:
     assert definition.initial_conditions.resources[0].quantity == -2
     assert definition.initial_conditions.state_variables[0].scope == EntityScope(EntityId("alice"))
     assert definition.initial_conditions.state_variables[1].scope == WorldScope()
+    assert definition.scenario_event_rules == ()
+
+
+def test_version_two_loads_minimal_at_time_scenario_rule() -> None:
+    definition = load_world_definition(valid_version_two_document())
+
+    assert definition.schema_version == 2
+    assert len(definition.scenario_event_rules) == 1
+    rule = definition.scenario_event_rules[0]
+    assert rule.rule_id == ScenarioEventRuleId("network-outage")
+    assert rule.logical_time == LogicalTime(200)
+    assert rule.ref(definition.ref).world_definition_ref == definition.ref
 
 
 def test_empty_vocabulary_and_initial_world_are_valid() -> None:
@@ -144,7 +169,7 @@ def test_schema_rejects_extra_fields_at_nested_levels() -> None:
         load_world_definition(document)
 
 
-@pytest.mark.parametrize("schema_version", [0, 2, True])
+@pytest.mark.parametrize("schema_version", [0, 3, True])
 def test_rejects_invalid_or_unsupported_schema_version(schema_version: object) -> None:
     document = valid_document()
     document["schema_version"] = schema_version
@@ -268,6 +293,46 @@ def test_rejects_opaque_structured_values() -> None:
     document["metadata"] = {"invalid": object()}
 
     with pytest.raises(WorldDefinitionError, match="unsupported"):
+        load_world_definition(document)
+
+
+def test_schema_versions_keep_exact_distinct_root_fields() -> None:
+    version_one = valid_document()
+    version_one["scenario_event_rules"] = []
+    with pytest.raises(WorldDefinitionError, match="extra=.*scenario_event_rules"):
+        load_world_definition(version_one)
+
+    version_two = valid_version_two_document()
+    del version_two["scenario_event_rules"]
+    with pytest.raises(WorldDefinitionError, match="missing=.*scenario_event_rules"):
+        load_world_definition(version_two)
+
+
+@pytest.mark.parametrize(
+    "rules,message",
+    [
+        (
+            [
+                {"rule_id": "duplicate", "trigger": {"kind": "AT_TIME", "logical_time": 200}},
+                {"rule_id": "duplicate", "trigger": {"kind": "AT_TIME", "logical_time": 201}},
+            ],
+            "rule IDs must be unique",
+        ),
+        (
+            [{"rule_id": "past", "trigger": {"kind": "AT_TIME", "logical_time": 99}}],
+            "cannot precede",
+        ),
+        (
+            [{"rule_id": "random", "trigger": {"kind": "RANDOM_TIME", "logical_time": 200}}],
+            "must be AT_TIME",
+        ),
+    ],
+)
+def test_version_two_rejects_invalid_scenario_rules(rules: list[object], message: str) -> None:
+    document = valid_version_two_document()
+    document["scenario_event_rules"] = rules
+
+    with pytest.raises(WorldDefinitionError, match=message):
         load_world_definition(document)
 
 

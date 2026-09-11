@@ -70,6 +70,11 @@ class DecisionPointId(_Identifier):
 
 
 @dataclass(frozen=True, slots=True)
+class ScenarioEventRuleId(_Identifier):
+    """Opaque identity of one scenario event rule within a WorldDefinition."""
+
+
+@dataclass(frozen=True, slots=True)
 class WorldDefinitionId(_Identifier):
     """Opaque identity of a versioned WorldDefinition."""
 

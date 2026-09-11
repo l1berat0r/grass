@@ -40,6 +40,12 @@ from grass.core.resolution_events import (
     ResolutionOutcomeRecordedPayload,
     decode_resolution_event,
 )
+from grass.core.scenario_events import (
+    SCENARIO_EVENT_TYPES,
+    ScenarioEventPayloadError,
+    ScenarioOccurrenceResolvedPayload,
+    decode_scenario_event,
+)
 from grass.core.state import (
     Entity,
     ProjectionPosition,
@@ -70,6 +76,7 @@ ProjectionEventPayload = (
     | SimulationInitializedPayload
     | ExecutionEventPayload
     | ResolutionOutcomeRecordedPayload
+    | ScenarioOccurrenceResolvedPayload
     | CognitionEventPayload
 )
 
@@ -111,6 +118,8 @@ def _decode_transition(
                 decoded.append(decode_resolution_event(event))
             elif event.event_type in COGNITION_EVENT_TYPES:
                 decoded.append(decode_cognition_event(event))
+            elif event.event_type in SCENARIO_EVENT_TYPES:
+                decoded.append(decode_scenario_event(event))
             else:
                 raise ProjectionError(f"unknown Event type: {event.event_type}")
         except (
@@ -118,6 +127,7 @@ def _decode_transition(
             ExecutionEventPayloadError,
             InitializationEventPayloadError,
             ResolutionEventPayloadError,
+            ScenarioEventPayloadError,
             WorldEventPayloadError,
         ) as error:
             raise ProjectionError(str(error)) from error
@@ -136,6 +146,7 @@ def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> Non
     resource_writes: set[ResourceKey] = set()
     state_variable_writes: set[StateVariableKey] = set()
     resolution_outcomes: set[JobId] = set()
+    scenario_occurrences: set[object] = set()
     initialization_count = 0
 
     for index, payload in enumerate(payloads):
@@ -151,6 +162,12 @@ def _validate_unique_writes(payloads: tuple[ProjectionEventPayload, ...]) -> Non
             continue
         elif type(payload) is ResolutionOutcomeRecordedPayload:
             _record_write(resolution_outcomes, payload.job_id, "Resolution outcome")
+        elif type(payload) is ScenarioOccurrenceResolvedPayload:
+            _record_write(
+                scenario_occurrences,
+                payload.occurrence_ref,
+                "Scenario occurrence resolution",
+            )
         elif isinstance(
             payload,
             (
@@ -220,6 +237,7 @@ def project_transition(state: SimulationState, transition: CommittedTransition) 
             in (
                 SimulationInitializedPayload,
                 ResolutionOutcomeRecordedPayload,
+                ScenarioOccurrenceResolvedPayload,
             )
             or is_execution_event_payload(payload)
             or is_cognition_event_payload(payload)

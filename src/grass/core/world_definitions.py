@@ -15,7 +15,12 @@ from grass.core._structured_data import (
     freeze_structured_mapping,
     freeze_structured_value,
 )
-from grass.core.identifiers import EntityId, RelationId, WorldDefinitionId
+from grass.core.identifiers import (
+    EntityId,
+    RelationId,
+    ScenarioEventRuleId,
+    WorldDefinitionId,
+)
 from grass.core.logical_time import LogicalTime
 from grass.core.state import (
     EntityScope,
@@ -27,7 +32,8 @@ from grass.core.state import (
     WorldScope,
 )
 
-WORLD_DEFINITION_SCHEMA_VERSION = 1
+WORLD_DEFINITION_SCHEMA_VERSION = 2
+_SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS = frozenset({1, 2})
 
 
 class WorldDefinitionError(ValueError):
@@ -91,6 +97,48 @@ class WorldDefinitionRef:
         if type(self.world_definition_id) is not WorldDefinitionId:
             raise TypeError("world_definition_id must be a WorldDefinitionId")
         _token(self.version, "version")
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioEventRuleRef:
+    """Identity of one rule in an exact immutable WorldDefinition version."""
+
+    world_definition_ref: WorldDefinitionRef
+    rule_id: ScenarioEventRuleId
+
+    def __post_init__(self) -> None:
+        if type(self.world_definition_ref) is not WorldDefinitionRef:
+            raise TypeError("world_definition_ref must be a WorldDefinitionRef")
+        if type(self.rule_id) is not ScenarioEventRuleId:
+            raise TypeError("rule_id must be a ScenarioEventRuleId")
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioOccurrenceRef:
+    """Identity of the one occurrence produced by a one-shot scenario rule."""
+
+    scenario_event_rule_ref: ScenarioEventRuleRef
+
+    def __post_init__(self) -> None:
+        if type(self.scenario_event_rule_ref) is not ScenarioEventRuleRef:
+            raise TypeError("scenario_event_rule_ref must be a ScenarioEventRuleRef")
+
+
+@dataclass(frozen=True, slots=True)
+class AtTimeScenarioEventRule:
+    """One deterministic one-shot scenario occurrence at an exact logical time."""
+
+    rule_id: ScenarioEventRuleId
+    logical_time: LogicalTime
+
+    def __post_init__(self) -> None:
+        if type(self.rule_id) is not ScenarioEventRuleId:
+            raise TypeError("rule_id must be a ScenarioEventRuleId")
+        if type(self.logical_time) is not LogicalTime:
+            raise TypeError("logical_time must be a LogicalTime")
+
+    def ref(self, world_definition_ref: WorldDefinitionRef) -> ScenarioEventRuleRef:
+        return ScenarioEventRuleRef(world_definition_ref, self.rule_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +285,7 @@ class WorldDefinition:
     vocabulary: WorldVocabulary
     initial_conditions: InitialConditions
     metadata: Mapping[str, StructuredValue] = field(default_factory=lambda: MappingProxyType({}))
+    scenario_event_rules: Sequence[AtTimeScenarioEventRule] = ()
 
     def __post_init__(self) -> None:
         if type(self.world_definition_id) is not WorldDefinitionId:
@@ -246,7 +295,7 @@ class WorldDefinition:
             raise TypeError("schema_version must be an integer")
         if self.schema_version < 1:
             raise WorldDefinitionError("schema_version must be positive")
-        if self.schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
+        if self.schema_version not in _SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS:
             raise WorldDefinitionError(
                 f"unsupported WorldDefinition schema_version: {self.schema_version}"
             )
@@ -261,11 +310,29 @@ class WorldDefinition:
             "metadata",
             freeze_structured_mapping(self.metadata, description="WorldDefinition metadata"),
         )
+        rules = tuple(self.scenario_event_rules)
+        if not all(type(rule) is AtTimeScenarioEventRule for rule in rules):
+            raise TypeError("scenario_event_rules must contain AtTimeScenarioEventRule values")
+        if self.schema_version == 1 and rules:
+            raise WorldDefinitionError(
+                "WorldDefinition schema version 1 cannot contain scenario rules"
+            )
+        _reject_duplicates(tuple(rule.rule_id for rule in rules), "scenario Event rule IDs")
+        if any(rule.logical_time < self.initial_conditions.logical_time for rule in rules):
+            raise WorldDefinitionError(
+                "scenario Event rule logical_time cannot precede initial logical_time"
+            )
+        object.__setattr__(self, "scenario_event_rules", rules)
         self._validate_initial_conditions()
 
     @property
     def ref(self) -> WorldDefinitionRef:
         return WorldDefinitionRef(self.world_definition_id, self.version)
+
+    def scenario_event_rule(self, rule_id: ScenarioEventRuleId) -> AtTimeScenarioEventRule | None:
+        if type(rule_id) is not ScenarioEventRuleId:
+            raise TypeError("rule_id must be a ScenarioEventRuleId")
+        return next((rule for rule in self.scenario_event_rules if rule.rule_id == rule_id), None)
 
     def _validate_initial_conditions(self) -> None:
         initial = self.initial_conditions
@@ -472,27 +539,55 @@ def _load_initial_conditions(value: object) -> InitialConditions:
     return InitialConditions(time, entities, relations, resources, state_variables)
 
 
+def _load_scenario_event_rules(value: object) -> tuple[AtTimeScenarioEventRule, ...]:
+    rules: list[AtTimeScenarioEventRule] = []
+    for raw in _sequence(value, "scenario_event_rules"):
+        item = _exact_mapping(raw, "scenario Event rule")
+        _fields(item, frozenset({"rule_id", "trigger"}), "scenario Event rule")
+        trigger = _exact_mapping(item["trigger"], "scenario Event trigger")
+        _fields(trigger, frozenset({"kind", "logical_time"}), "scenario Event trigger")
+        if trigger["kind"] != "AT_TIME":
+            raise WorldDefinitionError("scenario Event trigger kind must be AT_TIME")
+        logical_time = trigger["logical_time"]
+        if type(logical_time) is not int:
+            raise WorldDefinitionError("scenario Event logical_time must be an integer")
+        try:
+            time = LogicalTime(logical_time)
+        except (TypeError, ValueError) as error:
+            raise WorldDefinitionError(str(error)) from error
+        rules.append(
+            AtTimeScenarioEventRule(
+                ScenarioEventRuleId(_token(item["rule_id"], "rule_id")),
+                time,
+            )
+        )
+    return tuple(rules)
+
+
 def load_world_definition(document: Mapping[str, object]) -> WorldDefinition:
-    """Strictly load schema version 1 from an already parsed mapping."""
+    """Strictly load a supported schema from an already parsed mapping."""
 
     root = _exact_mapping(document, "WorldDefinition")
-    _fields(
-        root,
-        frozenset(
-            {
-                "world_definition_id",
-                "version",
-                "schema_version",
-                "vocabulary",
-                "initial_conditions",
-                "metadata",
-            }
-        ),
-        "WorldDefinition",
-    )
-    schema_version = root["schema_version"]
+    schema_version = root.get("schema_version")
     if type(schema_version) is not int:
         raise WorldDefinitionError("schema_version must be an integer")
+    if schema_version not in _SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS:
+        raise WorldDefinitionError(f"unsupported WorldDefinition schema_version: {schema_version}")
+    fields = {
+        "world_definition_id",
+        "version",
+        "schema_version",
+        "vocabulary",
+        "initial_conditions",
+        "metadata",
+    }
+    if schema_version == 2:
+        fields.add("scenario_event_rules")
+    _fields(
+        root,
+        frozenset(fields),
+        "WorldDefinition",
+    )
 
     try:
         return WorldDefinition(
@@ -504,6 +599,11 @@ def load_world_definition(document: Mapping[str, object]) -> WorldDefinition:
             vocabulary=_load_vocabulary(root["vocabulary"]),
             initial_conditions=_load_initial_conditions(root["initial_conditions"]),
             metadata=_structured_mapping(root["metadata"], "metadata"),
+            scenario_event_rules=(
+                ()
+                if schema_version == 1
+                else _load_scenario_event_rules(root["scenario_event_rules"])
+            ),
         )
     except WorldDefinitionError:
         raise

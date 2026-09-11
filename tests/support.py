@@ -23,6 +23,7 @@ from grass.core import (
     PlanStepId,
     Provenance,
     RelationId,
+    ScenarioEventRuleId,
     TransitionId,
     TransitionRef,
     TransitionToCommit,
@@ -44,6 +45,7 @@ IdentifierT = TypeVar(
     BlueprintId,
     ObservationId,
     DecisionPointId,
+    ScenarioEventRuleId,
 )
 
 

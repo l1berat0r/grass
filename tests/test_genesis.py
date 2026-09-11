@@ -149,6 +149,21 @@ def test_initialization_payload_separates_definition_and_schema_identity() -> No
     }
 
 
+def test_version_two_rules_remain_declarations_outside_genesis_history() -> None:
+    document = world_document()
+    document["schema_version"] = 2
+    document["scenario_event_rules"] = [
+        {"rule_id": "outage", "trigger": {"kind": "AT_TIME", "logical_time": 12}}
+    ]
+    world_definition = load_world_definition(document)
+
+    transition = build(world_definition, genesis_ids(7))
+
+    assert len(transition.events) == 7
+    assert transition.events[0].payload["world_definition_schema_version"] == 2
+    assert all(event.event_type != "ScenarioOccurrenceResolved" for event in transition.events)
+
+
 def test_relation_participants_are_encoded_in_canonical_order() -> None:
     transition = build(definition(), genesis_ids(7))
 
