@@ -235,6 +235,46 @@ Randomness, where exposed to GEL, comes only from an explicit deterministic run 
 
 Canonical scenario data preserves GEL source, language version, input/output schema, and a source hash where useful. Parsed AST/bytecode may be cached as derived data.
 
+### 5.2 Slice 10 GEL v1 runtime
+
+Slice 10 implements GEL as a standalone side-effect-free runtime only. A canonical
+`GelProgram` retains exact source, language version, an exact-object input schema,
+and output schema. `prepare_gel` produces a `PreparedGelProgram` containing a
+private disposable parsed/validated representation; AST and bytecode are not
+canonical or persisted. `execute_gel` receives only schema-validated explicit
+input plus an optional invocation-scoped random context and returns one immutable
+schema-validated typed value.
+
+GEL v1 values are boolean, signed bounded integer, bounded string, homogeneous
+bounded list, and exact-field object. There are no floats, nulls, unions, enums,
+arbitrary maps, dynamic values, or implicit conversions. Integers use checked
+signed-64-bit semantics. Arithmetic is unary minus, addition, subtraction,
+multiplication, floor division, and modulo. Division/modulo by zero and overflow
+fail explicitly.
+
+The statement language has local declaration/reassignment, lexical `if/else`,
+bounded `for` over bounded lists, and exactly one final top-level return. It has no
+while, early return, loop control, user functions, recursion, imports, exceptions,
+methods, reflection, indexing, or dynamic calls. Locals have one static type,
+inputs and loop variables are read-only, and boolean `and`/`or` short-circuit.
+
+The closed function set is `abs`, `min`, `max`, `clamp`, `length`, and
+`random_int`. Random values come only from an explicit invocation-scoped
+`GelRandomContext`; no hidden/global RNG exists. Slice 10 adds no production PRNG,
+seed, stream derivation, distribution, run configuration, or random provenance.
+
+GEL v1 fixes deterministic hard limits for source/tokens/AST/depth, executed
+operations, aggregate loop iterations, collection/string sizes, structured
+input/result size and depth, and integer magnitude. It uses no semantic wall-clock
+timeout. Parse, static, input, execution, numeric, output, random-context, and
+budget failures are explicit and produce no Events, state mutation, or partial
+authoritative result.
+
+Slice 10 does not integrate GEL with WorldDefinition mechanics, scheduling,
+resolution, WorldEffects, Events, or the engine. A future trusted adapter may turn
+a typed result into candidate effects below the normal authoritative validation
+boundary. Ordinary replay never invokes GEL to reconstruct history.
+
 ## 6. Scenario events and stochastic time
 
 A scenario may define future material occurrences through `ScenarioEventRule`.
