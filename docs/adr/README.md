@@ -28,9 +28,10 @@ After the baseline, material changes to core architectural contracts should norm
 - ADR-0012 — minimal Plan, PlanStep, and Job contracts;
 - ADR-0013 — minimal event-driven scheduler contracts;
 - ADR-0014 — minimal deterministic world-resolution contracts;
-- ADR-0015 — minimal perception and DecisionPoint contracts.
-- ADR-0016 — minimal one-shot AT_TIME scenario-occurrence contracts.
-- ADR-0017 — minimal GEL v1 language and execution contracts.
+- ADR-0015 — minimal perception and DecisionPoint contracts;
+- ADR-0016 — minimal one-shot AT_TIME scenario-occurrence contracts;
+- ADR-0017 — minimal GEL v1 language and execution contracts;
+- ADR-0018 — minimal provider adapter contracts.
 
 ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 

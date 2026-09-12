@@ -170,6 +170,13 @@ Version-1 initial conditions contain one logical time and ordered Entity, Relati
 
 Slice 4 `SimulationRunConfig` contains only the exact `world_definition_ref`. Fields owned by future resolver, provider, randomness, execution, and reproducibility slices are not represented by opaque placeholders.
 
+Slice 11 provider routing is immutable, non-secret run configuration and remains
+separate from WorldDefinition and credentials. It may select a run default, named
+routing-group bindings with at most one group per actor, and actor-specific
+bindings. Precedence is actor-specific, then the actor's routing group, then the
+run default. Credentials are execution-environment inputs, never run
+configuration.
+
 Every genesis transition begins with exactly one version-1 `SimulationInitialized` Event, followed by Entity, Relation, Resource, and StateVariable Events in that category order. Declaration order is preserved within each category. Relation participants remain semantically unordered and use deterministic `(role, entity_id)` payload ordering. Event sequence remains replay/storage ordering rather than causality or intermediate-world semantics.
 
 `SimulationInitialized` records the nested `WorldDefinitionRef` and the document schema version separately. It is an explicitly recognized semantic historical Event that does not mutate `WorldState`, `ExecutionState`, or `CognitionState`; no `RunState` or WorldDefinition reference is added to `WorldState`.
@@ -657,11 +664,58 @@ Version-1 `DecisionRecorded` contains exactly `decision_point_id` and a discrimi
 
 `DecisionRecorded` and any resulting existing version-1 Plan Event commit atomically. The Decision's resulting PlanRef must exactly match that Event; complete Plan content is not duplicated in the Decision payload. Perception/DecisionPoint creation and later Decision/Plan recording are separate transitions, preserving a valid fork point before provider cognition. Preparation validates against an exact expected history head; replay and checkpoint reconstruction invoke neither trigger policy nor DecisionProvider.
 
+Slice 11 retains the synchronous DecisionProvider boundary for semantic policies:
+
+```text
+DecisionProvider.decide(DecisionRequest) -> DecisionProposal
+```
+
+It adds an asynchronous `DecisionInvoker` for external acquisition. Invocation is
+separate from trusted Decision/Plan transition preparation. On return, the exact
+actor-relative request is rebuilt from current branch-visible state and must be
+semantically unchanged with its DecisionPoint still pending; existing proposal
+and expected-head validation then apply. Invocation latency and completion order
+have no logical-time effect.
+
 ## 12. Provider architecture and security
 
 `DecisionProvider` may be LLM-backed, human, scripted, deterministic, random, or future implementations.
 
-`ModelProvider` is separate from decision policy. Initial model transport targets include OpenAI, Ollama, and OpenAI-compatible/local endpoints.
+`ModelProvider` is separate from decision policy and is an asynchronous generic
+structured-generation transport. A model-backed DecisionInvoker renders an
+actor-relative invocation request, requires output against an exact structured
+schema, translates the result to a typed untrusted DecisionProposal, and assigns
+new Plan/PlanStep identities through trusted GRASS ID sources. Raw model output
+does not choose GRASS identifiers or Event envelopes.
+
+The initial transports are the OpenAI Responses API and a deliberately limited
+structured-output Chat Completions contract for explicitly installed or
+operator-trusted OpenAI-compatible endpoints, including Ollama's compatible API.
+Endpoint origins are deployment configuration rather than arbitrary run input;
+this is not an unrestricted provider URL proxy and does not imply native Ollama
+or arbitrary compatible surface support.
+
+Decision routing is non-secret and deterministic. Actor-specific binding takes
+precedence over the actor's single routing-group binding, which takes precedence
+over the run default. The selected binding is final: missing configuration or
+invocation failure is explicit, with no silent fallback to another binding,
+provider, or model.
+
+Optional invocation context is immutable, versioned, extensible, and
+actor-relative. It never exposes unrestricted SimulationState/WorldState, other
+actors' private cognition, or hidden simulator state. Model transport and human
+input remain untrusted cognition and cannot supply authoritative world mutations.
+
+Independent provider acquisition may execute concurrently. Candidates and
+returned results use canonical `(actor_id, decision_point_id)` order; completion
+order has no causality or Event-order semantics. Every completed result undergoes
+exact request semantic revalidation before preparation.
+
+A successful call produces a post-invocation receipt containing only non-secret
+binding/invoker/provider/model and available structured response/usage metadata. If its
+proposal is accepted, the receipt is included in existing provenance for
+`DecisionRecorded` and any atomic Plan Event. No new Event type or Event payload
+version is introduced, and replay never invokes providers.
 
 Provider execution location is explicit:
 
@@ -670,11 +724,19 @@ Provider execution location is explicit:
 
 Server-managed secrets never reach frontend code. Client-managed secrets should initially remain in browser memory and not be persisted in localStorage/sessionStorage or passed through the backend.
 
-Client-returned model output is untrusted cognition input and cannot supply authoritative world mutations.
-
 No unrestricted server-side user-selected URL proxy is permitted; any future relay requires explicit SSRF/egress security design.
 
-Provider fallback is explicit, never silent. Provider/model changes affecting a run are recorded as experimental/provenance data.
+Credentials never appear in run bindings, requests, receipts, or Event
+provenance. Routing, credential, transport, timeout, refusal, malformed output,
+schema, translation, stale-request, and proposal-validation failures are explicit
+and commit nothing. Provider/model choices affecting accepted behavior are
+recorded as experimental/provenance data.
+
+Human decisions use the same asynchronous DecisionInvoker boundary without being
+modeled as ModelProvider calls. Human session transport, actor-possession
+workflow, client-managed execution, backend/API/WebSocket integration, frontend,
+and credential storage remain Slice 12 work; this section claims no such
+backend/frontend behavior.
 
 ## 13. Event-driven scheduler
 
@@ -1073,7 +1135,7 @@ Recommended v0.1 sequence:
 10. DecisionPoint/Observation plus scripted/fake DecisionProvider;
 11. acceptance-scenario vertical slice;
 12. GEL parser/validator/interpreter and safe execution budgets;
-13. provider adapters (OpenAI/Ollama/OpenAI-compatible/Human) behind existing contracts;
+13. asynchronous provider invocation and OpenAI Responses/limited trusted-compatible adapters behind existing contracts;
 14. FastAPI/backend and React frontend after core contracts prove stable.
 
 The first executable milestone should prioritize architecture/invariants over realism.
@@ -1096,7 +1158,7 @@ The design baseline intentionally leaves lower-level choices open where they do 
 - belief representation and memory retrieval/compaction;
 - exact bounded-reaction materialization in planning;
 - conversation/job contribution granularity beyond v0.1;
-- provider/resolver prompt/version/cost policies;
+- provider/resolver prompt, retry, timeout, version, and cost policies;
 - durable client-managed credential storage if BYOK persistence is ever added;
 - secured relay/local-provider bridge design if ever required.
 
