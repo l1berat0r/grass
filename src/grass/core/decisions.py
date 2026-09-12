@@ -743,6 +743,89 @@ def _materialized_plan(
     )
 
 
+def _prepare_decision_proposal(
+    request: DecisionRequest,
+    proposal: DecisionProposal,
+    provenance: Provenance,
+    state: SimulationState,
+    transition_ref: TransitionRef,
+    ids: tuple[EventId, ...],
+    causes: tuple[CauseRef, ...],
+    expected_head: HistoryPosition,
+    logical_time: LogicalTime,
+    correlation_id: CorrelationId | None,
+) -> PreparedCognitionTransition:
+    materialized = _materialized_plan(request, proposal, provenance, logical_time)
+    specs: list[EventSpec] = [
+        (
+            DECISION_RECORDED,
+            _decision_payload(request.decision_point.decision_point_id, proposal),
+            provenance,
+            causes,
+        )
+    ]
+    if materialized is not None:
+        if len(ids) < 2:
+            raise CognitionValidationError(
+                "Plan decision requires DecisionRecorded and Plan Event identities"
+            )
+        plan, event_type = materialized
+        specs.append(
+            (
+                event_type,
+                _plan_payload(plan),
+                provenance,
+                (CauseRef("event", ids[0].value),),
+            )
+        )
+    transition = _candidate_transition(
+        transition_ref, logical_time, ids, tuple(specs), correlation_id
+    )
+    _project_candidate(state, transition)
+    return PreparedCognitionTransition(expected_head, transition)
+
+
+def prepare_decision_proposal_transition(
+    proposal: DecisionProposal,
+    provenance: Provenance,
+    state: SimulationState,
+    decision_point_id: DecisionPointId,
+    transition_ref: TransitionRef,
+    event_ids: Sequence[EventId],
+    *,
+    base_history: Sequence[CommittedTransition],
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> PreparedCognitionTransition:
+    """Prepare an already acquired proposal without invoking a provider."""
+
+    if type(proposal) is not DecisionProposal:
+        raise TypeError("proposal must be a DecisionProposal")
+    if type(provenance) is not Provenance:
+        raise TypeError("provenance must be Provenance")
+    ids, causes, expected_head, logical_time = _validate_common(
+        state,
+        transition_ref,
+        event_ids,
+        base_history,
+        causation_refs,
+        correlation_id,
+    )
+    request = build_decision_request(state, decision_point_id)
+    return _prepare_decision_proposal(
+        request,
+        proposal,
+        provenance,
+        state,
+        transition_ref,
+        ids,
+        causes,
+        expected_head,
+        logical_time,
+        correlation_id,
+    )
+
+
 def prepare_decision_transition(
     provider: DecisionProvider,
     state: SimulationState,
@@ -784,35 +867,19 @@ def prepare_decision_transition(
         )
 
     try:
-        materialized = _materialized_plan(request, proposal, provenance, logical_time)
-        specs: list[EventSpec] = [
-            (
-                DECISION_RECORDED,
-                _decision_payload(decision_point_id, proposal),
-                provenance,
-                causes,
-            )
-        ]
-        if materialized is not None:
-            if len(ids) < 2:
-                raise CognitionValidationError(
-                    "Plan decision requires DecisionRecorded and Plan Event identities"
-                )
-            plan, event_type = materialized
-            specs.append(
-                (
-                    event_type,
-                    _plan_payload(plan),
-                    provenance,
-                    (CauseRef("event", ids[0].value),),
-                )
-            )
-        transition = _candidate_transition(
-            transition_ref, logical_time, ids, tuple(specs), correlation_id
+        return _prepare_decision_proposal(
+            request,
+            proposal,
+            provenance,
+            state,
+            transition_ref,
+            ids,
+            causes,
+            expected_head,
+            logical_time,
+            correlation_id,
         )
-        _project_candidate(state, transition)
     except (CognitionValidationError, TypeError, ValueError) as error:
         raise DeterministicDecisionIntegrityError(
             "deterministic DecisionProvider returned an invalid proposal"
         ) from error
-    return PreparedCognitionTransition(expected_head, transition)

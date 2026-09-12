@@ -22,6 +22,7 @@ from grass.core.identifiers import (
     WorldDefinitionId,
 )
 from grass.core.logical_time import LogicalTime
+from grass.core.provider_bindings import ProviderBindingConfiguration
 from grass.core.state import (
     EntityScope,
     RelationParticipant,
@@ -390,13 +391,19 @@ class WorldDefinition:
 
 @dataclass(frozen=True, slots=True)
 class SimulationRunConfig:
-    """Slice 4 run configuration containing only the selected world version."""
+    """Run configuration with an optional non-secret provider binding set."""
 
     world_definition_ref: WorldDefinitionRef
+    provider_bindings: ProviderBindingConfiguration | None = None
 
     def __post_init__(self) -> None:
         if type(self.world_definition_ref) is not WorldDefinitionRef:
             raise TypeError("world_definition_ref must be a WorldDefinitionRef")
+        if (
+            self.provider_bindings is not None
+            and type(self.provider_bindings) is not ProviderBindingConfiguration
+        ):
+            raise TypeError("provider_bindings must be ProviderBindingConfiguration or None")
 
 
 def _reject_duplicates(values: Sequence[object], description: str) -> None:

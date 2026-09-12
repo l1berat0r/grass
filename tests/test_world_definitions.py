@@ -336,9 +336,13 @@ def test_version_two_rejects_invalid_scenario_rules(rules: list[object], message
         load_world_definition(document)
 
 
-def test_simulation_run_config_contains_only_world_definition_ref() -> None:
+def test_simulation_run_config_defaults_optional_provider_bindings_to_none() -> None:
     ref = WorldDefinitionRef(WorldDefinitionId("world"), "v1")
     config = SimulationRunConfig(ref)
 
     assert config.world_definition_ref == ref
-    assert [item.name for item in fields(config)] == ["world_definition_ref"]
+    assert config.provider_bindings is None
+    assert [item.name for item in fields(config)] == [
+        "world_definition_ref",
+        "provider_bindings",
+    ]

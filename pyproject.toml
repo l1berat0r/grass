@@ -13,6 +13,9 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
+providers = [
+    "httpx>=0.27",
+]
 dev = [
     "build>=1.2",
     "mypy>=1.11",
