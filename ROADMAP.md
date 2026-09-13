@@ -10,11 +10,11 @@ This roadmap starts from the `design-0.1` architecture baseline. It is intention
 
 The baseline defines the engine authority model, event sourcing/semantic Events, `SimulationState` projections, WorldDefinition/SimulationRunConfig, GEL, action/Plan/Job boundaries, event-driven scheduler, ephemeral ScheduledResolution index, world resolution/validation, DecisionPoints, capability evaluation, replay, and branching.
 
-After this baseline, material architecture changes should normally be introduced through a new ADR and then reflected in `docs/DESIGN.md`.
+After this baseline, material architecture changes should normally be introduced through a new ADR and then reflected in the current architecture documentation.
 
 ## Implementation track
 
-**Current status:** Slices 0–11 are implemented on the implementation branch. The next planned slice is Slice 11.5, which exposes the implemented kernel and provider flow through a small application boundary and CLI before adding the web application.
+**Current status:** Slices 0–11 are implemented on `impl/v0.1-gpt`. The next milestone is a locally runnable GRASS 0.1 that can execute user-defined worlds without requiring changes to GRASS Python code. Slices 12–17 build that milestone. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
 
 ### Slice 0 — core value objects and package skeleton
 
@@ -111,38 +111,151 @@ Turn `docs/ACCEPTANCE_SCENARIO.md` into executable integration tests covering ge
 - explicit server-managed vs client-managed execution location;
 - provider/model provenance/fallback rules.
 
-### Slice 11.5 — application API and minimal CLI
+### Slice 12 — local simulation runtime orchestration
 
-Expose the implemented simulation kernel through a small application/use-case boundary before building the web application. The CLI is the first client of that boundary and a permanent development/diagnostic surface rather than a parallel execution path.
+Introduce the first production runtime coordinator around the implemented core contracts.
 
-- define a small public application API for simulation use cases and orchestration;
-- keep engine authority unchanged: the application layer and CLI may request operations, but only normal transition/commit machinery may mutate authoritative simulation history;
-- keep the CLI thin and prevent it from reaching around the application boundary to mutate projections, scheduler state, or EventStore internals directly;
-- support the minimum useful workflow for validating/loading a world, creating or initializing a run, inspecting run/state/history, advancing to the next material resolution, and inspecting/creating branches;
-- expose provider-backed decision execution through the same application path where applicable;
-- provide human-readable terminal output plus stable machine-readable JSON output for scripting and diagnostics;
-- start with a lightweight standard-library CLI (`argparse`) unless a concrete requirement justifies an additional framework dependency;
-- make the application API reusable by Slice 12 FastAPI rather than duplicating orchestration in HTTP handlers;
-- add integration tests proving that CLI/application operations preserve replay, branching, determinism, provenance, and engine-authority invariants.
+- add a `SimulationEngine`/runtime coordinator that composes replay, scheduler projection, due-work resolution, scenario occurrences, cognition/DecisionPoints, provider acquisition, Plan/Job progression, validation, and commit;
+- keep the central authority invariant unchanged: only the engine's normal validated transition/commit path may mutate authoritative simulation history;
+- define a precise `step` operation for one bounded unit of engine work;
+- define stabilization at one logical-time frontier, including cascades that create new material work without advancing logical time;
+- define `advance` as repeated engine work until an explicit stop condition such as idle/quiescent, waiting for external input, termination, failure, step budget, or target logical time;
+- keep scheduler indexes and other runtime coordination structures ephemeral/rebuildable;
+- use injected providers/mechanics/storage boundaries rather than coupling runtime orchestration to one transport or database;
+- preserve replay, branching, deterministic ordering, stale-head protection, provenance, and authority-boundary invariants in runtime-level integration tests.
 
-### Slice 12 — backend and frontend
+### Slice 13 — durable local persistence
 
-- FastAPI application around the independent core and the Slice 11.5 application API;
-- REST for ordinary configuration/query operations;
-- WebSocket for interactive/session/client-managed provider round trips;
-- React UI for scenario/run control, timelines, actor inspection, branches, and provider configuration.
+Provide a durable local baseline so separate GRASS processes can reopen and continue runs.
 
-### Slice 13 — observer and analyst foundations
+- introduce persistence contracts that keep storage technology outside simulation semantics;
+- implement the first durable backend with Python `sqlite3` and a local GRASS database;
+- persist run identity/metadata, branch metadata, canonical committed transitions/Events, exact WorldDefinition material needed by a run, and non-secret run configuration;
+- preserve atomic transition commit semantics using database transactions;
+- retain `InMemoryEventStore` for tests and lightweight execution;
+- treat `SimulationState`, scheduler indexes, ActorViews, query caches, and similar derived data as rebuildable rather than canonical persistence by default;
+- never persist provider credentials/secrets as run configuration;
+- keep wall-clock operational metadata distinct from `LogicalTime`;
+- introduce storage/schema versioning sufficient for future migration;
+- treat SQLite as the v0.1 implementation baseline, not as a permanent architectural commitment.
 
-- event/actor/plan/job/decision inspection;
-- branch comparison metadata;
-- deterministic MetricProvider boundary;
-- provenance-linked analysis surfaces;
-- optional LLM analyst as read-only interpretation layer.
+### Slice 14 — runnable WorldDefinition composition and WorldPackage
 
-## Explicitly later
+Make a normal user-defined world runnable without adding Python code to GRASS.
 
-- collective/institutional actor cognition;
+- compose `WorldDefinition`, built-in mechanics, GEL mechanics, scenario rules, and provider bindings into a runnable runtime configuration;
+- provide a trusted composition layer that converts data-defined mechanics into existing candidate-resolution/provider contracts below the same validation/commit boundary;
+- ordinary worlds must not require arbitrary Python modules or GRASS source changes;
+- trusted installed `IMPLEMENTATION`/plugin mechanics may remain an advanced extension point, but are not required for ordinary v0.1 worlds;
+- introduce the `WorldPackage` concept as a delivery/container boundary for a WorldDefinition plus referenced GEL/mechanics/supporting files, distinct from the semantic immutable `WorldDefinition` itself;
+- snapshot or otherwise preserve the exact material world inputs used by a run, including referenced GEL source/version/schema where material to future execution or reproducibility;
+- validate a complete world package before creating a runnable experiment;
+- keep exact package file format and long-term plugin/package distribution mechanisms evolvable.
+
+### Slice 15 — Application API and Query API
+
+Expose stable use-case boundaries above the runtime without leaking write authority to clients.
+
+**Command/application surface:**
+
+- create/open/manage local runs;
+- execute `step` and `advance`;
+- create branches through engine-owned operations;
+- verify replay/integrity;
+- provide transport-neutral hooks for external/human decision acquisition.
+
+**Query surface:**
+
+- `get_run`, run listing/status and branch inspection;
+- `get_state` and canonical history/Event inspection;
+- `get_jobs`/`get_job`;
+- `get_decisions`/`get_decision`;
+- `get_actors`/`get_actor`;
+- actor-oriented observations, decisions, Plans, Jobs, and history queries.
+
+Additional rules:
+
+- command paths may request authoritative changes only through `SimulationEngine`;
+- query paths are read-only and may reconstruct/project data from canonical history;
+- `ActorView`-style query DTOs may combine `WorldState`, `ExecutionState`, `CognitionState`, and history without introducing a new authoritative Actor aggregate;
+- actor query surfaces must not prematurely freeze the exact long-term actor-memory/retrieval model;
+- runtime status such as ready, waiting for decision, quiescent, terminated, or failed should be derived where practical from authoritative state plus explicit runtime/external-input conditions rather than duplicated mutable truth;
+- the same Application/Query APIs are intended to be reusable by later CLI, HTTP, UI, and other clients.
+
+### Slice 16 — local CLI
+
+Provide the first permanent user/developer interface to the local runtime.
+
+The CLI is a client of the Application/Query APIs, not a parallel execution path and not a write-capable EventStore client.
+
+Initial command families should cover:
+
+- `grass world validate ...`;
+- `grass run create/list/status/step/advance/verify ...`;
+- `grass branch list/create ...`;
+- `grass inspect state/events/branches/jobs/job/decisions/decision ...`;
+- `grass inspect actors RUN` and `grass inspect actor RUN ACTOR`;
+- actor-focused observation/decision/Plan/Job/history inspection;
+- provider/configuration diagnostics where useful.
+
+CLI requirements:
+
+- human-readable terminal output plus stable machine-readable JSON output;
+- a lightweight standard-library CLI (`argparse`) unless a concrete requirement justifies another dependency;
+- a CLI implementation of the transport-neutral human decision source, so human actor decisions use the same Slice-11 invocation and trusted preparation path as other providers;
+- no direct projection mutation, scheduler mutation, raw Event insertion, or bypass of world/decision validation;
+- integration tests showing that CLI-driven runs are replayable, branch-safe, provenance-preserving, and reopen correctly across separate processes.
+
+### Slice 17 — reusable world templates and executable examples
+
+Make world authoring approachable without creating a second scenario mechanism.
+
+- templates are ordinary valid WorldPackages processed by exactly the same validation/composition/runtime path as user-created worlds;
+- provide `grass template list`, `grass template show`, and `grass template init`-style workflows;
+- initial examples should cover at least a minimal actor interaction, a shared-resource conflict, and a small multi-actor team/social scenario;
+- templates should be copyable/editable starting points rather than hidden special cases;
+- template worlds double as executable examples and high-level acceptance/regression scenarios for the local 0.1 runtime.
+
+## Local GRASS 0.1 acceptance milestone
+
+After Slice 17, a new user should be able to perform a workflow equivalent to:
+
+```text
+grass template init small-team ./demo
+grass world validate ./demo
+grass run create ./demo --name demo-run
+grass run advance demo-run --until-idle
+grass inspect actors demo-run
+grass inspect actor demo-run alice
+grass inspect actor-decisions demo-run alice
+grass inspect events demo-run
+grass branch create demo-run --from root --name alternative
+grass run advance demo-run --branch alternative --until-idle
+grass run verify demo-run
+```
+
+The process may terminate and restart between commands; the run remains available through local persistence. At least simple worlds can mix supported model-backed, scripted/deterministic, and human decision providers without changing GRASS source code.
+
+## Post-Slice-17 architecture checkpoint
+
+Do not pre-commit the next implementation order before exercising several real local runs.
+
+The checkpoint should inspect actual data shape, query patterns, run size, provider context/cost behavior, authoring ergonomics, and performance before deciding the next slice. Candidate areas include:
+
+- exact actor memory/retrieval/compaction model;
+- persistence evolution beyond SQLite and derived indexes/read models;
+- observer/analyst and branch-comparison capabilities;
+- HTTP/backend/session APIs;
+- frontend/UI;
+- client-managed providers and richer human possession workflows;
+- larger-scale/distributed execution;
+- improved world-authoring tooling.
+
+Frontend is therefore deliberately deferred rather than assumed to be the immediate successor to the local 0.1 milestone.
+
+## Explicitly later / not required for local 0.1
+
+- collective/institutional actor cognition beyond the currently supported actor model;
 - society-scale distributed execution;
 - dynamic population resolution;
 - sophisticated calibrated economics/psychology/law/biology;
