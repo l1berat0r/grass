@@ -14,6 +14,8 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
+**Current status:** Slices 0–11 are implemented on the implementation branch. The next planned slice is Slice 11.5, which exposes the implemented kernel and provider flow through a small application boundary and CLI before adding the web application.
+
 ### Slice 0 — core value objects and package skeleton
 
 - Python package structure independent from FastAPI;
@@ -109,9 +111,23 @@ Turn `docs/ACCEPTANCE_SCENARIO.md` into executable integration tests covering ge
 - explicit server-managed vs client-managed execution location;
 - provider/model provenance/fallback rules.
 
+### Slice 11.5 — application API and minimal CLI
+
+Expose the implemented simulation kernel through a small application/use-case boundary before building the web application. The CLI is the first client of that boundary and a permanent development/diagnostic surface rather than a parallel execution path.
+
+- define a small public application API for simulation use cases and orchestration;
+- keep engine authority unchanged: the application layer and CLI may request operations, but only normal transition/commit machinery may mutate authoritative simulation history;
+- keep the CLI thin and prevent it from reaching around the application boundary to mutate projections, scheduler state, or EventStore internals directly;
+- support the minimum useful workflow for validating/loading a world, creating or initializing a run, inspecting run/state/history, advancing to the next material resolution, and inspecting/creating branches;
+- expose provider-backed decision execution through the same application path where applicable;
+- provide human-readable terminal output plus stable machine-readable JSON output for scripting and diagnostics;
+- start with a lightweight standard-library CLI (`argparse`) unless a concrete requirement justifies an additional framework dependency;
+- make the application API reusable by Slice 12 FastAPI rather than duplicating orchestration in HTTP handlers;
+- add integration tests proving that CLI/application operations preserve replay, branching, determinism, provenance, and engine-authority invariants.
+
 ### Slice 12 — backend and frontend
 
-- FastAPI application around the independent core;
+- FastAPI application around the independent core and the Slice 11.5 application API;
 - REST for ordinary configuration/query operations;
 - WebSocket for interactive/session/client-managed provider round trips;
 - React UI for scenario/run control, timelines, actor inspection, branches, and provider configuration.
