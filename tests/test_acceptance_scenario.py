@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import TypeAlias, cast
 
 from grass.core import (
     ActionPrimitive,
@@ -18,6 +19,10 @@ from grass.core import (
     DecisionPointReason,
     DecisionPointScope,
     DecisionProposal,
+    DecisionProviderBinding,
+    DecisionProviderRouting,
+    DecisionRequest,
+    DecisionTriggerContext,
     EntityId,
     EntityScope,
     Event,
@@ -44,6 +49,9 @@ from grass.core import (
     ProgressAnchor,
     ProposedPlan,
     Provenance,
+    ProviderBindingConfiguration,
+    ProviderBindingId,
+    ProviderExecutionLocation,
     ResolutionOutcome,
     ResolutionProposal,
     ResolutionRequest,
@@ -66,8 +74,11 @@ from grass.core import (
     TransitionRef,
     TransitionToCommit,
     UpdateJobEffect,
+    WorldDefinition,
     WorldScope,
     build_genesis_transition,
+    decode_execution_event,
+    decode_world_event,
     derive_progress_anchors,
     load_world_definition,
     prepare_decision_point_transition,
@@ -80,8 +91,24 @@ from grass.core import (
     replay_branch,
 )
 from grass.core._structured_data import StructuredValue
-from grass.core.execution_events import JOB_ACTIVATED, JOB_CREATED, JOB_FAILED
+from grass.core.execution_events import (
+    JOB_ACTIVATED,
+    JOB_COMPLETED,
+    JOB_CREATED,
+    JOB_FAILED,
+    JobCompletedPayload,
+    JobFailedPayload,
+)
 from grass.core.scenario_events import SCENARIO_OCCURRENCE_RESOLVED
+from grass.core.world_events import STATE_VARIABLE_CHANGED, StateVariableChangedPayload
+from grass.providers import SyncDecisionProviderAdapter
+from grass.runtime import (
+    JobStartProposal,
+    PerceptionCandidate,
+    ReadyPlanStep,
+    RuntimeWorkKind,
+    SimulationEngine,
+)
 
 MINUTE = 60_000_000_000
 ScheduleSource: TypeAlias = JobId | ScenarioOccurrenceRef
@@ -955,4 +982,348 @@ def test_acceptance_scenario_incremental_and_rebuild_execution_are_equivalent() 
         LogicalDuration(37 * MINUTE),
         LogicalDuration(48 * MINUTE),
         LogicalDuration(30 * MINUTE),
+    )
+
+
+class AcceptanceRuntimeIds:
+    def __init__(self) -> None:
+        self._next_value = 0
+
+    def _next(self, kind: str) -> str:
+        self._next_value += 1
+        return f"acceptance:{kind}:{self._next_value}"
+
+    def transition_id(self, branch_id: BranchId, work_kind: RuntimeWorkKind, /) -> TransitionId:
+        return TransitionId(self._next(f"{branch_id.value}:{work_kind.value.lower()}"))
+
+    def event_ids(self, count: int, /) -> tuple[EventId, ...]:
+        return tuple(EventId(self._next("event")) for _ in range(count))
+
+    def job_id(self, plan_step_ref: PlanStepRef, /) -> JobId:
+        return JobId(plan_step_ref.step_id.value)
+
+    def observation_id(self, source_event_id: EventId, actor_id: EntityId, /) -> ObservationId:
+        return ObservationId(f"observation:{source_event_id.value}:{actor_id.value}")
+
+    def decision_point_id(self, observation_id: ObservationId, /) -> DecisionPointId:
+        return DecisionPointId(f"decision-point:{observation_id.value}")
+
+
+class AcceptancePerceptionProjector:
+    def project(
+        self,
+        source_transition: CommittedTransition,
+        state_after_source: SimulationState,
+        /,
+    ) -> tuple[PerceptionCandidate, ...]:
+        del state_after_source
+        candidates: list[PerceptionCandidate] = []
+        for event in source_transition.events:
+            if event.event_type == STATE_VARIABLE_CHANGED:
+                world_payload = decode_world_event(event)
+                if (
+                    type(world_payload) is StateVariableChangedPayload
+                    and world_payload.scope == EntityScope(ALICE)
+                    and world_payload.state_variable_type == "location"
+                    and world_payload.value_after == "office"
+                ):
+                    candidates.append(
+                        PerceptionCandidate(
+                            event.event_id,
+                            BOB,
+                            {"kind": "alice-arrived"},
+                        )
+                    )
+            elif event.event_type == JOB_COMPLETED:
+                execution_payload = decode_execution_event(event)
+                if type(
+                    execution_payload
+                ) is JobCompletedPayload and execution_payload.job_id == JobId("bob-communicate"):
+                    candidates.append(
+                        PerceptionCandidate(
+                            event.event_id,
+                            ALICE,
+                            {"kind": "bob-asked", "message": "Do you have a moment?"},
+                            ALICE_PLAN,
+                        )
+                    )
+            elif event.event_type == JOB_FAILED:
+                execution_payload = decode_execution_event(event)
+                if type(
+                    execution_payload
+                ) is JobFailedPayload and execution_payload.job_id == JobId("alice-report"):
+                    candidates.append(
+                        PerceptionCandidate(
+                            event.event_id,
+                            ALICE,
+                            {"kind": "report-failed", "job_id": "alice-report"},
+                            ALICE_PLAN,
+                        )
+                    )
+        return tuple(candidates)
+
+
+class AcceptanceTriggerPolicy:
+    def evaluate(self, context: DecisionTriggerContext, /) -> DecisionPointProposal:
+        observation = context.observation
+        kind = observation.content["kind"]
+        if kind == "alice-arrived":
+            return DecisionPointProposal(
+                DecisionPointReason.MATERIAL_OBSERVATION,
+                DecisionPointScope.FULL,
+                frozenset({observation.observation_id}),
+            )
+        if kind == "bob-asked":
+            return DecisionPointProposal(
+                DecisionPointReason.INTERACTION_REQUEST,
+                DecisionPointScope.BOUNDED,
+                frozenset({observation.observation_id}),
+                ALICE_PLAN,
+            )
+        if kind == "report-failed":
+            return DecisionPointProposal(
+                DecisionPointReason.JOB_FAILED,
+                DecisionPointScope.FULL,
+                frozenset({observation.observation_id}),
+                ALICE_PLAN,
+            )
+        raise AssertionError(f"unexpected perception kind: {kind}")
+
+
+class AcceptanceJobStartPolicy:
+    def propose(self, ready_step: ReadyPlanStep, state: SimulationState, /) -> JobStartProposal:
+        del state
+        totals = {
+            PlanStepId("alice-move"): 1,
+            PlanStepId("alice-report"): 2,
+            PlanStepId("bob-communicate"): 1,
+            PlanStepId("bob-test"): 1,
+        }
+        return JobStartProposal(LinearProgress(0, totals[ready_step.step_id]), activate=True)
+
+
+class RuntimeAcceptanceJobProjector:
+    def project(
+        self,
+        state: SimulationState,
+        current_time: LogicalTime,
+        progress_anchors: Mapping[JobId, ProgressAnchor],
+        /,
+    ) -> tuple[ScheduledResolution[JobId], ...]:
+        candidates = AcceptanceJobProjector().project(state, current_time, progress_anchors)
+        return tuple(cast(ScheduledResolution[JobId], candidate) for candidate in candidates)
+
+
+class AcceptanceDecisionProvider:
+    def __init__(self, *, accepts_interaction: bool) -> None:
+        self.accepts_interaction = accepts_interaction
+        self.requests: list[DecisionRequest] = []
+
+    def decide(self, request: DecisionRequest, /) -> DecisionProposal:
+        self.requests.append(request)
+        point = request.decision_point
+        if point.reason is DecisionPointReason.PLAN_REQUIRED and point.actor_id == ALICE:
+            return DecisionProposal(DecisionOutcomeKind.REPLACE_PLAN, alice_plan())
+        if point.reason is DecisionPointReason.MATERIAL_OBSERVATION and point.actor_id == BOB:
+            return DecisionProposal(DecisionOutcomeKind.REPLACE_PLAN, bob_plan())
+        if point.reason is DecisionPointReason.INTERACTION_REQUEST and point.actor_id == ALICE:
+            if self.accepts_interaction:
+                intent = "Answer Bob without replacing the report Plan"
+                message = "Yes, but only for five minutes."
+            else:
+                intent = "Refuse and continue report work"
+                message = "Not right now."
+            return DecisionProposal(
+                DecisionOutcomeKind.BOUNDED_REACTION,
+                bounded_reaction=BoundedReaction(intent, {"message": message}),
+            )
+        raise AssertionError(f"unexpected DecisionPoint: {point}")
+
+
+def _runtime_engine(
+    *,
+    store: InMemoryEventStore,
+    definition: WorldDefinition,
+    config: SimulationRunConfig,
+    ids: AcceptanceRuntimeIds,
+    provider: AcceptanceDecisionProvider,
+    job_resolver: AcceptanceJobResolver,
+    outage_resolver: OutageResolver,
+) -> SimulationEngine:
+    binding_config = config.provider_bindings
+    assert binding_config is not None
+    binding = binding_config.decision_bindings[ProviderBindingId("acceptance")]
+    return SimulationEngine(
+        event_store=store,
+        world_definition=definition,
+        run_config=config,
+        identity_source=ids,
+        schedule_projector=RuntimeAcceptanceJobProjector(),
+        conflict_predicate=lambda left, right: (
+            frozenset({left.source_ref, right.source_ref})
+            == frozenset({JobId("alice-report"), JobId("bob-test")})
+        ),
+        world_resolution_provider=job_resolver,
+        scenario_occurrence_resolution_provider=outage_resolver,
+        perception_projector=AcceptancePerceptionProjector(),
+        decision_trigger_policy=AcceptanceTriggerPolicy(),
+        decision_invokers={
+            binding.binding_id: SyncDecisionProviderAdapter(
+                provider,
+                binding,
+                provider_name="acceptance-script",
+            )
+        },
+        external_decision_bindings=frozenset(),
+        job_start_policy=AcceptanceJobStartPolicy(),
+    )
+
+
+def test_simulation_engine_executes_acceptance_frontiers_and_branches() -> None:
+    definition = load_world_definition(scenario_document())
+    binding_id = ProviderBindingId("acceptance")
+    binding = DecisionProviderBinding(
+        binding_id,
+        "acceptance-script",
+        ProviderExecutionLocation.SERVER_MANAGED,
+    )
+    provider_config = ProviderBindingConfiguration(
+        DecisionProviderRouting(binding_id),
+        {binding_id: binding},
+    )
+    config = SimulationRunConfig(definition.ref, provider_config)
+    store = InMemoryEventStore()
+    store.create_root_branch(BranchId("runtime-root"))
+    genesis_count = 1 + 5 + 2 + 1 + 4
+    store.commit_transition(
+        build_genesis_transition(
+            definition,
+            config,
+            TransitionRef(BranchId("runtime-root"), TransitionId("runtime-genesis")),
+            tuple(EventId(f"runtime-genesis:{index}") for index in range(genesis_count)),
+        )
+    )
+    initial_state = replay_branch(store, store.head_position(BranchId("runtime-root")))
+    initial_point = prepare_decision_point_transition(
+        initial_state,
+        ALICE,
+        DecisionPointId("runtime-alice-plan-required"),
+        DecisionPointProposal(
+            DecisionPointReason.PLAN_REQUIRED,
+            DecisionPointScope.FULL,
+            frozenset(),
+        ),
+        TransitionRef(BranchId("runtime-root"), TransitionId("runtime-plan-required")),
+        EventId("runtime-plan-required"),
+        base_history=store.read_visible_transitions(store.head_position(BranchId("runtime-root"))),
+    )
+    store.commit_transition(initial_point.transition, expected_head=initial_point.expected_head)
+
+    ids = AcceptanceRuntimeIds()
+    root_provider = AcceptanceDecisionProvider(accepts_interaction=True)
+    job_resolver = AcceptanceJobResolver([])
+    outage_resolver = OutageResolver([])
+    root_engine = _runtime_engine(
+        store=store,
+        definition=definition,
+        config=config,
+        ids=ids,
+        provider=root_provider,
+        job_resolver=job_resolver,
+        outage_resolver=outage_resolver,
+    )
+    root_id = BranchId("runtime-root")
+
+    expected_prefix = (
+        RuntimeWorkKind.DECISION,
+        RuntimeWorkKind.JOB_START,
+        RuntimeWorkKind.JOB_RESOLUTION_FRONTIER,
+        RuntimeWorkKind.PERCEPTION,
+        RuntimeWorkKind.DECISION,
+        RuntimeWorkKind.JOB_START,
+        RuntimeWorkKind.JOB_START,
+        RuntimeWorkKind.JOB_RESOLUTION_FRONTIER,
+        RuntimeWorkKind.PERCEPTION,
+    )
+    assert (
+        tuple(asyncio.run(root_engine.step(root_id)).work_kind for _ in range(len(expected_prefix)))
+        == expected_prefix
+    )
+    root_history = store.read_visible_transitions(store.head_position(root_id))
+    assert root_history[-1].logical_time == LogicalTime(35 * MINUTE)
+
+    before_id = BranchId("runtime-before-decision")
+    store.fork_branch(before_id, store.head_position(root_id))
+    root_decision = asyncio.run(root_engine.step(root_id))
+    assert root_decision.work_kind is RuntimeWorkKind.DECISION
+    after_id = BranchId("runtime-after-decision")
+    store.fork_branch(after_id, store.head_position(root_id))
+    root_history_before_child = store.read_visible_transitions(store.head_position(root_id))
+
+    child_provider = AcceptanceDecisionProvider(accepts_interaction=False)
+    child_engine = _runtime_engine(
+        store=store,
+        definition=definition,
+        config=config,
+        ids=ids,
+        provider=child_provider,
+        job_resolver=job_resolver,
+        outage_resolver=outage_resolver,
+    )
+    child_decision = asyncio.run(child_engine.step(before_id))
+    assert child_decision.work_kind is RuntimeWorkKind.DECISION
+    assert store.read_visible_transitions(store.head_position(root_id)) == root_history_before_child
+
+    inherited_provider = AcceptanceDecisionProvider(accepts_interaction=False)
+    inherited_engine = _runtime_engine(
+        store=store,
+        definition=definition,
+        config=config,
+        ids=ids,
+        provider=inherited_provider,
+        job_resolver=job_resolver,
+        outage_resolver=outage_resolver,
+    )
+    assert asyncio.run(inherited_engine.step(after_id)).work_kind is RuntimeWorkKind.JOB_START
+    assert inherited_provider.requests == []
+
+    expected_suffix = (
+        RuntimeWorkKind.JOB_START,
+        RuntimeWorkKind.SCENARIO_OCCURRENCE,
+        RuntimeWorkKind.JOB_RESOLUTION_FRONTIER,
+        RuntimeWorkKind.JOB_RESOLUTION_FRONTIER,
+        RuntimeWorkKind.PERCEPTION,
+    )
+    suffix = tuple(asyncio.run(root_engine.step(root_id)).work_kind for _ in expected_suffix)
+    assert suffix == expected_suffix
+
+    root_state = replay_branch(store, store.head_position(root_id))
+    before_state = replay_branch(store, store.head_position(before_id))
+    after_state = replay_branch(store, store.head_position(after_id))
+    bounded_id = next(
+        point_id
+        for point_id, point in root_state.cognition.decision_points.items()
+        if point.reason is DecisionPointReason.INTERACTION_REQUEST
+    )
+    root_bounded = root_state.cognition.decisions[bounded_id]
+    child_bounded = before_state.cognition.decisions[bounded_id]
+    assert type(root_bounded.outcome) is BoundedReactionDecision
+    assert type(child_bounded.outcome) is BoundedReactionDecision
+    assert root_bounded.outcome != child_bounded.outcome
+    assert root_state.cognition.decisions[bounded_id] == after_state.cognition.decisions[bounded_id]
+    assert any(
+        point.reason is DecisionPointReason.JOB_FAILED
+        and point.decision_point_id not in root_state.cognition.decisions
+        for point in root_state.cognition.decision_points.values()
+    )
+    assert root_state.execution.jobs[JobId("alice-report")].status is JobStatus.FAILED
+    assert root_state.execution.jobs[JobId("bob-test")].status is JobStatus.COMPLETED
+    assert len(root_provider.requests) == 3
+    assert len(child_provider.requests) == 1
+    assert len(job_resolver.requests) == 4
+    assert len(outage_resolver.requests) == 1
+    assert all(
+        event.event_type not in {"Tick", "ScheduledResolution"}
+        for transition in store.read_visible_transitions(store.head_position(root_id))
+        for event in transition.events
     )

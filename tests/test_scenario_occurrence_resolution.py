@@ -31,6 +31,11 @@ from grass.core import (
     replay_branch,
 )
 from grass.core.scenario_events import SCENARIO_OCCURRENCE_RESOLVED
+from grass.core.scenario_occurrence_resolution import (
+    acquire_deterministic_scenario_occurrence_resolution_proposal,
+    prepare_scenario_occurrence_resolution_from_proposal,
+    scenario_occurrence_resolution_event_count,
+)
 from grass.core.world_events import STATE_VARIABLE_CHANGED
 from tests.support import event_to_commit, rooted_store, stable_id, transition_to_commit
 
@@ -176,6 +181,57 @@ def test_occurrence_and_world_effect_commit_atomically_and_suppress_rebuild() ->
     assert project_scenario_occurrences(definition(), LogicalTime(10), history) == ()
 
 
+def test_proposal_first_occurrence_acquisition_counts_and_does_not_reinvoke() -> None:
+    world_definition, store, request = setup()
+    provider = StaticProvider(
+        ScenarioOccurrenceResolutionProposal(
+            (SetStateVariableEffect(WorldScope(), "network_available", False),)
+        )
+    )
+
+    proposal = acquire_deterministic_scenario_occurrence_resolution_proposal(
+        provider,
+        request,
+        world_definition,
+    )
+
+    assert provider.calls == 1
+    assert scenario_occurrence_resolution_event_count(request, proposal) == 2
+    prepared = prepare_scenario_occurrence_resolution_from_proposal(
+        request,
+        proposal,
+        world_definition,
+        TransitionRef(request.base_history_position.branch_id, TransitionId("proposal-first")),
+        (EventId("occurrence"), EventId("effect")),
+        history_reader=store,
+    )
+    assert provider.calls == 1
+    assert [event.event_type for event in prepared.transition.events] == [
+        SCENARIO_OCCURRENCE_RESOLVED,
+        STATE_VARIABLE_CHANGED,
+    ]
+
+
+def test_occurrence_prepare_from_proposal_preserves_validation_errors() -> None:
+    world_definition, store, request = setup()
+    proposal = ScenarioOccurrenceResolutionProposal(
+        (SetStateVariableEffect(WorldScope(), "undeclared", False),)
+    )
+
+    with pytest.raises(
+        ScenarioOccurrenceResolutionValidationError,
+        match="undeclared state_variable_type",
+    ):
+        prepare_scenario_occurrence_resolution_from_proposal(
+            request,
+            proposal,
+            world_definition,
+            TransitionRef(request.base_history_position.branch_id, TransitionId("invalid")),
+            (EventId("occurrence"), EventId("effect")),
+            history_reader=store,
+        )
+
+
 def test_invalid_or_failed_provider_commits_nothing() -> None:
     class FailingProvider:
         def resolve(
@@ -218,8 +274,10 @@ def test_invalid_effect_is_an_integrity_error_and_event_count_is_validation_erro
     ):
         prepare(provider, 2)
 
+    count_provider = StaticProvider(ScenarioOccurrenceResolutionProposal())
     with pytest.raises(ScenarioOccurrenceResolutionValidationError, match="exactly 1"):
-        prepare(StaticProvider(ScenarioOccurrenceResolutionProposal()), 0)
+        prepare(count_provider, 0)
+    assert count_provider.calls == 1
 
 
 def test_stale_prepared_occurrence_and_second_resolution_are_rejected() -> None:

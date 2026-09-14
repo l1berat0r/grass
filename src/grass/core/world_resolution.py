@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import ClassVar, Protocol
+from typing import ClassVar, Protocol, TypeAlias
 
 from grass.core._structured_data import StructuredValue
 from grass.core.branches import HistoryPosition
@@ -173,6 +173,10 @@ class ResolutionProposal:
         object.__setattr__(self, "effects", effects)
 
 
+ResolutionComponentProposal: TypeAlias = tuple[ResolutionRequest, ResolutionProposal]
+"""One independently acquired Job-component request/proposal pair."""
+
+
 class WorldResolutionProvider(Protocol):
     """Replaceable pure deterministic candidate-resolution boundary."""
 
@@ -322,6 +326,140 @@ def validate_resolution_proposal(
     _project_candidate(request, _validation_transition(request, specs))
 
 
+def acquire_deterministic_resolution_proposal(
+    provider: WorldResolutionProvider,
+    request: ResolutionRequest,
+    world_definition: WorldDefinition,
+    /,
+) -> ResolutionProposal:
+    """Invoke a deterministic provider once and return its validated proposal."""
+
+    if type(request) is not ResolutionRequest:
+        raise TypeError("request must be a ResolutionRequest")
+    if type(world_definition) is not WorldDefinition:
+        raise TypeError("world_definition must be a WorldDefinition")
+    try:
+        proposal = provider.resolve(request)
+    except Exception as error:
+        raise DeterministicResolutionIntegrityError(
+            "deterministic WorldResolutionProvider failed"
+        ) from error
+    try:
+        validate_resolution_proposal(request, proposal, world_definition)
+    except (ResolutionValidationError, TypeError, ValueError) as error:
+        raise DeterministicResolutionIntegrityError(
+            "deterministic WorldResolutionProvider returned an invalid proposal"
+        ) from error
+    return proposal
+
+
+def resolution_event_count(
+    request: ResolutionRequest,
+    proposal: ResolutionProposal,
+    /,
+) -> int:
+    """Return the exact Event count after one proposal has been acquired."""
+
+    if type(request) is not ResolutionRequest:
+        raise TypeError("request must be a ResolutionRequest")
+    if type(proposal) is not ResolutionProposal:
+        raise ResolutionValidationError("proposal must be a ResolutionProposal")
+    _validate_coverage(request, proposal)
+    return len(_event_specs(request, proposal))
+
+
+def _component_proposals(
+    values: Sequence[ResolutionComponentProposal],
+) -> tuple[ResolutionComponentProposal, ...]:
+    if not isinstance(values, Sequence):
+        raise TypeError("component_proposals must be a sequence")
+    components = tuple(values)
+    if not components:
+        raise ResolutionValidationError("at least one component proposal is required")
+    for component in components:
+        if type(component) is not tuple or len(component) != 2:
+            raise TypeError(
+                "component_proposals must contain (ResolutionRequest, ResolutionProposal) pairs"
+            )
+        request, proposal = component
+        if type(request) is not ResolutionRequest or type(proposal) is not ResolutionProposal:
+            raise TypeError(
+                "component_proposals must contain (ResolutionRequest, ResolutionProposal) pairs"
+            )
+    return components
+
+
+def _aggregate_resolution_proposals(
+    component_proposals: Sequence[ResolutionComponentProposal],
+) -> tuple[ResolutionRequest, ResolutionProposal]:
+    components = _component_proposals(component_proposals)
+    first_request = components[0][0]
+    for component_request, component_proposal in components:
+        if (
+            component_request.base_history_position != first_request.base_history_position
+            or component_request.state != first_request.state
+            or component_request.target_logical_time != first_request.target_logical_time
+            or component_request.elapsed != first_request.elapsed
+        ):
+            raise ResolutionValidationError(
+                "component requests must share the exact base history position, state, "
+                "target logical time, and elapsed duration"
+            )
+        _validate_coverage(component_request, component_proposal)
+    try:
+        aggregate_request = ResolutionRequest(
+            first_request.base_history_position,
+            first_request.target_logical_time,
+            first_request.elapsed,
+            tuple(
+                subject
+                for component_request, _ in components
+                for subject in component_request.subjects
+            ),
+            first_request.state,
+        )
+        aggregate_proposal = ResolutionProposal(
+            tuple(
+                outcome
+                for _, component_proposal in components
+                for outcome in component_proposal.outcomes
+            ),
+            tuple(
+                effect
+                for _, component_proposal in components
+                for effect in component_proposal.effects
+            ),
+        )
+    except (TypeError, ValueError) as error:
+        raise ResolutionValidationError(str(error)) from error
+    return aggregate_request, aggregate_proposal
+
+
+def validate_resolution_component_proposals(
+    component_proposals: Sequence[ResolutionComponentProposal],
+    world_definition: WorldDefinition,
+    /,
+) -> None:
+    """Validate same-frontier component proposals as one atomic candidate batch."""
+
+    if type(world_definition) is not WorldDefinition:
+        raise TypeError("world_definition must be a WorldDefinition")
+    request, proposal = _aggregate_resolution_proposals(component_proposals)
+    _validate_vocabulary(proposal, world_definition)
+    specs = _event_specs(request, proposal)
+    _project_candidate(request, _validation_transition(request, specs))
+
+
+def resolution_component_event_count(
+    component_proposals: Sequence[ResolutionComponentProposal],
+    /,
+) -> int:
+    """Return the exact Event count after all component proposals are known."""
+
+    request, proposal = _aggregate_resolution_proposals(component_proposals)
+    return len(_event_specs(request, proposal))
+
+
 def _event_ids(values: Sequence[EventId]) -> tuple[EventId, ...]:
     if not isinstance(values, Sequence):
         raise TypeError("event_ids must be a sequence")
@@ -353,6 +491,88 @@ def _validate_base_history(
         )
 
 
+def prepare_resolution_from_proposals(
+    component_proposals: Sequence[ResolutionComponentProposal],
+    world_definition: WorldDefinition,
+    transition_ref: TransitionRef,
+    event_ids: Sequence[EventId],
+    *,
+    base_history: Sequence[CommittedTransition],
+    resolver_source_ref: ProvenanceSourceRef | None = None,
+    resolver_metadata: Mapping[str, StructuredValue] | None = None,
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> PreparedResolution:
+    """Validate acquired component proposals and prepare one atomic transition."""
+
+    if type(world_definition) is not WorldDefinition:
+        raise TypeError("world_definition must be a WorldDefinition")
+    request, proposal = _aggregate_resolution_proposals(component_proposals)
+    if type(transition_ref) is not TransitionRef:
+        raise TypeError("transition_ref must be a TransitionRef")
+    if transition_ref.branch_id != request.base_history_position.branch_id:
+        raise ResolutionValidationError("transition and request branches must match")
+    _validate_base_history(request, base_history)
+    _validate_vocabulary(proposal, world_definition)
+    specs = _event_specs(request, proposal)
+    _project_candidate(request, _validation_transition(request, specs))
+    ids = _event_ids(event_ids)
+    if len(ids) != len(specs):
+        raise ResolutionValidationError(
+            f"resolution requires exactly {len(specs)} EventId values, got {len(ids)}"
+        )
+    provenance = Provenance(
+        "WORLD_RESOLVER",
+        resolver_source_ref,
+        {} if resolver_metadata is None else resolver_metadata,
+    )
+    if not isinstance(causation_refs, Sequence):
+        raise TypeError("causation_refs must be a sequence")
+    causes = tuple(causation_refs)
+    if not all(type(item) is CauseRef for item in causes):
+        raise TypeError("causation_refs must contain CauseRef values")
+    if correlation_id is not None and type(correlation_id) is not CorrelationId:
+        raise TypeError("correlation_id must be a CorrelationId or None")
+    transition = _candidate_transition(
+        request,
+        transition_ref,
+        ids,
+        specs,
+        provenance,
+        causes,
+        correlation_id,
+    )
+    return PreparedResolution(request.base_history_position, transition)
+
+
+def prepare_resolution_from_proposal(
+    request: ResolutionRequest,
+    proposal: ResolutionProposal,
+    world_definition: WorldDefinition,
+    transition_ref: TransitionRef,
+    event_ids: Sequence[EventId],
+    *,
+    base_history: Sequence[CommittedTransition],
+    resolver_source_ref: ProvenanceSourceRef | None = None,
+    resolver_metadata: Mapping[str, StructuredValue] | None = None,
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> PreparedResolution:
+    """Validate one acquired proposal and prepare it without provider invocation."""
+
+    return prepare_resolution_from_proposals(
+        ((request, proposal),),
+        world_definition,
+        transition_ref,
+        event_ids,
+        base_history=base_history,
+        resolver_source_ref=resolver_source_ref,
+        resolver_metadata=resolver_metadata,
+        causation_refs=causation_refs,
+        correlation_id=correlation_id,
+    )
+
+
 def prepare_deterministic_resolution(
     provider: WorldResolutionProvider,
     request: ResolutionRequest,
@@ -366,7 +586,7 @@ def prepare_deterministic_resolution(
     causation_refs: Sequence[CauseRef] = (),
     correlation_id: CorrelationId | None = None,
 ) -> PreparedResolution:
-    """Resolve, fully validate, and prepare one transition without committing it."""
+    """Compatibility wrapper that acquires and prepares one deterministic proposal."""
 
     if type(request) is not ResolutionRequest:
         raise TypeError("request must be a ResolutionRequest")
@@ -377,43 +597,20 @@ def prepare_deterministic_resolution(
     if transition_ref.branch_id != request.base_history_position.branch_id:
         raise ResolutionValidationError("transition and request branches must match")
     _validate_base_history(request, base_history)
-    ids = _event_ids(event_ids)
-    provenance = Provenance(
-        "WORLD_RESOLVER",
-        resolver_source_ref,
-        {} if resolver_metadata is None else resolver_metadata,
-    )
-    if not isinstance(causation_refs, Sequence):
-        raise TypeError("causation_refs must be a sequence")
-    causes = tuple(causation_refs)
-    if correlation_id is not None and type(correlation_id) is not CorrelationId:
-        raise TypeError("correlation_id must be a CorrelationId or None")
-
-    try:
-        proposal = provider.resolve(request)
-    except Exception as error:
-        raise DeterministicResolutionIntegrityError(
-            "deterministic WorldResolutionProvider failed"
-        ) from error
-    try:
-        validate_resolution_proposal(request, proposal, world_definition)
-    except (ResolutionValidationError, TypeError, ValueError) as error:
-        raise DeterministicResolutionIntegrityError(
-            "deterministic WorldResolutionProvider returned an invalid proposal"
-        ) from error
-
-    specs = _event_specs(request, proposal)
-    if len(ids) != len(specs):
-        raise ResolutionValidationError(
-            f"resolution requires exactly {len(specs)} EventId values, got {len(ids)}"
-        )
-    transition = _candidate_transition(
+    proposal = acquire_deterministic_resolution_proposal(
+        provider,
         request,
-        transition_ref,
-        ids,
-        specs,
-        provenance,
-        causes,
-        correlation_id,
+        world_definition,
     )
-    return PreparedResolution(request.base_history_position, transition)
+    return prepare_resolution_from_proposal(
+        request,
+        proposal,
+        world_definition,
+        transition_ref,
+        event_ids,
+        base_history=base_history,
+        resolver_source_ref=resolver_source_ref,
+        resolver_metadata=resolver_metadata,
+        causation_refs=causation_refs,
+        correlation_id=correlation_id,
+    )

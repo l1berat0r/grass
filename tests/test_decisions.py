@@ -18,6 +18,7 @@ from grass.core import (
     DecisionPointScope,
     DecisionProposal,
     DecisionRequest,
+    DecisionTriggerContext,
     DecisionTriggerIntegrityError,
     DecisionTriggerResult,
     DeterministicDecisionIntegrityError,
@@ -52,6 +53,11 @@ from grass.core.cognition_events import (
     DECISION_POINT_CREATED,
     DECISION_RECORDED,
     OBSERVATION_CREATED,
+)
+from grass.core.decisions import (
+    EvaluatedObservationTrigger,
+    evaluate_observation_trigger,
+    prepare_evaluated_observation_transition,
 )
 from grass.core.execution_events import PLAN_CREATED, PLAN_REPLACED, PLAN_REVISED
 from grass.core.world_events import ENTITY_CREATED, ENTITY_UPDATED
@@ -232,6 +238,141 @@ def test_triggered_point_commits_before_provider_and_request_is_actor_relative()
     assert request.subject_plan is state.execution.plans[subject]
     assert not hasattr(request, "state")
     assert not hasattr(request, "jobs")
+
+
+def test_proposal_first_trigger_allocates_exact_ids_after_one_evaluation() -> None:
+    store, state = setup_state(with_plan=True)
+    branch_id = state.position.branch_id
+    observation_id = ObservationId("automatic-observation")
+    subject = PlanRef(PlanId("plan"), 1)
+    policy = ScriptedDecisionTriggerPolicy(
+        {
+            observation_id: DecisionPointProposal(
+                DecisionPointReason.MATERIAL_OBSERVATION,
+                DecisionPointScope.FULL,
+                frozenset({observation_id}),
+                subject,
+            )
+        }
+    )
+
+    evaluated = evaluate_observation_trigger(
+        policy,
+        state,
+        ObservationProposal(observation_id, EntityId("actor"), {"signal": "automatic"}),
+        subject,
+        base_history=store.read_visible_transitions(store.head_position(branch_id)),
+    )
+
+    assert isinstance(evaluated, EvaluatedObservationTrigger)
+    assert evaluated.event_count == 2
+    assert evaluated.decision_point_proposal is not None
+    assert evaluated.decision_point_proposal.subject_plan_ref == subject
+    assert len(policy.requests) == 1
+
+    point_id = DecisionPointId("automatic-point")
+    event_ids = tuple(EventId(f"automatic-event-{index}") for index in range(evaluated.event_count))
+    source_cause = CauseRef("event", "actor")
+    prepared = prepare_evaluated_observation_transition(
+        evaluated,
+        state,
+        point_id,
+        TransitionRef(branch_id, TransitionId("automatic-perception")),
+        event_ids,
+        base_history=store.read_visible_transitions(store.head_position(branch_id)),
+        causation_refs=(source_cause,),
+    )
+
+    assert len(policy.requests) == 1
+    assert prepared.expected_head == evaluated.expected_head
+    assert prepared.transition.events[0].causation_refs == (source_cause,)
+    assert prepared.transition.events[1].causation_refs == (CauseRef("event", event_ids[0].value),)
+    store.commit_transition(prepared.transition, expected_head=prepared.expected_head)
+    replayed = replay_branch(store, store.head_position(branch_id))
+    assert replayed.cognition.decision_points[point_id].observation_ids == frozenset(
+        {observation_id}
+    )
+
+
+@dataclass
+class InvalidTriggerPolicy:
+    value: object
+    calls: int = 0
+
+    def evaluate(self, context: DecisionTriggerContext, /) -> object:
+        self.calls += 1
+        return self.value
+
+
+def test_proposal_first_trigger_validates_exact_subject_and_output_once() -> None:
+    store, state = setup_state(with_plan=True)
+    branch_id = state.position.branch_id
+    history = store.read_visible_transitions(store.head_position(branch_id))
+    subject = PlanRef(PlanId("plan"), 1)
+    observation = ObservationProposal(ObservationId("observation"), EntityId("actor"), {})
+    changed_subject = ScriptedDecisionTriggerPolicy(
+        {
+            observation.observation_id: DecisionPointProposal(
+                DecisionPointReason.PLAN_BLOCKED,
+                DecisionPointScope.FULL,
+                frozenset({observation.observation_id}),
+            )
+        }
+    )
+
+    with pytest.raises(DecisionTriggerIntegrityError, match="exact subject Plan"):
+        evaluate_observation_trigger(
+            changed_subject,
+            state,
+            observation,
+            subject,
+            base_history=history,
+        )
+    assert len(changed_subject.requests) == 1
+
+    malformed = InvalidTriggerPolicy(object())
+    with pytest.raises(DecisionTriggerIntegrityError, match="invalid output"):
+        evaluate_observation_trigger(
+            malformed,  # type: ignore[arg-type]
+            state,
+            observation,
+            subject,
+            base_history=history,
+        )
+    assert malformed.calls == 1
+
+
+def test_automatic_trigger_requires_new_observation_but_compatibility_helper_does_not() -> None:
+    store, state = setup_state()
+    branch_id = state.position.branch_id
+    observation = ObservationProposal(ObservationId("observation"), EntityId("actor"), {})
+    proposal = DecisionPointProposal(
+        DecisionPointReason.MATERIAL_OBSERVATION,
+        DecisionPointScope.FULL,
+        frozenset(),
+    )
+    history = store.read_visible_transitions(store.head_position(branch_id))
+
+    with pytest.raises(DecisionTriggerIntegrityError, match="new Observation"):
+        evaluate_observation_trigger(
+            ScriptedDecisionTriggerPolicy({observation.observation_id: proposal}),
+            state,
+            observation,
+            None,
+            base_history=history,
+        )
+
+    prepared = prepare_observation_transition(
+        ScriptedDecisionTriggerPolicy({observation.observation_id: proposal}),
+        state,
+        observation,
+        None,
+        DecisionPointId("compatibility-point"),
+        TransitionRef(branch_id, TransitionId("compatibility-perception")),
+        (EventId("compatibility-observation"), EventId("compatibility-point")),
+        base_history=history,
+    )
+    assert len(prepared.transition.events) == 2
 
 
 def test_invalid_trigger_references_are_integrity_failures() -> None:

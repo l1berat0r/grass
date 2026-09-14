@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import ClassVar, Protocol
+from typing import ClassVar, Protocol, cast
 
 from grass.core._structured_data import StructuredValue
 from grass.core.branches import HistoryPosition
@@ -272,6 +272,53 @@ def validate_scenario_occurrence_resolution_proposal(
     _project_candidate(request, _validation_transition(request, specs))
 
 
+def acquire_deterministic_scenario_occurrence_resolution_proposal(
+    provider: ScenarioOccurrenceResolutionProvider,
+    request: ScenarioOccurrenceResolutionRequest,
+    world_definition: WorldDefinition,
+    /,
+) -> ScenarioOccurrenceResolutionProposal:
+    """Invoke a deterministic provider once and return its validated proposal."""
+
+    if type(request) is not ScenarioOccurrenceResolutionRequest:
+        raise TypeError("request must be a ScenarioOccurrenceResolutionRequest")
+    if type(world_definition) is not WorldDefinition:
+        raise TypeError("world_definition must be a WorldDefinition")
+    try:
+        proposal = provider.resolve(request)
+    except Exception as error:
+        raise DeterministicScenarioOccurrenceResolutionIntegrityError(
+            "deterministic ScenarioOccurrenceResolutionProvider failed"
+        ) from error
+    try:
+        validate_scenario_occurrence_resolution_proposal(
+            request,
+            proposal,
+            world_definition,
+        )
+    except (ScenarioOccurrenceResolutionValidationError, TypeError, ValueError) as error:
+        raise DeterministicScenarioOccurrenceResolutionIntegrityError(
+            "deterministic ScenarioOccurrenceResolutionProvider returned an invalid proposal"
+        ) from error
+    return proposal
+
+
+def scenario_occurrence_resolution_event_count(
+    request: ScenarioOccurrenceResolutionRequest,
+    proposal: ScenarioOccurrenceResolutionProposal,
+    /,
+) -> int:
+    """Return the exact Event count after an occurrence proposal is acquired."""
+
+    if type(request) is not ScenarioOccurrenceResolutionRequest:
+        raise TypeError("request must be a ScenarioOccurrenceResolutionRequest")
+    if type(proposal) is not ScenarioOccurrenceResolutionProposal:
+        raise ScenarioOccurrenceResolutionValidationError(
+            "proposal must be a ScenarioOccurrenceResolutionProposal"
+        )
+    return len(_event_specs(request, proposal))
+
+
 def _event_ids(values: Sequence[EventId]) -> tuple[EventId, ...]:
     if not isinstance(values, Sequence):
         raise TypeError("event_ids must be a sequence")
@@ -356,6 +403,109 @@ def _validate_request_definition(
         )
 
 
+def _read_visible_history(
+    history_reader: ScenarioOccurrenceHistoryReader,
+    position: HistoryPosition,
+) -> Sequence[CommittedTransition]:
+    read_visible_transitions = getattr(history_reader, "read_visible_transitions", None)
+    if not callable(read_visible_transitions):
+        raise TypeError("history_reader must provide read_visible_transitions")
+    history: object = read_visible_transitions(position)
+    if not isinstance(history, Sequence):
+        raise TypeError("read_visible_transitions must return a sequence")
+    return cast(Sequence[CommittedTransition], history)
+
+
+def _prepare_scenario_occurrence_resolution_from_proposal(
+    request: ScenarioOccurrenceResolutionRequest,
+    proposal: ScenarioOccurrenceResolutionProposal,
+    world_definition: WorldDefinition,
+    transition_ref: TransitionRef,
+    event_ids: Sequence[EventId],
+    *,
+    base_history: Sequence[CommittedTransition],
+    resolver_source_ref: ProvenanceSourceRef | None = None,
+    resolver_metadata: Mapping[str, StructuredValue] | None = None,
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> PreparedScenarioOccurrenceResolution:
+    """Prepare one proposal using already-read visible history."""
+
+    if type(request) is not ScenarioOccurrenceResolutionRequest:
+        raise TypeError("request must be a ScenarioOccurrenceResolutionRequest")
+    if type(world_definition) is not WorldDefinition:
+        raise TypeError("world_definition must be a WorldDefinition")
+    if type(transition_ref) is not TransitionRef:
+        raise TypeError("transition_ref must be a TransitionRef")
+    if transition_ref.branch_id != request.base_history_position.branch_id:
+        raise ScenarioOccurrenceResolutionValidationError(
+            "transition and request branches must match"
+        )
+    _validate_base_history(request, world_definition, base_history)
+    validate_scenario_occurrence_resolution_proposal(request, proposal, world_definition)
+    ids = _event_ids(event_ids)
+    specs = _event_specs(request, proposal)
+    if len(ids) != len(specs):
+        raise ScenarioOccurrenceResolutionValidationError(
+            f"scenario occurrence resolution requires exactly {len(specs)} EventId values, "
+            f"got {len(ids)}"
+        )
+    provenance = Provenance(
+        "WORLD_RESOLVER",
+        resolver_source_ref,
+        {} if resolver_metadata is None else resolver_metadata,
+    )
+    if not isinstance(causation_refs, Sequence):
+        raise TypeError("causation_refs must be a sequence")
+    causes = tuple(causation_refs)
+    if not all(type(item) is CauseRef for item in causes):
+        raise TypeError("causation_refs must contain CauseRef values")
+    if correlation_id is not None and type(correlation_id) is not CorrelationId:
+        raise TypeError("correlation_id must be a CorrelationId or None")
+    transition = _candidate_transition(
+        request,
+        transition_ref,
+        ids,
+        specs,
+        provenance,
+        causes,
+        correlation_id,
+    )
+    return PreparedScenarioOccurrenceResolution(request.base_history_position, transition)
+
+
+def prepare_scenario_occurrence_resolution_from_proposal(
+    request: ScenarioOccurrenceResolutionRequest,
+    proposal: ScenarioOccurrenceResolutionProposal,
+    world_definition: WorldDefinition,
+    transition_ref: TransitionRef,
+    event_ids: Sequence[EventId],
+    *,
+    history_reader: ScenarioOccurrenceHistoryReader,
+    resolver_source_ref: ProvenanceSourceRef | None = None,
+    resolver_metadata: Mapping[str, StructuredValue] | None = None,
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> PreparedScenarioOccurrenceResolution:
+    """Validate and prepare one acquired proposal without provider invocation."""
+
+    if type(request) is not ScenarioOccurrenceResolutionRequest:
+        raise TypeError("request must be a ScenarioOccurrenceResolutionRequest")
+    base_history = _read_visible_history(history_reader, request.base_history_position)
+    return _prepare_scenario_occurrence_resolution_from_proposal(
+        request,
+        proposal,
+        world_definition,
+        transition_ref,
+        event_ids,
+        base_history=base_history,
+        resolver_source_ref=resolver_source_ref,
+        resolver_metadata=resolver_metadata,
+        causation_refs=causation_refs,
+        correlation_id=correlation_id,
+    )
+
+
 def prepare_deterministic_scenario_occurrence_resolution(
     provider: ScenarioOccurrenceResolutionProvider,
     request: ScenarioOccurrenceResolutionRequest,
@@ -369,7 +519,7 @@ def prepare_deterministic_scenario_occurrence_resolution(
     causation_refs: Sequence[CauseRef] = (),
     correlation_id: CorrelationId | None = None,
 ) -> PreparedScenarioOccurrenceResolution:
-    """Resolve, fully validate, and prepare one occurrence without committing it."""
+    """Compatibility wrapper that acquires and prepares one occurrence proposal."""
 
     if type(request) is not ScenarioOccurrenceResolutionRequest:
         raise TypeError("request must be a ScenarioOccurrenceResolutionRequest")
@@ -381,51 +531,22 @@ def prepare_deterministic_scenario_occurrence_resolution(
         raise ScenarioOccurrenceResolutionValidationError(
             "transition and request branches must match"
         )
-    read_visible_transitions = getattr(history_reader, "read_visible_transitions", None)
-    if not callable(read_visible_transitions):
-        raise TypeError("history_reader must provide read_visible_transitions")
-    base_history = read_visible_transitions(request.base_history_position)
+    base_history = _read_visible_history(history_reader, request.base_history_position)
     _validate_base_history(request, world_definition, base_history)
-    ids = _event_ids(event_ids)
-    provenance = Provenance(
-        "WORLD_RESOLVER",
-        resolver_source_ref,
-        {} if resolver_metadata is None else resolver_metadata,
-    )
-    if not isinstance(causation_refs, Sequence):
-        raise TypeError("causation_refs must be a sequence")
-    causes = tuple(causation_refs)
-    if not all(type(item) is CauseRef for item in causes):
-        raise TypeError("causation_refs must contain CauseRef values")
-    if correlation_id is not None and type(correlation_id) is not CorrelationId:
-        raise TypeError("correlation_id must be a CorrelationId or None")
-
-    try:
-        proposal = provider.resolve(request)
-    except Exception as error:
-        raise DeterministicScenarioOccurrenceResolutionIntegrityError(
-            "deterministic ScenarioOccurrenceResolutionProvider failed"
-        ) from error
-    try:
-        validate_scenario_occurrence_resolution_proposal(request, proposal, world_definition)
-    except (ScenarioOccurrenceResolutionValidationError, TypeError, ValueError) as error:
-        raise DeterministicScenarioOccurrenceResolutionIntegrityError(
-            "deterministic ScenarioOccurrenceResolutionProvider returned an invalid proposal"
-        ) from error
-
-    specs = _event_specs(request, proposal)
-    if len(ids) != len(specs):
-        raise ScenarioOccurrenceResolutionValidationError(
-            f"scenario occurrence resolution requires exactly {len(specs)} EventId values, "
-            f"got {len(ids)}"
-        )
-    transition = _candidate_transition(
+    proposal = acquire_deterministic_scenario_occurrence_resolution_proposal(
+        provider,
         request,
-        transition_ref,
-        ids,
-        specs,
-        provenance,
-        causes,
-        correlation_id,
+        world_definition,
     )
-    return PreparedScenarioOccurrenceResolution(request.base_history_position, transition)
+    return _prepare_scenario_occurrence_resolution_from_proposal(
+        request,
+        proposal,
+        world_definition,
+        transition_ref,
+        event_ids,
+        base_history=base_history,
+        resolver_source_ref=resolver_source_ref,
+        resolver_metadata=resolver_metadata,
+        causation_refs=causation_refs,
+        correlation_id=correlation_id,
+    )

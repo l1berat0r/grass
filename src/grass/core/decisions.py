@@ -134,6 +134,43 @@ class DecisionTriggerPolicy(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class EvaluatedObservationTrigger:
+    """One validated Observation and the trigger output evaluated from it."""
+
+    __hash__: ClassVar[None] = None  # type: ignore[assignment]
+
+    expected_head: HistoryPosition
+    context: DecisionTriggerContext
+    output: DecisionTriggerOutput
+
+    def __post_init__(self) -> None:
+        if type(self.expected_head) is not HistoryPosition:
+            raise TypeError("expected_head must be a HistoryPosition")
+        if type(self.context) is not DecisionTriggerContext:
+            raise TypeError("context must be a DecisionTriggerContext")
+        if type(self.output) not in (DecisionTriggerResult, DecisionPointProposal):
+            raise TypeError("output must be a supported DecisionTriggerOutput")
+        if type(self.output) is DecisionPointProposal:
+            subject_plan_ref = (
+                None if self.context.subject_plan is None else self.context.subject_plan.ref
+            )
+            if self.output.subject_plan_ref != subject_plan_ref:
+                raise ValueError("output must retain the exact subject Plan")
+
+    @property
+    def event_count(self) -> int:
+        """Return the exact number of Events needed for this evaluated output."""
+
+        return 1 if self.output is DecisionTriggerResult.CONTINUE else 2
+
+    @property
+    def decision_point_proposal(self) -> DecisionPointProposal | None:
+        if type(self.output) is DecisionPointProposal:
+            return self.output
+        return None
+
+
 class ScriptedDecisionTriggerPolicy:
     """Deterministic policy keyed by ObservationId for core tests and scenarios."""
 
@@ -333,7 +370,9 @@ def _plan_payload(plan: Plan) -> Mapping[str, StructuredValue]:
     }
 
 
-def _observation_payload(proposal: ObservationProposal) -> Mapping[str, StructuredValue]:
+def _observation_payload(
+    proposal: ObservationProposal | Observation,
+) -> Mapping[str, StructuredValue]:
     return {
         "observation_id": proposal.observation_id.value,
         "actor_id": proposal.actor_id.value,
@@ -392,6 +431,26 @@ def _decision_payload(
     return {"decision_point_id": decision_point_id.value, "outcome": outcome}
 
 
+def _history_frontier(
+    state: SimulationState,
+    base_history: Sequence[CommittedTransition],
+) -> tuple[HistoryPosition, LogicalTime]:
+    if not isinstance(base_history, Sequence):
+        raise TypeError("base_history must be a sequence")
+    history = tuple(base_history)
+    if not history:
+        raise CognitionValidationError("cognition preparation requires non-empty base history")
+    if not all(type(item) is CommittedTransition for item in history):
+        raise TypeError("base_history must contain CommittedTransition values")
+    latest = history[-1]
+    if (
+        state.position.last_transition_ref is not None
+        and state.position.last_transition_ref != latest.transition_ref
+    ):
+        raise CognitionValidationError("base_history does not end at the projected state position")
+    return HistoryPosition(state.position.branch_id, latest.transition_ref), latest.logical_time
+
+
 def _validate_common(
     state: SimulationState,
     transition_ref: TransitionRef,
@@ -413,19 +472,7 @@ def _validate_common(
         raise TypeError("event_ids must contain EventId values")
     if len(set(ids)) != len(ids):
         raise CognitionValidationError("event_ids must be unique")
-    if not isinstance(base_history, Sequence):
-        raise TypeError("base_history must be a sequence")
-    history = tuple(base_history)
-    if not history:
-        raise CognitionValidationError("cognition preparation requires non-empty base history")
-    if not all(type(item) is CommittedTransition for item in history):
-        raise TypeError("base_history must contain CommittedTransition values")
-    latest = history[-1]
-    if (
-        state.position.last_transition_ref is not None
-        and state.position.last_transition_ref != latest.transition_ref
-    ):
-        raise CognitionValidationError("base_history does not end at the projected state position")
+    expected_head, logical_time = _history_frontier(state, base_history)
     if not isinstance(causation_refs, Sequence):
         raise TypeError("causation_refs must be a sequence")
     causes = tuple(causation_refs)
@@ -436,8 +483,8 @@ def _validate_common(
     return (
         ids,
         causes,
-        HistoryPosition(state.position.branch_id, latest.transition_ref),
-        latest.logical_time,
+        expected_head,
+        logical_time,
     )
 
 
@@ -498,6 +545,190 @@ def _project_candidate(state: SimulationState, transition: TransitionToCommit) -
         raise CognitionValidationError(str(error)) from error
 
 
+def _evaluate_observation_trigger(
+    policy: DecisionTriggerPolicy,
+    state: SimulationState,
+    observation: Observation,
+    subject_plan_ref: PlanRef | None,
+    expected_head: HistoryPosition,
+    *,
+    require_new_observation_reference: bool,
+) -> EvaluatedObservationTrigger:
+    subject_plan = None
+    if subject_plan_ref is not None:
+        subject_plan = state.execution.plans.get(subject_plan_ref)
+        if subject_plan is None:
+            raise CognitionValidationError("subject Plan does not exist")
+    context = DecisionTriggerContext(observation, subject_plan)
+    try:
+        output = policy.evaluate(context)
+    except Exception as error:
+        raise DecisionTriggerIntegrityError("deterministic DecisionTriggerPolicy failed") from error
+    if type(output) not in (DecisionTriggerResult, DecisionPointProposal):
+        raise DecisionTriggerIntegrityError(
+            "deterministic DecisionTriggerPolicy returned invalid output"
+        )
+    if type(output) is DecisionPointProposal:
+        if output.subject_plan_ref != subject_plan_ref:
+            raise DecisionTriggerIntegrityError(
+                "DecisionPoint proposal changed the exact subject Plan"
+            )
+        available_observations = dict(state.cognition.observations)
+        available_observations[observation.observation_id] = observation
+        for observation_id in output.observation_ids:
+            referenced = available_observations.get(observation_id)
+            if referenced is None or referenced.actor_id != observation.actor_id:
+                raise DecisionTriggerIntegrityError(
+                    "DecisionPoint proposal references unavailable actor cognition"
+                )
+        if (
+            require_new_observation_reference
+            and observation.observation_id not in output.observation_ids
+        ):
+            raise DecisionTriggerIntegrityError(
+                "automatic DecisionPoint must reference its new Observation"
+            )
+    return EvaluatedObservationTrigger(expected_head, context, output)
+
+
+def evaluate_observation_trigger(
+    policy: DecisionTriggerPolicy,
+    state: SimulationState,
+    observation: ObservationProposal,
+    subject_plan_ref: PlanRef | None,
+    *,
+    base_history: Sequence[CommittedTransition],
+    perception_source_ref: ProvenanceSourceRef | None = None,
+    perception_metadata: Mapping[str, StructuredValue] | None = None,
+) -> EvaluatedObservationTrigger:
+    """Create one Observation and evaluate its automatic trigger exactly once."""
+
+    if type(state) is not SimulationState:
+        raise TypeError("state must be a SimulationState")
+    if type(observation) is not ObservationProposal:
+        raise TypeError("observation must be an ObservationProposal")
+    if subject_plan_ref is not None and type(subject_plan_ref) is not PlanRef:
+        raise TypeError("subject_plan_ref must be a PlanRef or None")
+    expected_head, logical_time = _history_frontier(state, base_history)
+    provenance = Provenance(
+        "PERCEPTION",
+        perception_source_ref,
+        {} if perception_metadata is None else perception_metadata,
+    )
+    projected_observation = Observation(
+        observation.observation_id,
+        observation.actor_id,
+        observation.content,
+        provenance,
+        logical_time,
+    )
+    return _evaluate_observation_trigger(
+        policy,
+        state,
+        projected_observation,
+        subject_plan_ref,
+        expected_head,
+        require_new_observation_reference=True,
+    )
+
+
+def _prepare_evaluated_observation_transition(
+    evaluated: EvaluatedObservationTrigger,
+    state: SimulationState,
+    decision_point_id: DecisionPointId | None,
+    transition_ref: TransitionRef,
+    ids: tuple[EventId, ...],
+    source_causes: tuple[CauseRef, ...],
+    expected_head: HistoryPosition,
+    logical_time: LogicalTime,
+    correlation_id: CorrelationId | None,
+) -> PreparedCognitionTransition:
+    observation = evaluated.context.observation
+    output = evaluated.output
+
+    specs: list[EventSpec] = [
+        (
+            OBSERVATION_CREATED,
+            _observation_payload(observation),
+            observation.provenance,
+            source_causes,
+        )
+    ]
+    if output is DecisionTriggerResult.CONTINUE:
+        if decision_point_id is not None:
+            raise CognitionValidationError("CONTINUE must not allocate a DecisionPointId")
+    else:
+        if decision_point_id is None:
+            raise CognitionValidationError("triggered DecisionPoint requires a DecisionPointId")
+        specs.append(
+            (
+                DECISION_POINT_CREATED,
+                _decision_point_payload(decision_point_id, observation.actor_id, output),
+                Provenance("DECISION_TRIGGER"),
+                (CauseRef("event", ids[0].value),),
+            )
+        )
+
+    transition = _candidate_transition(
+        transition_ref, logical_time, ids, tuple(specs), correlation_id
+    )
+    _project_candidate(state, transition)
+    return PreparedCognitionTransition(expected_head, transition)
+
+
+def prepare_evaluated_observation_transition(
+    evaluated: EvaluatedObservationTrigger,
+    state: SimulationState,
+    decision_point_id: DecisionPointId | None,
+    transition_ref: TransitionRef,
+    event_ids: Sequence[EventId],
+    *,
+    base_history: Sequence[CommittedTransition],
+    causation_refs: Sequence[CauseRef] = (),
+    correlation_id: CorrelationId | None = None,
+) -> PreparedCognitionTransition:
+    """Prepare an evaluated automatic Observation without invoking its policy again."""
+
+    if type(evaluated) is not EvaluatedObservationTrigger:
+        raise TypeError("evaluated must be an EvaluatedObservationTrigger")
+    if decision_point_id is not None and type(decision_point_id) is not DecisionPointId:
+        raise TypeError("decision_point_id must be a DecisionPointId or None")
+    ids, source_causes, expected_head, logical_time = _validate_common(
+        state,
+        transition_ref,
+        event_ids,
+        base_history,
+        causation_refs,
+        correlation_id,
+    )
+    if expected_head != evaluated.expected_head:
+        raise CognitionValidationError("evaluated trigger does not match the current history head")
+    if logical_time != evaluated.context.observation.observed_at:
+        raise CognitionValidationError("evaluated Observation has the wrong logical time")
+    subject_plan = evaluated.context.subject_plan
+    if subject_plan is not None and state.execution.plans.get(subject_plan.ref) != subject_plan:
+        raise CognitionValidationError("evaluated trigger subject Plan changed")
+    proposal = evaluated.decision_point_proposal
+    if (
+        proposal is not None
+        and evaluated.context.observation.observation_id not in proposal.observation_ids
+    ):
+        raise DecisionTriggerIntegrityError(
+            "automatic DecisionPoint must reference its new Observation"
+        )
+    return _prepare_evaluated_observation_transition(
+        evaluated,
+        state,
+        decision_point_id,
+        transition_ref,
+        ids,
+        source_causes,
+        expected_head,
+        logical_time,
+        correlation_id,
+    )
+
+
 def prepare_observation_transition(
     policy: DecisionTriggerPolicy,
     state: SimulationState,
@@ -531,74 +762,36 @@ def prepare_observation_transition(
     )
     if not ids:
         raise CognitionValidationError("Observation transition requires EventId values")
-    perception_provenance = Provenance(
+    provenance = Provenance(
         "PERCEPTION",
         perception_source_ref,
         {} if perception_metadata is None else perception_metadata,
     )
-    projected_observation = Observation(
-        observation.observation_id,
-        observation.actor_id,
-        observation.content,
-        perception_provenance,
+    evaluated = _evaluate_observation_trigger(
+        policy,
+        state,
+        Observation(
+            observation.observation_id,
+            observation.actor_id,
+            observation.content,
+            provenance,
+            logical_time,
+        ),
+        subject_plan_ref,
+        expected_head,
+        require_new_observation_reference=False,
+    )
+    return _prepare_evaluated_observation_transition(
+        evaluated,
+        state,
+        decision_point_id,
+        transition_ref,
+        ids,
+        source_causes,
+        expected_head,
         logical_time,
+        correlation_id,
     )
-    subject_plan = None
-    if subject_plan_ref is not None:
-        subject_plan = state.execution.plans.get(subject_plan_ref)
-        if subject_plan is None:
-            raise CognitionValidationError("subject Plan does not exist")
-    context = DecisionTriggerContext(projected_observation, subject_plan)
-    try:
-        output = policy.evaluate(context)
-    except Exception as error:
-        raise DecisionTriggerIntegrityError("deterministic DecisionTriggerPolicy failed") from error
-    if type(output) not in (DecisionTriggerResult, DecisionPointProposal):
-        raise DecisionTriggerIntegrityError(
-            "deterministic DecisionTriggerPolicy returned invalid output"
-        )
-    if type(output) is DecisionPointProposal:
-        available_observations = dict(state.cognition.observations)
-        available_observations[projected_observation.observation_id] = projected_observation
-        for observation_id in output.observation_ids:
-            referenced = available_observations.get(observation_id)
-            if referenced is None or referenced.actor_id != observation.actor_id:
-                raise DecisionTriggerIntegrityError(
-                    "DecisionPoint proposal references unavailable actor cognition"
-                )
-
-    specs: list[EventSpec] = [
-        (
-            OBSERVATION_CREATED,
-            _observation_payload(observation),
-            perception_provenance,
-            source_causes,
-        )
-    ]
-    if output is DecisionTriggerResult.CONTINUE:
-        if decision_point_id is not None:
-            raise CognitionValidationError("CONTINUE must not allocate a DecisionPointId")
-    else:
-        if decision_point_id is None:
-            raise CognitionValidationError("triggered DecisionPoint requires a DecisionPointId")
-        if output.subject_plan_ref != subject_plan_ref:
-            raise DecisionTriggerIntegrityError(
-                "DecisionPoint proposal changed the exact subject Plan"
-            )
-        specs.append(
-            (
-                DECISION_POINT_CREATED,
-                _decision_point_payload(decision_point_id, observation.actor_id, output),
-                Provenance("DECISION_TRIGGER"),
-                (CauseRef("event", ids[0].value),),
-            )
-        )
-
-    transition = _candidate_transition(
-        transition_ref, logical_time, ids, tuple(specs), correlation_id
-    )
-    _project_candidate(state, transition)
-    return PreparedCognitionTransition(expected_head, transition)
 
 
 def prepare_decision_point_transition(

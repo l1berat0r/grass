@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
 from grass.core.branches import HistoryPosition
-from grass.core.event_store import InMemoryEventStore
+from grass.core.event_store import EventStore
 from grass.core.events import CommittedTransition
 from grass.core.identifiers import BranchId
 from grass.core.projections import project_transition
@@ -78,7 +78,7 @@ def _carry_state_to_position(
 
 
 def _checkpoint_start(
-    store: InMemoryEventStore,
+    store: EventStore,
     checkpoint: StateCheckpoint,
     target_history: tuple[CommittedTransition, ...],
 ) -> tuple[SimulationState, int]:
@@ -104,18 +104,18 @@ def _checkpoint_start(
 
 
 def replay_branch(
-    store: InMemoryEventStore,
+    store: EventStore,
     target: HistoryPosition,
     checkpoint_loader: CheckpointLoader | None = None,
 ) -> SimulationState:
     """Reconstruct complete state at one ancestry-aware history position."""
 
-    if type(store) is not InMemoryEventStore:
-        raise TypeError("store must be an InMemoryEventStore")
+    if not callable(getattr(store, "read_visible_transitions", None)):
+        raise TypeError("store must provide read_visible_transitions")
     if type(target) is not HistoryPosition:
         raise TypeError("target must be a HistoryPosition")
 
-    target_history = store.read_visible_transitions(target)
+    target_history = tuple(store.read_visible_transitions(target))
     checkpoint = (
         checkpoint_loader.load_checkpoint(target) if checkpoint_loader is not None else None
     )

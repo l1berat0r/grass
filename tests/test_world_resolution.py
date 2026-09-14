@@ -85,6 +85,14 @@ from grass.core.world_events import (
     RESOURCE_CHANGED,
     STATE_VARIABLE_CHANGED,
 )
+from grass.core.world_resolution import (
+    acquire_deterministic_resolution_proposal,
+    prepare_resolution_from_proposal,
+    prepare_resolution_from_proposals,
+    resolution_component_event_count,
+    resolution_event_count,
+    validate_resolution_component_proposals,
+)
 
 
 def definition() -> WorldDefinition:
@@ -178,6 +186,64 @@ def request(*, candidates: Sequence[ScheduledResolution[JobId]] | None = None) -
         (JobResolutionSubject(JobId("job"), due),),
         state,
     )
+
+
+def two_component_requests() -> tuple[ResolutionRequest, ResolutionRequest]:
+    state = simulation_state()
+    first_plan = next(iter(state.execution.plans.values()))
+    second_plan = Plan(
+        PlanId("second-plan"),
+        1,
+        EntityId("actor"),
+        "Second work item",
+        (
+            PlanStep(
+                PlanStepId("second-step"),
+                ActionPrimitive.WAIT,
+                None,
+                {},
+                {},
+                frozenset(),
+                PlanStepOrigin.ACTOR_INTENT,
+            ),
+        ),
+        None,
+        Provenance("ACTOR"),
+        LogicalTime(0),
+    )
+    second_job = Job(
+        JobId("second-job"),
+        PlanStepRef(second_plan.ref, PlanStepId("second-step")),
+        JobStatus.ACTIVE,
+        BinaryProgress(False),
+        Provenance("ACTOR"),
+        LogicalTime(0),
+    )
+    state = SimulationState(
+        state.position,
+        state.world,
+        ExecutionState(
+            plans={first_plan.ref: first_plan, second_plan.ref: second_plan},
+            jobs={**state.execution.jobs, second_job.job_id: second_job},
+        ),
+    )
+    position = HistoryPosition(state.position.branch_id, state.position.last_transition_ref)
+
+    def component(job_id: JobId) -> ResolutionRequest:
+        return ResolutionRequest(
+            position,
+            LogicalTime(10),
+            LogicalDuration(7),
+            (
+                JobResolutionSubject(
+                    job_id,
+                    (ScheduledResolution(LogicalTime(10), "CHECK", job_id),),
+                ),
+            ),
+            state,
+        )
+
+    return component(JobId("job")), component(JobId("second-job"))
 
 
 def base_transition() -> CommittedTransition:
@@ -411,6 +477,152 @@ def test_no_effect_failed_outcome_prepares_non_empty_history_without_job_change(
     }
 
 
+def test_proposal_first_acquisition_exposes_count_and_prepares_without_reinvocation() -> None:
+    resolution_request = request()
+    provider = StaticProvider(
+        ResolutionProposal(
+            (outcome(),),
+            (SetStateVariableEffect(WorldScope(), "stress", 1),),
+        )
+    )
+
+    proposal = acquire_deterministic_resolution_proposal(
+        provider,
+        resolution_request,
+        definition(),
+    )
+
+    assert provider.calls == 1
+    assert resolution_event_count(resolution_request, proposal) == 2
+    prepared = prepare_resolution_from_proposal(
+        resolution_request,
+        proposal,
+        definition(),
+        TransitionRef(BranchId("branch"), TransitionId("proposal-first")),
+        (EventId("outcome"), EventId("effect")),
+        base_history=(base_transition(),),
+    )
+    assert provider.calls == 1
+    assert [event.event_type for event in prepared.transition.events] == [
+        RESOLUTION_OUTCOME_RECORDED,
+        STATE_VARIABLE_CHANGED,
+    ]
+
+
+def test_component_proposals_prepare_one_transition_in_caller_order() -> None:
+    first_request, second_request = two_component_requests()
+    components = (
+        (
+            second_request,
+            ResolutionProposal(
+                (SubjectResolutionOutcome(JobId("second-job"), ResolutionOutcome.BLOCKED),),
+                (UpdateEntityEffect(EntityId("update-entity"), {"order": "second"}),),
+            ),
+        ),
+        (
+            first_request,
+            ResolutionProposal(
+                (outcome(),),
+                (UpdateEntityEffect(EntityId("deactivate-entity"), {"order": "first"}),),
+            ),
+        ),
+    )
+
+    validate_resolution_component_proposals(components, definition())
+    assert resolution_component_event_count(components) == 4
+    prepared = prepare_resolution_from_proposals(
+        components,
+        definition(),
+        TransitionRef(BranchId("branch"), TransitionId("component-batch")),
+        (
+            EventId("second-outcome"),
+            EventId("first-outcome"),
+            EventId("second-effect"),
+            EventId("first-effect"),
+        ),
+        base_history=(base_transition(),),
+    )
+
+    assert [event.payload for event in prepared.transition.events[:2]] == [
+        {"job_id": "second-job", "outcome": "BLOCKED"},
+        {"job_id": "job", "outcome": "SUCCESS"},
+    ]
+    assert [event.payload["entity_id"] for event in prepared.transition.events[2:]] == [
+        "update-entity",
+        "deactivate-entity",
+    ]
+
+
+def test_component_validation_catches_cross_component_writes() -> None:
+    first_request, second_request = two_component_requests()
+    components = (
+        (
+            first_request,
+            ResolutionProposal(
+                (outcome(),),
+                (UpdateEntityEffect(EntityId("update-entity"), {"component": 1}),),
+            ),
+        ),
+        (
+            second_request,
+            ResolutionProposal(
+                (SubjectResolutionOutcome(JobId("second-job"), ResolutionOutcome.SUCCESS),),
+                (UpdateEntityEffect(EntityId("update-entity"), {"component": 2}),),
+            ),
+        ),
+    )
+    validate_resolution_proposal(first_request, components[0][1], definition())
+    validate_resolution_proposal(second_request, components[1][1], definition())
+
+    with pytest.raises(ResolutionValidationError, match="duplicate Entity write"):
+        validate_resolution_component_proposals(components, definition())
+
+
+def test_component_validation_requires_one_exact_resolution_frontier() -> None:
+    first_request, second_request = two_component_requests()
+    different_target = ResolutionRequest(
+        second_request.base_history_position,
+        LogicalTime(11),
+        LogicalDuration(8),
+        (
+            JobResolutionSubject(
+                JobId("second-job"),
+                (ScheduledResolution(LogicalTime(11), "CHECK", JobId("second-job")),),
+            ),
+        ),
+        second_request.state,
+    )
+    components = (
+        (first_request, ResolutionProposal((outcome(),))),
+        (
+            different_target,
+            ResolutionProposal(
+                (SubjectResolutionOutcome(JobId("second-job"), ResolutionOutcome.SUCCESS),)
+            ),
+        ),
+    )
+
+    with pytest.raises(ResolutionValidationError, match="exact base history position"):
+        validate_resolution_component_proposals(components, definition())
+
+
+def test_prepare_from_proposal_keeps_validation_errors_outside_integrity_boundary() -> None:
+    proposal = ResolutionProposal(
+        (outcome(),),
+        (SetStateVariableEffect(WorldScope(), "undeclared", False),),
+    )
+
+    with pytest.raises(ResolutionValidationError, match="undeclared state_variable_type"):
+        prepare_resolution_from_proposal(
+            request(),
+            proposal,
+            definition(),
+            TransitionRef(BranchId("branch"), TransitionId("invalid-acquired")),
+            (EventId("outcome"), EventId("effect")),
+            base_history=(base_transition(),),
+        )
+
+
 def test_every_world_effect_materializes_to_existing_semantic_events() -> None:
     actor = RelationParticipant("member", EntityId("actor"))
     effects = (
@@ -557,9 +769,18 @@ def test_provider_failure_and_malformed_return_are_integrity_failures() -> None:
 def test_pure_validator_and_event_id_count_report_separate_validation_errors() -> None:
     proposal = ResolutionProposal((outcome(),))
     validate_resolution_proposal(request(), proposal, definition())
+    provider = StaticProvider(proposal)
 
     with pytest.raises(ResolutionValidationError, match="exactly 1 EventId"):
-        prepare(proposal, 0)
+        prepare_deterministic_resolution(
+            provider,
+            request(),
+            definition(),
+            TransitionRef(BranchId("branch"), TransitionId("resolution")),
+            (),
+            base_history=(base_transition(),),
+        )
+    assert provider.calls == 1
 
 
 def test_duplicate_job_effects_are_rejected_before_order_can_choose_truth() -> None:

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Atomic in-memory storage for committed Event history."""
+"""Atomic Event storage contracts and the in-memory implementation."""
 
+from collections.abc import Sequence
 from threading import RLock
+from typing import Protocol
 
 from grass.core.branches import Branch, HistoryPosition
 from grass.core.events import CommittedTransition, Event, TransitionToCommit
@@ -12,6 +14,31 @@ from grass.core.references import TransitionRef
 
 class StaleHistoryError(ValueError):
     """A guarded commit no longer targets the branch's current visible head."""
+
+
+class EventStore(Protocol):
+    """Structural branch-history storage required by the local runtime."""
+
+    def create_root_branch(self, branch_id: BranchId) -> Branch: ...
+
+    def fork_branch(self, branch_id: BranchId, fork_position: HistoryPosition) -> Branch: ...
+
+    def read_branch(self, branch_id: BranchId) -> Branch: ...
+
+    def head_position(self, branch_id: BranchId) -> HistoryPosition: ...
+
+    def commit_transition(
+        self,
+        transition: TransitionToCommit,
+        *,
+        expected_head: HistoryPosition | None = None,
+    ) -> CommittedTransition: ...
+
+    def read_transitions(self, branch_id: BranchId) -> Sequence[CommittedTransition]: ...
+
+    def read_visible_transitions(
+        self, position: HistoryPosition
+    ) -> Sequence[CommittedTransition]: ...
 
 
 class InMemoryEventStore:
