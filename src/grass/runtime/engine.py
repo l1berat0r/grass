@@ -35,7 +35,11 @@ from grass.core.identifiers import (
     ProviderBindingId,
 )
 from grass.core.logical_time import LogicalTime
-from grass.core.provider_bindings import ProviderBindingError, resolve_decision_provider_binding
+from grass.core.provider_bindings import (
+    ProviderBindingError,
+    ProviderExecutionLocation,
+    resolve_decision_provider_binding,
+)
 from grass.core.references import TransitionRef
 from grass.core.replay import replay_branch
 from grass.core.scenario_occurrence_resolution import (
@@ -82,6 +86,7 @@ from grass.runtime.perception import derive_outstanding_perception_candidates
 from grass.runtime.readiness import (
     JobStartPolicy,
     JobStartProposal,
+    UnsupportedRuntimeStateError,
     derive_ready_plan_steps,
 )
 
@@ -156,7 +161,6 @@ class SimulationEngine:
         perception_projector: PerceptionProjector,
         decision_trigger_policy: DecisionTriggerPolicy,
         decision_invokers: Mapping[ProviderBindingId, DecisionInvoker],
-        external_decision_bindings: frozenset[ProviderBindingId],
         job_start_policy: JobStartPolicy,
     ) -> None:
         if run_config.world_definition_ref != world_definition.ref:
@@ -187,12 +191,6 @@ class SimulationEngine:
         invokers = dict(decision_invokers)
         if not all(type(key) is ProviderBindingId for key in invokers):
             raise TypeError("decision_invokers must use ProviderBindingId keys")
-        if type(external_decision_bindings) is not frozenset or not all(
-            type(item) is ProviderBindingId for item in external_decision_bindings
-        ):
-            raise TypeError("external_decision_bindings must be a frozenset of binding IDs")
-        if set(invokers).intersection(external_decision_bindings):
-            raise ValueError("decision bindings cannot be both inline and external")
 
         self._store = event_store
         self._definition = world_definition
@@ -205,7 +203,6 @@ class SimulationEngine:
         self._perception_projector = perception_projector
         self._trigger_policy = decision_trigger_policy
         self._decision_invokers = invokers
-        self._external_decision_bindings = external_decision_bindings
         self._job_start_policy = job_start_policy
 
     def _frontier(self, branch_id: BranchId) -> _Frontier:
@@ -278,8 +275,6 @@ class SimulationEngine:
         for point in pending:
             counts[point.actor_id] = counts.get(point.actor_id, 0) + 1
         if any(count > 1 for count in counts.values()):
-            from grass.runtime.readiness import UnsupportedRuntimeStateError
-
             raise UnsupportedRuntimeStateError(
                 "more than one pending DecisionPoint for an actor is unsupported"
             )
@@ -293,12 +288,14 @@ class SimulationEngine:
         for point in pending:
             resolved = resolve_decision_provider_binding(configuration, point.actor_id)
             binding_id = resolved.binding.binding_id
-            external = binding_id in self._external_decision_bindings
-            if not external and binding_id not in self._decision_invokers:
+            client_managed = (
+                resolved.binding.execution_location is ProviderExecutionLocation.CLIENT_MANAGED
+            )
+            if not client_managed and binding_id not in self._decision_invokers:
                 raise ProviderBindingError(
                     "no DecisionInvoker is configured for a resolved binding"
                 )
-            classified.append((point.decision_point_id, binding_id, external))
+            classified.append((point.decision_point_id, binding_id, client_managed))
         return tuple(classified)
 
     def _schedule(self, frontier: _Frontier) -> SchedulerStep[ScheduleSource] | None:
@@ -369,6 +366,14 @@ class SimulationEngine:
             candidate.subject_plan_ref,
             base_history=frontier.history,
         )
+        if evaluated.decision_point_proposal is not None and any(
+            point.actor_id == candidate.actor_id
+            and point_id not in frontier.state.cognition.decisions
+            for point_id, point in frontier.state.cognition.decision_points.items()
+        ):
+            raise UnsupportedRuntimeStateError(
+                f"actor {candidate.actor_id.value} already has a pending DecisionPoint"
+            )
         decision_point_id = (
             None
             if evaluated.decision_point_proposal is None

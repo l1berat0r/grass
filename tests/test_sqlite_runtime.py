@@ -10,10 +10,20 @@ from pathlib import Path
 from grass.core import (
     BranchId,
     CommittedTransition,
+    DecisionPointId,
+    DecisionPointProposal,
+    DecisionPointReason,
+    DecisionPointScope,
+    DecisionProviderBinding,
+    DecisionProviderRouting,
+    EntityId,
     EventId,
     JobId,
     LogicalTime,
     ProgressAnchor,
+    ProviderBindingConfiguration,
+    ProviderBindingId,
+    ProviderExecutionLocation,
     ResolutionProposal,
     ResolutionRequest,
     ScenarioOccurrenceResolutionProposal,
@@ -27,6 +37,7 @@ from grass.core import (
     WorldDefinition,
     build_genesis_transition,
     load_world_definition,
+    prepare_decision_point_transition,
     replay_branch,
 )
 from grass.persistence import RunId, SimulationRunRecord, SqlitePersistence
@@ -96,14 +107,16 @@ def _world() -> WorldDefinition:
             "version": "1.0",
             "schema_version": 2,
             "vocabulary": {
-                "entity_types": [],
+                "entity_types": ["Person"],
                 "relation_types": [],
                 "resource_types": [],
                 "state_variable_types": [],
             },
             "initial_conditions": {
                 "logical_time": 0,
-                "entities": [],
+                "entities": [
+                    {"entity_id": "actor", "entity_type": "Person", "properties": {}}
+                ],
                 "relations": [],
                 "resources": [],
                 "state_variables": [],
@@ -136,7 +149,6 @@ def _engine(
         perception_projector=NoPerception(),
         decision_trigger_policy=ScriptedDecisionTriggerPolicy({}),
         decision_invokers={},
-        external_decision_bindings=frozenset(),
         job_start_policy=NoJobStarts(),
     )
 
@@ -158,7 +170,7 @@ def test_reopened_runtime_continues_and_replay_does_not_regenerate_occurrence(
             world,
             config,
             TransitionRef(record.root_branch_id, TransitionId("genesis")),
-            (EventId("genesis"),),
+            (EventId("genesis"), EventId("genesis:actor")),
         )
     )
 
@@ -183,3 +195,73 @@ def test_reopened_runtime_continues_and_replay_does_not_regenerate_occurrence(
     assert replayed == state
     assert stopped.stop_reason is RuntimeStopReason.QUIESCENT
     assert unused_resolver.requests == []
+
+
+def test_reopened_runtime_uses_persisted_client_managed_decision_binding(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "client-managed.db"
+    world = _world()
+    binding_id = ProviderBindingId("client")
+    binding = DecisionProviderBinding(
+        binding_id,
+        "client-invoker",
+        ProviderExecutionLocation.CLIENT_MANAGED,
+    )
+    config = SimulationRunConfig(
+        world.ref,
+        ProviderBindingConfiguration(
+            DecisionProviderRouting(binding_id),
+            {binding_id: binding},
+        ),
+    )
+    record = SimulationRunRecord(
+        RunId("run"), BranchId("root"), world.ref, datetime(2026, 9, 14, tzinfo=UTC)
+    )
+    persistence = SqlitePersistence(path)
+    persistence.register_run(record, world, config)
+    event_store = persistence.event_store(record.run_id)
+    event_store.commit_transition(
+        build_genesis_transition(
+            world,
+            config,
+            TransitionRef(record.root_branch_id, TransitionId("genesis")),
+            (EventId("genesis"), EventId("genesis:actor")),
+        )
+    )
+    position = event_store.head_position(record.root_branch_id)
+    prepared = prepare_decision_point_transition(
+        replay_branch(event_store, position),
+        EntityId("actor"),
+        DecisionPointId("plan-required"),
+        DecisionPointProposal(
+            DecisionPointReason.PLAN_REQUIRED,
+            DecisionPointScope.FULL,
+            frozenset(),
+        ),
+        TransitionRef(record.root_branch_id, TransitionId("plan-required")),
+        EventId("plan-required"),
+        base_history=event_store.read_visible_transitions(position),
+    )
+    event_store.commit_transition(prepared.transition, expected_head=prepared.expected_head)
+
+    reopened = SqlitePersistence(path)
+    restored = reopened.read_run_config(record.run_id)
+    restored_bindings = restored.provider_bindings
+    assert restored_bindings is not None
+    assert (
+        restored_bindings.decision_bindings[binding_id].execution_location
+        is ProviderExecutionLocation.CLIENT_MANAGED
+    )
+    reopened_store = reopened.event_store(record.run_id)
+    before_head = reopened_store.head_position(record.root_branch_id)
+    before_history = tuple(reopened_store.read_transitions(record.root_branch_id))
+
+    result = asyncio.run(
+        _engine(reopened, RecordingOccurrenceResolver()).step(record.root_branch_id)
+    )
+
+    assert result.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
+    assert result.waiting_decision_point_ids == (DecisionPointId("plan-required"),)
+    assert reopened_store.head_position(record.root_branch_id) == before_head
+    assert tuple(reopened_store.read_transitions(record.root_branch_id)) == before_history

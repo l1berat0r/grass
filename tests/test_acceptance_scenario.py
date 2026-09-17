@@ -1174,7 +1174,6 @@ def _runtime_engine(
                 provider_name="acceptance-script",
             )
         },
-        external_decision_bindings=frozenset(),
         job_start_policy=AcceptanceJobStartPolicy(),
     )
 

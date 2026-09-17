@@ -6,7 +6,7 @@ The local 0.1 milestone is the first version of GRASS that should be usable as a
 
 The milestone is intentionally local-first. Its purpose is to prove runtime orchestration, persistence, world composition, actor/provider execution, branching, replay, inspection, and authoring workflows before committing to a backend/frontend architecture or a final actor-memory model.
 
-The milestone spans Slices 12–17 in `ROADMAP.md`.
+The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 and 13 are implemented, so Slices 0–13 are complete and Slice 14 is next.
 
 ## Architectural boundary
 
@@ -37,7 +37,7 @@ A client may request a command such as create-run, step, advance, or create-bran
 
 ## Runtime orchestration
 
-The current core exposes the contracts required for replay, scheduling, world resolution, cognition, provider invocation, validation, and atomic commit. A production runtime coordinator must combine them into one executable system.
+The production `SimulationEngine` combines the core contracts for replay, scheduling, world resolution, cognition, provider invocation, validation, and atomic commit into one executable runtime.
 
 Conceptually:
 
@@ -60,9 +60,7 @@ External provider latency has no simulation-time meaning.
 
 ### `step`
 
-`step` performs one bounded authoritative engine unit and returns control to the caller. It is primarily a precise execution/debugging primitive and must have deterministic selection/order rules for simultaneous work.
-
-The exact unit may be a committed transition or another narrowly defined engine unit where one command cannot safely be represented by one transition, but its semantics must remain explicit and testable.
+`step` commits at most one authoritative transition and returns control to the caller. If it does not commit, it returns one explicit no-commit stop result. It is a precise execution/debugging primitive with deterministic frontier selection rules.
 
 ### Stabilizing one logical-time frontier
 
@@ -78,22 +76,24 @@ Job resolution
     -> Job
 ```
 
-The engine therefore needs a notion of stabilizing the current frontier rather than equating every engine reaction with a logical-time jump.
+`advance` stabilizes this frontier by repeatedly calling `step`. Multiple consecutive transitions may therefore share one `LogicalTime`; one runtime step is not necessarily a time jump.
+
+Current-frontier priority is automatic perception, pending decisions, ready PlanStep/Job starts, then scheduler/scenario work. A subject Plan DecisionPoint blocks only its Plan lineage, while a subjectless DecisionPoint blocks new work for that actor. More than one pending DecisionPoint for one actor is unsupported and automatic perception is rejected before commit if it would create that state. ADR-0022 records the complete implemented frontier semantics.
 
 ### `advance`
 
 `advance` repeatedly performs engine work until an explicit stop condition is satisfied.
 
-Useful stop conditions include:
+The implemented no-commit stop reasons are:
 
 - quiescent / no more material work;
 - waiting for an external/human decision;
-- simulation termination rule;
-- failure/integrity failure;
 - target logical time;
 - step/operation budget.
 
-The scheduler remains event-driven. `advance` must not introduce a hidden global tick.
+Provider, configuration, unsupported-state, and integrity failures remain typed exceptions rather than normal stop results. The scheduler remains event-driven, and `advance` does not introduce a hidden global tick.
+
+The resolved provider binding in `SimulationRunConfig` controls decision execution. `SERVER_MANAGED` bindings require and invoke a configured `DecisionInvoker`. `CLIENT_MANAGED` bindings do not invoke an engine-local invoker and produce `WAITING_FOR_DECISION`. Because this execution location is persisted with run configuration, reopen preserves the same behavior without a second runtime flag.
 
 ## Run identity and lifecycle
 
@@ -118,19 +118,15 @@ A run must retain or be able to recover the exact material world definition/pack
 
 Local 0.1 uses SQLite through storage abstractions, not by embedding SQLite semantics into the core domain model.
 
-Expected durable responsibilities include:
+Slice 13 implements these durable responsibilities:
 
 ```text
 RunRepository
 EventStore
-WorldDefinition / WorldPackage snapshot storage
+WorldDefinition and SimulationRunConfig snapshot storage
 ```
 
-The first implementation may share one local database, for example:
-
-```text
-.grass/grass.db
-```
+`SqlitePersistence` uses one versioned SQLite database at a caller-supplied filesystem path. Choosing an application default such as `.grass/grass.db` remains application behavior.
 
 Canonical/durable data includes at least:
 
@@ -138,8 +134,9 @@ Canonical/durable data includes at least:
 - branch metadata;
 - committed transitions and Events;
 - exact WorldDefinition material associated with a run;
-- material referenced GEL source/schema/version needed for future continuation/reproducibility;
 - non-secret SimulationRunConfig/provider-routing configuration.
+
+WorldPackage and referenced GEL source/schema/version snapshotting remains Slice 14 work and must preserve material inputs needed for future continuation and reproducibility.
 
 Derived/rebuildable data should not become canonical merely for convenience. This includes, by default:
 

@@ -72,7 +72,7 @@ The CLI is the first client of these APIs. Future HTTP/backend/UI clients should
 ## Deferred details
 
 - exact runtime internal class/module layout;
-- exact definition of one `step` if implementation proves one transition is too narrow;
+- exact `step` and frontier semantics, resolved by ADR-0022;
 - exact runtime status enum and persistence of operational failures;
 - final actor memory/retrieval/compaction semantics;
 - HTTP/WebSocket/session/frontend design;

@@ -68,6 +68,7 @@ from grass.core import (
     prepare_decision_point_transition,
     replay_branch,
 )
+from grass.core.cognition_events import DECISION_POINT_CREATED, OBSERVATION_CREATED
 from grass.core.decision_invocations import DecisionInvoker
 from grass.core.event_store import StaleHistoryError
 from grass.core.events import CommittedTransition
@@ -84,11 +85,13 @@ from grass.runtime import (
     RuntimeWorkKind,
     SimulationEngine,
     UnsupportedRuntimeFrontierError,
+    UnsupportedRuntimeStateError,
 )
 
 MINUTE = 60_000_000_000
 ROOT = BranchId("root")
 ACTOR = EntityId("actor")
+OTHER_ACTOR = EntityId("other-actor")
 BINDING_ID = ProviderBindingId("decision")
 
 
@@ -131,6 +134,9 @@ class NoPerception:
 
 
 class GenesisPerception:
+    def __init__(self, actor_id: EntityId = ACTOR) -> None:
+        self.actor_id = actor_id
+
     def project(
         self,
         source_transition: CommittedTransition,
@@ -139,9 +145,10 @@ class GenesisPerception:
     ) -> tuple[PerceptionCandidate, ...]:
         del state_after_source
         return tuple(
-            PerceptionCandidate(event.event_id, ACTOR, {"event": event.event_type})
+            PerceptionCandidate(event.event_id, self.actor_id, {"event": event.event_type})
             for event in source_transition.events
-            if event.event_type == ENTITY_CREATED and event.payload["entity_id"] == ACTOR.value
+            if event.event_type == ENTITY_CREATED
+            and event.payload["entity_id"] == self.actor_id.value
         )
 
 
@@ -149,6 +156,15 @@ class ContinueTrigger:
     def evaluate(self, context: DecisionTriggerContext, /) -> DecisionTriggerResult:
         del context
         return DecisionTriggerResult.CONTINUE
+
+
+class DecisionPointTrigger:
+    def evaluate(self, context: DecisionTriggerContext, /) -> DecisionPointProposal:
+        return DecisionPointProposal(
+            DecisionPointReason.MATERIAL_OBSERVATION,
+            DecisionPointScope.FULL,
+            frozenset({context.observation.observation_id}),
+        )
 
 
 class NoSchedule:
@@ -265,7 +281,11 @@ class NoScenarioResolver:
         return ScenarioOccurrenceResolutionProposal()
 
 
-def _definition(*, occurrence_time: int | None = None) -> WorldDefinition:
+def _definition(
+    *,
+    occurrence_time: int | None = None,
+    actor_ids: Sequence[str] = (ACTOR.value,),
+) -> WorldDefinition:
     rules: list[dict[str, object]] = []
     if occurrence_time is not None:
         rules.append(
@@ -287,7 +307,10 @@ def _definition(*, occurrence_time: int | None = None) -> WorldDefinition:
             },
             "initial_conditions": {
                 "logical_time": 0,
-                "entities": [{"entity_id": "actor", "entity_type": "Person", "properties": {}}],
+                "entities": [
+                    {"entity_id": actor_id, "entity_type": "Person", "properties": {}}
+                    for actor_id in actor_ids
+                ],
                 "relations": [],
                 "resources": [],
                 "state_variables": [],
@@ -316,7 +339,10 @@ def _store(definition: WorldDefinition, config: SimulationRunConfig) -> InMemory
             definition,
             config,
             TransitionRef(ROOT, TransitionId("genesis")),
-            (EventId("genesis:initialized"), EventId("genesis:actor")),
+            tuple(
+                EventId(f"genesis:{index}")
+                for index in range(1 + len(definition.initial_conditions.entities))
+            ),
         )
     )
     return store
@@ -368,7 +394,6 @@ def _engine(
     invokers: Mapping[ProviderBindingId, DecisionInvoker] | None = None,
     perception: PerceptionProjector | None = None,
     trigger: DecisionTriggerPolicy | None = None,
-    external: frozenset[ProviderBindingId] = frozenset(),
 ) -> SimulationEngine:
     return SimulationEngine(
         event_store=store,
@@ -382,7 +407,6 @@ def _engine(
         perception_projector=NoPerception() if perception is None else perception,
         decision_trigger_policy=(ScriptedDecisionTriggerPolicy({}) if trigger is None else trigger),
         decision_invokers={} if invokers is None else invokers,
-        external_decision_bindings=external,
         job_start_policy=NoJobStarts() if starts is None else starts,
     )
 
@@ -430,28 +454,92 @@ def test_advance_stabilizes_decision_plan_job_and_target_resolution() -> None:
         asyncio.run(engine.advance(ROOT, target_time=LogicalTime(0), max_steps=0))
 
 
-def test_external_decision_waits_but_missing_inline_adapter_fails() -> None:
+def test_client_managed_decision_waits_without_local_invoker() -> None:
     definition = _definition()
     bindings = _provider_configuration(ProviderExecutionLocation.CLIENT_MANAGED)
     config = SimulationRunConfig(definition.ref, bindings)
-    waiting_store = _store(definition, config)
-    _add_plan_required_point(waiting_store)
-    waiting_engine = _engine(
-        waiting_store,
-        definition,
-        config,
-        external=frozenset({BINDING_ID}),
-    )
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    engine = _engine(store, definition, config)
+    before = store.head_position(ROOT)
 
-    waiting = asyncio.run(waiting_engine.step(ROOT))
+    waiting = asyncio.run(engine.step(ROOT))
 
     assert waiting.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
     assert waiting.waiting_decision_point_ids == (DecisionPointId("plan-required"),)
-    missing_store = _store(definition, config)
-    _add_plan_required_point(missing_store)
-    missing_engine = _engine(missing_store, definition, config)
+    assert store.head_position(ROOT) == before
+
+
+def test_client_managed_decision_does_not_invoke_configured_invoker() -> None:
+    definition = _definition()
+    bindings = _provider_configuration(ProviderExecutionLocation.CLIENT_MANAGED)
+    config = SimulationRunConfig(definition.ref, bindings)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    provider = ScriptedDecisionProvider(
+        {
+            DecisionPointId("plan-required"): DecisionProposal(
+                DecisionOutcomeKind.REPLACE_PLAN,
+                _plan(("wait",)),
+            )
+        }
+    )
+    adapter = SyncDecisionProviderAdapter(
+        provider,
+        bindings.decision_bindings[BINDING_ID],
+        provider_name="scripted",
+    )
+    engine = _engine(store, definition, config, invokers={BINDING_ID: adapter})
+
+    waiting = asyncio.run(engine.step(ROOT))
+
+    assert waiting.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
+    assert provider.requests == ()
+
+
+def test_server_managed_decision_without_invoker_fails_explicitly() -> None:
+    definition = _definition()
+    bindings = _provider_configuration(ProviderExecutionLocation.SERVER_MANAGED)
+    config = SimulationRunConfig(definition.ref, bindings)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    engine = _engine(store, definition, config)
+    before = store.head_position(ROOT)
+
     with pytest.raises(ProviderBindingError, match="no DecisionInvoker"):
-        asyncio.run(missing_engine.step(ROOT))
+        asyncio.run(engine.step(ROOT))
+
+    assert store.head_position(ROOT) == before
+
+
+def test_server_managed_decision_with_invoker_commits_normally() -> None:
+    definition = _definition()
+    bindings = _provider_configuration(ProviderExecutionLocation.SERVER_MANAGED)
+    config = SimulationRunConfig(definition.ref, bindings)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    provider = ScriptedDecisionProvider(
+        {
+            DecisionPointId("plan-required"): DecisionProposal(
+                DecisionOutcomeKind.REPLACE_PLAN,
+                _plan(("wait",)),
+            )
+        }
+    )
+    adapter = SyncDecisionProviderAdapter(
+        provider,
+        bindings.decision_bindings[BINDING_ID],
+        provider_name="scripted",
+    )
+    engine = _engine(store, definition, config, invokers={BINDING_ID: adapter})
+
+    result = asyncio.run(engine.step(ROOT))
+
+    assert result.work_kind is RuntimeWorkKind.DECISION
+    assert DecisionPointId("plan-required") in replay_branch(
+        store, store.head_position(ROOT)
+    ).cognition.decisions
+    assert len(provider.requests) == 1
 
 
 def test_multiple_independent_job_components_publish_one_transition() -> None:
@@ -640,3 +728,86 @@ def test_outstanding_perception_precedes_pending_decision_configuration_failure(
     assert result.work_kind is RuntimeWorkKind.PERCEPTION
     with pytest.raises(ProviderBindingError, match="no provider routing"):
         asyncio.run(engine.step(ROOT))
+
+
+def test_automatic_perception_cannot_create_second_pending_point_for_actor() -> None:
+    definition = _definition()
+    config = SimulationRunConfig(definition.ref)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    engine = _engine(
+        store,
+        definition,
+        config,
+        perception=GenesisPerception(),
+        trigger=DecisionPointTrigger(),
+    )
+    before_head = store.head_position(ROOT)
+    before_history = tuple(store.read_transitions(ROOT))
+
+    with pytest.raises(UnsupportedRuntimeStateError, match="already has a pending"):
+        asyncio.run(engine.step(ROOT))
+
+    assert store.head_position(ROOT) == before_head
+    assert tuple(store.read_transitions(ROOT)) == before_history
+    state = replay_branch(store, before_head)
+    assert state.cognition.observations == {}
+    assert tuple(state.cognition.decision_points) == (DecisionPointId("plan-required"),)
+
+
+def test_pending_point_for_one_actor_does_not_block_perception_for_another() -> None:
+    definition = _definition(actor_ids=(ACTOR.value, OTHER_ACTOR.value))
+    config = SimulationRunConfig(definition.ref)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    engine = _engine(
+        store,
+        definition,
+        config,
+        perception=GenesisPerception(OTHER_ACTOR),
+        trigger=DecisionPointTrigger(),
+    )
+
+    result = asyncio.run(engine.step(ROOT))
+
+    assert result.work_kind is RuntimeWorkKind.PERCEPTION
+    assert result.committed_transition is not None
+    assert tuple(event.event_type for event in result.committed_transition.events) == (
+        OBSERVATION_CREATED,
+        DECISION_POINT_CREATED,
+    )
+    state = replay_branch(store, store.head_position(ROOT))
+    assert {point.actor_id for point in state.cognition.decision_points.values()} == {
+        ACTOR,
+        OTHER_ACTOR,
+    }
+    assert {observation.actor_id for observation in state.cognition.observations.values()} == {
+        OTHER_ACTOR
+    }
+
+
+def test_automatic_perception_creates_one_pending_point_normally() -> None:
+    definition = _definition()
+    config = SimulationRunConfig(definition.ref)
+    store = _store(definition, config)
+    engine = _engine(
+        store,
+        definition,
+        config,
+        perception=GenesisPerception(),
+        trigger=DecisionPointTrigger(),
+    )
+
+    result = asyncio.run(engine.step(ROOT))
+
+    assert result.work_kind is RuntimeWorkKind.PERCEPTION
+    assert result.committed_transition is not None
+    assert tuple(event.event_type for event in result.committed_transition.events) == (
+        OBSERVATION_CREATED,
+        DECISION_POINT_CREATED,
+    )
+    state = replay_branch(store, store.head_position(ROOT))
+    assert len(state.cognition.observations) == 1
+    assert len(state.cognition.decision_points) == 1
+    point_id = next(iter(state.cognition.decision_points))
+    assert state.cognition.is_pending(point_id)

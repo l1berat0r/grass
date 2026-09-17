@@ -14,7 +14,7 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
-**Current status:** Slices 0–11 are implemented on `impl/v0.1-gpt`. The next milestone is a locally runnable GRASS 0.1 that can execute user-defined worlds without requiring changes to GRASS Python code. Slices 12–17 build that milestone. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
+**Current status:** Slices 0–13 are implemented on `impl/v0.1-gpt`. Slice 14 is next. The remaining Slices 14–17 complete the locally runnable GRASS 0.1 milestone so user-defined worlds can run without requiring changes to GRASS Python code. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
 
 ### Slice 0 — core value objects and package skeleton
 
@@ -113,6 +113,8 @@ Turn `docs/ACCEPTANCE_SCENARIO.md` into executable integration tests covering ge
 
 ### Slice 12 — local simulation runtime orchestration
 
+**Status: complete**
+
 Introduce the first production runtime coordinator around the implemented core contracts.
 
 - add a `SimulationEngine`/runtime coordinator that composes replay, scheduler projection, due-work resolution, scenario occurrences, cognition/DecisionPoints, provider acquisition, Plan/Job progression, validation, and commit;
@@ -125,6 +127,8 @@ Introduce the first production runtime coordinator around the implemented core c
 - preserve replay, branching, deterministic ordering, stale-head protection, provenance, and authority-boundary invariants in runtime-level integration tests.
 
 ### Slice 13 — durable local persistence
+
+**Status: complete**
 
 Provide a durable local baseline so separate GRASS processes can reopen and continue runs.
 
