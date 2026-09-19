@@ -282,6 +282,41 @@ resolution, WorldEffects, Events, or the engine. A future trusted adapter may tu
 a typed result into candidate effects below the normal authoritative validation
 boundary. Ordinary replay never invokes GEL to reconstruct history.
 
+### 5.3 Slice 14 runnable composition
+
+WorldDefinition document schema version 3 preserves the version-2 root shape and
+requires every AT_TIME scenario rule to contain one direct usage-specific mechanic
+binding. Versions 1 and 2 retain their exact field contracts. The first mechanic usage is
+`SET_STATE_VARIABLE`, with a BUILTIN constant variant and a GEL variant. There is no
+general mechanic registry or arbitrary effect output.
+
+The GEL variant receives one exact `current_value` input and returns one exact
+`new_value` output using the same GEL schema. Trusted composition reads the configured
+StateVariable from immutable request state and translates the typed result to an existing
+`SetStateVariableEffect`. GEL does not receive SimulationState, construct effects, create
+Events, or commit. Because production random streams remain deferred, this composition
+rejects programs that reference `random_int`.
+
+Editable format-1 WorldPackages use `worlds/<world-definition-id>/package.json` and may
+keep GEL source in contained files. Package paths and authored `source_file` references
+are delivery concerns. Loading resolves exact UTF-8 source into canonical `GelProgram`
+material in the semantic WorldDefinition and validates it with `prepare_gel`; prepared
+syntax trees remain disposable.
+
+Each package-backed run owns one immutable material snapshot at
+`world_snapshots/<run-id>/`. A complete temporary snapshot is atomically published before
+SQLite run registration. SQLite continues to store the semantic WorldDefinition and
+canonical history using the unreleased storage schema version 1. Reopen reconstructs the
+package from the per-run snapshot, requires equality with SQLite's definition, and never
+uses the mutable author directory. Ordinary replay still uses Events only and invokes no
+package mechanics or GEL.
+
+The Slice 14 production composer implements the existing
+`ScenarioOccurrenceResolutionProvider` boundary and leaves SimulationEngine authority
+and frontier semantics unchanged. Its accepted vertical slice is occurrence-only;
+actor bootstrap, perception, Plans/Jobs, plugins, random scenario time, and unsupported
+same-time scenario frontiers remain deferred.
+
 ## 6. Scenario events and stochastic time
 
 A scenario may define future material occurrences through `ScenarioEventRule`.

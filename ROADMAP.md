@@ -14,7 +14,7 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
-**Current status:** Slices 0–13 are implemented on `impl/v0.1-gpt`. Slice 14 is next. The remaining Slices 14–17 complete the locally runnable GRASS 0.1 milestone so user-defined worlds can run without requiring changes to GRASS Python code. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
+**Current status:** Slices 0–14 are implemented on `impl/v0.1-gpt`. Slice 15 is next. The remaining Slices 15–17 complete the locally runnable GRASS 0.1 milestone so user-defined worlds can run without requiring changes to GRASS Python code. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
 
 ### Slice 0 — core value objects and package skeleton
 
@@ -144,6 +144,8 @@ Provide a durable local baseline so separate GRASS processes can reopen and cont
 - treat SQLite as the v0.1 implementation baseline, not as a permanent architectural commitment.
 
 ### Slice 14 — runnable WorldDefinition composition and WorldPackage
+
+**Status: complete**
 
 Make a normal user-defined world runnable without adding Python code to GRASS.
 

@@ -6,7 +6,7 @@ The local 0.1 milestone is the first version of GRASS that should be usable as a
 
 The milestone is intentionally local-first. Its purpose is to prove runtime orchestration, persistence, world composition, actor/provider execution, branching, replay, inspection, and authoring workflows before committing to a backend/frontend architecture or a final actor-memory model.
 
-The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 and 13 are implemented, so Slices 0–13 are complete and Slice 14 is next.
+The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 through 14 are implemented, so Slices 0–14 are complete and Slice 15 is next.
 
 ## Architectural boundary
 
@@ -136,7 +136,11 @@ Canonical/durable data includes at least:
 - exact WorldDefinition material associated with a run;
 - non-secret SimulationRunConfig/provider-routing configuration.
 
-WorldPackage and referenced GEL source/schema/version snapshotting remains Slice 14 work and must preserve material inputs needed for future continuation and reproducibility.
+Slice 14 stores each package-backed run's exact declared authored material under
+`world_snapshots/<run_id>/`. Snapshot publication precedes SQLite registration, while
+SQLite retains the canonical semantic WorldDefinition, including resolved GEL source,
+schema, and language version. Reopen validates that the filesystem snapshot reconstructs
+the same definition and never falls back to mutable author files.
 
 Derived/rebuildable data should not become canonical merely for convenience. This includes, by default:
 
@@ -322,7 +326,10 @@ my-world/
     README.md
 ```
 
-The exact package format is not frozen yet. The important architectural distinction is:
+Package format 1 uses a strict `package.json` that references `world.json`. Authored GEL
+uses contained relative `source_file` references. Loading resolves those files into the
+canonical `GelProgram` retained by WorldDefinition schema version 3. The important
+architectural distinction remains:
 
 ```text
 WorldPackage = authored/distributed files required to construct a runnable world
@@ -330,6 +337,12 @@ WorldDefinition = immutable semantic world definition consumed by GRASS
 ```
 
 Material referenced content must be captured/snapshotted sufficiently for continuation and reproducibility of a run.
+
+Slice 14's first runnable mechanic is an AT_TIME rule-bound
+`SET_STATE_VARIABLE`. It supports a BUILTIN constant setter and a GEL program receiving
+only `current_value` and returning only `new_value`; trusted code constructs the existing
+`SetStateVariableEffect`. This occurrence-only slice adds no actor bootstrap, perception,
+Job mechanics, random streams, plugins, or generic effect language.
 
 ## Templates
 
