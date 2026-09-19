@@ -536,9 +536,10 @@ def test_server_managed_decision_with_invoker_commits_normally() -> None:
     result = asyncio.run(engine.step(ROOT))
 
     assert result.work_kind is RuntimeWorkKind.DECISION
-    assert DecisionPointId("plan-required") in replay_branch(
-        store, store.head_position(ROOT)
-    ).cognition.decisions
+    assert (
+        DecisionPointId("plan-required")
+        in replay_branch(store, store.head_position(ROOT)).cognition.decisions
+    )
     assert len(provider.requests) == 1
 
 

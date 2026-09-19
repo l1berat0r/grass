@@ -16,6 +16,7 @@ from grass.core.identifiers import (
     ModelProviderBindingId,
     ProviderBindingId,
 )
+from grass.core.mechanics import scenario_event_mechanic_document
 from grass.core.provenance import Provenance, ProvenanceSourceRef
 from grass.core.provider_bindings import (
     DecisionProviderBinding,
@@ -178,6 +179,30 @@ def _scope_document(scope: WorldScope | EntityScope) -> Mapping[str, object]:
     raise TypeError("scope must be WorldScope or EntityScope")
 
 
+def _scenario_rule_document(rule: object, schema_version: int) -> Mapping[str, object]:
+    from grass.core.world_definitions import AtTimeScenarioEventRule
+
+    if type(rule) is not AtTimeScenarioEventRule:
+        raise TypeError("rule must be an AtTimeScenarioEventRule")
+    document: dict[str, object] = {
+        "rule_id": rule.rule_id.value,
+        "trigger": {
+            "kind": "AT_TIME",
+            "logical_time": rule.logical_time.nanoseconds_from_origin,
+        },
+    }
+    if schema_version == 3:
+        if rule.mechanic is None:  # pragma: no cover - WorldDefinition validates this
+            raise TypeError("schema version 3 rule must contain a mechanic")
+        document["mechanic"] = _json_value(
+            cast(
+                StructuredValue,
+                scenario_event_mechanic_document(rule.mechanic),
+            )
+        )
+    return document
+
+
 def world_definition_document(value: WorldDefinition) -> Mapping[str, object]:
     initial = value.initial_conditions
     document: dict[str, object] = {
@@ -234,15 +259,9 @@ def world_definition_document(value: WorldDefinition) -> Mapping[str, object]:
         },
         "metadata": _json_value(cast(StructuredValue, value.metadata)),
     }
-    if value.schema_version == 2:
+    if value.schema_version in (2, 3):
         document["scenario_event_rules"] = [
-            {
-                "rule_id": rule.rule_id.value,
-                "trigger": {
-                    "kind": "AT_TIME",
-                    "logical_time": rule.logical_time.nanoseconds_from_origin,
-                },
-            }
+            _scenario_rule_document(rule, value.schema_version)
             for rule in value.scenario_event_rules
         ]
     return document

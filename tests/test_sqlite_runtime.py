@@ -114,9 +114,7 @@ def _world() -> WorldDefinition:
             },
             "initial_conditions": {
                 "logical_time": 0,
-                "entities": [
-                    {"entity_id": "actor", "entity_type": "Person", "properties": {}}
-                ],
+                "entities": [{"entity_id": "actor", "entity_type": "Person", "properties": {}}],
                 "relations": [],
                 "resources": [],
                 "state_variables": [],

@@ -87,6 +87,34 @@ def _world(*, schema_version: int = 2, metadata_value: str = "original") -> Worl
                 "trigger": {"kind": "AT_TIME", "logical_time": 10**30 + 5},
             }
         ]
+    elif schema_version == 3:
+        value_schema = {"type": "INTEGER", "minimum": 0, "maximum": 100}
+        document["scenario_event_rules"] = [
+            {
+                "rule_id": "later",
+                "trigger": {"kind": "AT_TIME", "logical_time": 10**30 + 5},
+                "mechanic": {
+                    "kind": "GEL",
+                    "usage": "SET_STATE_VARIABLE",
+                    "target": {
+                        "scope": {"kind": "ENTITY", "entity_id": "alice"},
+                        "state_variable_type": "details",
+                    },
+                    "program": {
+                        "source": "return {new_value: current_value};\n",
+                        "language_version": 1,
+                        "input_schema": {
+                            "type": "OBJECT",
+                            "fields": {"current_value": value_schema},
+                        },
+                        "output_schema": {
+                            "type": "OBJECT",
+                            "fields": {"new_value": value_schema},
+                        },
+                    },
+                },
+            }
+        ]
     return load_world_definition(document)
 
 
@@ -153,7 +181,7 @@ def test_run_value_objects_are_strict_and_wall_time_is_normalized() -> None:
         RunId("")
 
 
-@pytest.mark.parametrize("schema_version", [1, 2])
+@pytest.mark.parametrize("schema_version", [1, 2, 3])
 def test_run_definition_and_non_secret_config_survive_reopen(
     tmp_path: Path, schema_version: int
 ) -> None:
@@ -214,6 +242,13 @@ def test_run_definition_and_non_secret_config_survive_reopen(
         "transitions",
         "events",
     }
+    if schema_version == 3:
+        with sqlite3.connect(path) as connection:
+            definition_json = connection.execute(
+                "SELECT document_json FROM world_definitions"
+            ).fetchone()[0]
+        assert '"source":"return {new_value: current_value};\\n"' in definition_json
+        assert "source_file" not in definition_json
 
 
 def test_definition_identity_is_immutable_and_failed_registration_is_atomic(

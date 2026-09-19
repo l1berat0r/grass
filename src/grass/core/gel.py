@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from types import MappingProxyType
 from typing import ClassVar, Protocol, TypeAlias
 
@@ -245,6 +245,25 @@ def execute_gel(
     from grass.core._gel_interpreter import execute_prepared_gel
 
     return execute_prepared_gel(prepared_program, inputs, random_context)
+
+
+def prepared_gel_uses_random(prepared_program: PreparedGelProgram, /) -> bool:
+    """Return whether a prepared program statically references GEL randomness."""
+
+    if type(prepared_program) is not PreparedGelProgram:
+        raise TypeError("prepared_program must be a PreparedGelProgram")
+    from grass.core._gel_syntax import CallExpr
+
+    pending = [prepared_program._ast]
+    while pending:
+        value = pending.pop()
+        if type(value) is CallExpr and value.function_name == "random_int":
+            return True
+        if isinstance(value, tuple):
+            pending.extend(value)
+        elif is_dataclass(value):
+            pending.extend(getattr(value, item.name) for item in fields(value))
+    return False
 
 
 def _prepared_program(program: GelProgram, ast: object) -> PreparedGelProgram:

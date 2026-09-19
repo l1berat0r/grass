@@ -22,6 +22,12 @@ from grass.core.identifiers import (
     WorldDefinitionId,
 )
 from grass.core.logical_time import LogicalTime
+from grass.core.mechanics import (
+    BuiltinSetStateVariableMechanic,
+    GelSetStateVariableMechanic,
+    ScenarioEventMechanic,
+    load_scenario_event_mechanic,
+)
 from grass.core.provider_bindings import ProviderBindingConfiguration
 from grass.core.state import (
     EntityScope,
@@ -33,8 +39,8 @@ from grass.core.state import (
     WorldScope,
 )
 
-WORLD_DEFINITION_SCHEMA_VERSION = 2
-_SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS = frozenset({1, 2})
+WORLD_DEFINITION_SCHEMA_VERSION = 3
+_SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 
 
 class WorldDefinitionError(ValueError):
@@ -131,12 +137,18 @@ class AtTimeScenarioEventRule:
 
     rule_id: ScenarioEventRuleId
     logical_time: LogicalTime
+    mechanic: ScenarioEventMechanic | None = None
 
     def __post_init__(self) -> None:
         if type(self.rule_id) is not ScenarioEventRuleId:
             raise TypeError("rule_id must be a ScenarioEventRuleId")
         if type(self.logical_time) is not LogicalTime:
             raise TypeError("logical_time must be a LogicalTime")
+        if self.mechanic is not None and type(self.mechanic) not in (
+            BuiltinSetStateVariableMechanic,
+            GelSetStateVariableMechanic,
+        ):
+            raise TypeError("mechanic must be a supported ScenarioEventMechanic or None")
 
     def ref(self, world_definition_ref: WorldDefinitionRef) -> ScenarioEventRuleRef:
         return ScenarioEventRuleRef(world_definition_ref, self.rule_id)
@@ -318,6 +330,12 @@ class WorldDefinition:
             raise WorldDefinitionError(
                 "WorldDefinition schema version 1 cannot contain scenario rules"
             )
+        if self.schema_version == 2 and any(rule.mechanic is not None for rule in rules):
+            raise WorldDefinitionError(
+                "WorldDefinition schema version 2 rules cannot contain mechanics"
+            )
+        if self.schema_version == 3 and any(rule.mechanic is None for rule in rules):
+            raise WorldDefinitionError("WorldDefinition schema version 3 rules require mechanics")
         _reject_duplicates(tuple(rule.rule_id for rule in rules), "scenario Event rule IDs")
         if any(rule.logical_time < self.initial_conditions.logical_time for rule in rules):
             raise WorldDefinitionError(
@@ -325,6 +343,7 @@ class WorldDefinition:
             )
         object.__setattr__(self, "scenario_event_rules", rules)
         self._validate_initial_conditions()
+        self._validate_mechanics()
 
     @property
     def ref(self) -> WorldDefinitionRef:
@@ -386,6 +405,23 @@ class WorldDefinition:
             ):
                 raise WorldDefinitionError(
                     "initial Entity-scoped StateVariables must reference initial Entities"
+                )
+
+    def _validate_mechanics(self) -> None:
+        initial_entities = frozenset(item.entity_id for item in self.initial_conditions.entities)
+        for rule in self.scenario_event_rules:
+            mechanic = rule.mechanic
+            if mechanic is None:
+                continue
+            target = mechanic.target
+            if target.state_variable_type not in self.vocabulary.state_variable_types:
+                raise WorldDefinitionError(
+                    "scenario mechanic uses undeclared state_variable_type: "
+                    f"{target.state_variable_type}"
+                )
+            if type(target.scope) is EntityScope and target.scope.entity_id not in initial_entities:
+                raise WorldDefinitionError(
+                    "scenario mechanic Entity target must reference an initial Entity"
                 )
 
 
@@ -546,11 +582,16 @@ def _load_initial_conditions(value: object) -> InitialConditions:
     return InitialConditions(time, entities, relations, resources, state_variables)
 
 
-def _load_scenario_event_rules(value: object) -> tuple[AtTimeScenarioEventRule, ...]:
+def _load_scenario_event_rules(
+    value: object, schema_version: int
+) -> tuple[AtTimeScenarioEventRule, ...]:
     rules: list[AtTimeScenarioEventRule] = []
     for raw in _sequence(value, "scenario_event_rules"):
         item = _exact_mapping(raw, "scenario Event rule")
-        _fields(item, frozenset({"rule_id", "trigger"}), "scenario Event rule")
+        expected = {"rule_id", "trigger"}
+        if schema_version == 3:
+            expected.add("mechanic")
+        _fields(item, frozenset(expected), "scenario Event rule")
         trigger = _exact_mapping(item["trigger"], "scenario Event trigger")
         _fields(trigger, frozenset({"kind", "logical_time"}), "scenario Event trigger")
         if trigger["kind"] != "AT_TIME":
@@ -566,6 +607,7 @@ def _load_scenario_event_rules(value: object) -> tuple[AtTimeScenarioEventRule, 
             AtTimeScenarioEventRule(
                 ScenarioEventRuleId(_token(item["rule_id"], "rule_id")),
                 time,
+                (None if schema_version == 2 else load_scenario_event_mechanic(item["mechanic"])),
             )
         )
     return tuple(rules)
@@ -588,7 +630,7 @@ def load_world_definition(document: Mapping[str, object]) -> WorldDefinition:
         "initial_conditions",
         "metadata",
     }
-    if schema_version == 2:
+    if schema_version in (2, 3):
         fields.add("scenario_event_rules")
     _fields(
         root,
@@ -609,7 +651,7 @@ def load_world_definition(document: Mapping[str, object]) -> WorldDefinition:
             scenario_event_rules=(
                 ()
                 if schema_version == 1
-                else _load_scenario_event_rules(root["scenario_event_rules"])
+                else _load_scenario_event_rules(root["scenario_event_rules"], schema_version)
             ),
         )
     except WorldDefinitionError:

@@ -83,6 +83,51 @@ def valid_version_two_document() -> dict[str, object]:
     return document
 
 
+def valid_version_three_document(*, kind: str = "GEL") -> dict[str, object]:
+    document = valid_document()
+    document["schema_version"] = 3
+    mechanic: dict[str, object]
+    target = {
+        "scope": {"kind": "WORLD"},
+        "state_variable_type": "weather",
+    }
+    if kind == "BUILTIN":
+        mechanic = {
+            "kind": "BUILTIN",
+            "usage": "SET_STATE_VARIABLE",
+            "implementation": "CONSTANT",
+            "target": target,
+            "value": "rain",
+        }
+    else:
+        value_schema = {"type": "STRING", "max_length": 20}
+        mechanic = {
+            "kind": "GEL",
+            "usage": "SET_STATE_VARIABLE",
+            "target": target,
+            "program": {
+                "source": "return {new_value: current_value};",
+                "language_version": 1,
+                "input_schema": {
+                    "type": "OBJECT",
+                    "fields": {"current_value": value_schema},
+                },
+                "output_schema": {
+                    "type": "OBJECT",
+                    "fields": {"new_value": value_schema},
+                },
+            },
+        }
+    document["scenario_event_rules"] = [
+        {
+            "rule_id": "weather-change",
+            "trigger": {"kind": "AT_TIME", "logical_time": 200},
+            "mechanic": mechanic,
+        }
+    ]
+    return document
+
+
 def test_loads_complete_schema_and_preserves_declaration_order() -> None:
     definition = load_world_definition(valid_document())
 
@@ -111,6 +156,15 @@ def test_version_two_loads_minimal_at_time_scenario_rule() -> None:
     assert rule.rule_id == ScenarioEventRuleId("network-outage")
     assert rule.logical_time == LogicalTime(200)
     assert rule.ref(definition.ref).world_definition_ref == definition.ref
+
+
+@pytest.mark.parametrize("kind", ["BUILTIN", "GEL"])
+def test_version_three_loads_direct_scenario_mechanic(kind: str) -> None:
+    definition = load_world_definition(valid_version_three_document(kind=kind))
+
+    assert definition.schema_version == 3
+    assert definition.scenario_event_rules[0].mechanic is not None
+    assert definition.scenario_event_rules[0].mechanic.kind.value == kind
 
 
 def test_empty_vocabulary_and_initial_world_are_valid() -> None:
@@ -169,7 +223,7 @@ def test_schema_rejects_extra_fields_at_nested_levels() -> None:
         load_world_definition(document)
 
 
-@pytest.mark.parametrize("schema_version", [0, 3, True])
+@pytest.mark.parametrize("schema_version", [0, 4, True])
 def test_rejects_invalid_or_unsupported_schema_version(schema_version: object) -> None:
     document = valid_document()
     document["schema_version"] = schema_version
@@ -306,6 +360,51 @@ def test_schema_versions_keep_exact_distinct_root_fields() -> None:
     del version_two["scenario_event_rules"]
     with pytest.raises(WorldDefinitionError, match="missing=.*scenario_event_rules"):
         load_world_definition(version_two)
+
+    version_two = valid_version_two_document()
+    first_v2_rule = cast(list[dict[str, object]], version_two["scenario_event_rules"])[0]
+    first_v2_rule["mechanic"] = {}
+    with pytest.raises(WorldDefinitionError, match="extra=.*mechanic"):
+        load_world_definition(version_two)
+
+    version_three = valid_version_three_document()
+    first_v3_rule = cast(list[dict[str, object]], version_three["scenario_event_rules"])[0]
+    del first_v3_rule["mechanic"]
+    with pytest.raises(WorldDefinitionError, match="missing=.*mechanic"):
+        load_world_definition(version_three)
+
+
+def test_version_three_rejects_invalid_gel_contract_and_randomness() -> None:
+    mismatched = valid_version_three_document()
+    rule = cast(list[dict[str, object]], mismatched["scenario_event_rules"])[0]
+    mechanic = cast(dict[str, object], rule["mechanic"])
+    program = cast(dict[str, object], mechanic["program"])
+    program["output_schema"] = {
+        "type": "OBJECT",
+        "fields": {"new_value": {"type": "BOOLEAN"}},
+    }
+    with pytest.raises(WorldDefinitionError, match="schemas must match"):
+        load_world_definition(mismatched)
+
+    random = valid_version_three_document()
+    random_rule = cast(list[dict[str, object]], random["scenario_event_rules"])[0]
+    random_mechanic = cast(dict[str, object], random_rule["mechanic"])
+    random_program = cast(dict[str, object], random_mechanic["program"])
+    random_program["source"] = 'return {new_value: "random_int(ignored)"};'
+    assert load_world_definition(random).schema_version == 3
+
+    integer_schema = {"type": "INTEGER", "minimum": 0, "maximum": 10}
+    random_program["source"] = "return {new_value: random_int(0, 10)};"
+    random_program["input_schema"] = {
+        "type": "OBJECT",
+        "fields": {"current_value": integer_schema},
+    }
+    random_program["output_schema"] = {
+        "type": "OBJECT",
+        "fields": {"new_value": integer_schema},
+    }
+    with pytest.raises(WorldDefinitionError, match="cannot use random_int"):
+        load_world_definition(random)
 
 
 @pytest.mark.parametrize(
