@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from grass.core import BranchId, SimulationRunConfig
-from grass.persistence import RunId, SimulationRunRecord
+from grass.persistence import RunId, SimulationRunRecord, WorldMaterialKind
 from grass.persistence.contracts import RunRepository
 from grass.worlds import snapshots as snapshots_module
 from grass.worlds.package import WorldPackage, load_world_package
@@ -43,6 +43,9 @@ class RecordingRunRepository:
     def read_run(self, run_id: RunId, /) -> SimulationRunRecord:
         raise NotImplementedError(run_id)
 
+    def list_runs(self) -> tuple[SimulationRunRecord, ...]:
+        return tuple(call[0] for call in self.calls)
+
 
 def record_for_package(run_id: RunId, world_ref: object) -> SimulationRunRecord:
     from grass.core.world_definitions import WorldDefinitionRef
@@ -52,6 +55,7 @@ def record_for_package(run_id: RunId, world_ref: object) -> SimulationRunRecord:
         run_id,
         BranchId("root"),
         world_ref,
+        WorldMaterialKind.PACKAGE_SNAPSHOT,
         datetime(2026, 9, 19, tzinfo=UTC),
     )
 

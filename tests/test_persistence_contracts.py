@@ -24,9 +24,11 @@ from grass.core import (
     load_world_definition,
 )
 from grass.persistence import (
+    SQLITE_STORAGE_SCHEMA_VERSION,
     PersistenceError,
     PersistenceIntegrityError,
     RunConfigSnapshotRepository,
+    RunEventStoreRepository,
     RunId,
     RunNotFoundError,
     RunRepository,
@@ -34,6 +36,7 @@ from grass.persistence import (
     SqlitePersistence,
     UnsupportedStorageVersionError,
     WorldDefinitionSnapshotRepository,
+    WorldMaterialKind,
 )
 
 
@@ -160,6 +163,7 @@ def _record(world: WorldDefinition, run_id: str = "run") -> SimulationRunRecord:
         RunId(run_id),
         BranchId("root"),
         world.ref,
+        WorldMaterialKind.DEFINITION_ONLY,
         datetime(2026, 9, 14, 12, 30, 45, 123456, tzinfo=offset),
     )
 
@@ -175,6 +179,7 @@ def test_run_value_objects_are_strict_and_wall_time_is_normalized() -> None:
             RunId("run"),
             BranchId("root"),
             world.ref,
+            WorldMaterialKind.DEFINITION_ONLY,
             datetime(2026, 9, 14),
         )
     with pytest.raises(ValueError, match="must not be empty"):
@@ -197,12 +202,16 @@ def test_run_definition_and_non_secret_config_survive_reopen(
     run_repository.register_run(record, world, config)
 
     reopened = SqlitePersistence(path)
+    event_store_repository: RunEventStoreRepository = reopened
     assert reopened.read_run(record.run_id) == record
+    assert reopened.read_run(record.run_id).world_material_kind is WorldMaterialKind.DEFINITION_ONLY
     assert definition_repository.read_world_definition(record.run_id) == world
     assert config_repository.read_run_config(record.run_id) == config
     assert reopened.read_world_definition(record.run_id) == world
     assert reopened.read_run_config(record.run_id) == config
-    root_branch = reopened.event_store(record.run_id).read_branch(record.root_branch_id)
+    root_branch = event_store_repository.event_store(record.run_id).read_branch(
+        record.root_branch_id
+    )
     assert root_branch.fork_position is None
 
     with sqlite3.connect(path) as connection:
@@ -249,6 +258,78 @@ def test_run_definition_and_non_secret_config_survive_reopen(
             ).fetchone()[0]
         assert '"source":"return {new_value: current_value};\\n"' in definition_json
         assert "source_file" not in definition_json
+
+
+@pytest.mark.parametrize("kind", list(WorldMaterialKind))
+def test_world_material_kind_roundtrips(tmp_path: Path, kind: WorldMaterialKind) -> None:
+    world = _world()
+    record = SimulationRunRecord(
+        RunId(kind.value.lower()),
+        BranchId("root"),
+        world.ref,
+        kind,
+        datetime(2026, 9, 14, tzinfo=UTC),
+    )
+    persistence = SqlitePersistence(tmp_path / f"{kind.value}.db")
+
+    persistence.register_run(record, world, _config(world))
+
+    assert SqlitePersistence(persistence.path).read_run(record.run_id) == record
+
+
+def test_run_catalog_is_deterministic_across_reopen_and_schema_stays_version_one(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "catalog.db"
+    world = _world()
+    persistence = SqlitePersistence(path)
+    records = (
+        SimulationRunRecord(
+            RunId("later"),
+            BranchId("root"),
+            world.ref,
+            WorldMaterialKind.DEFINITION_ONLY,
+            datetime(2026, 9, 15, tzinfo=UTC),
+        ),
+        SimulationRunRecord(
+            RunId("same-z"),
+            BranchId("root"),
+            world.ref,
+            WorldMaterialKind.PACKAGE_SNAPSHOT,
+            datetime(2026, 9, 14, tzinfo=UTC),
+        ),
+        SimulationRunRecord(
+            RunId("same-a"),
+            BranchId("root"),
+            world.ref,
+            WorldMaterialKind.DEFINITION_ONLY,
+            datetime(2026, 9, 14, tzinfo=UTC),
+        ),
+    )
+    for record in records:
+        persistence.register_run(record, world, _config(world))
+
+    reopened = SqlitePersistence(path)
+
+    assert [record.run_id.value for record in reopened.list_runs()] == [
+        "same-a",
+        "same-z",
+        "later",
+    ]
+    assert SQLITE_STORAGE_SCHEMA_VERSION == 1
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        material_column = next(
+            row
+            for row in connection.execute("PRAGMA table_info(simulation_runs)")
+            if row[1] == "world_material_kind"
+        )
+        assert material_column[3] == 1
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE simulation_runs SET world_material_kind = 'UNSUPPORTED' "
+                "WHERE run_id = 'later'"
+            )
 
 
 def test_definition_identity_is_immutable_and_failed_registration_is_atomic(

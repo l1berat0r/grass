@@ -40,7 +40,7 @@ from grass.core import (
     prepare_decision_point_transition,
     replay_branch,
 )
-from grass.persistence import RunId, SimulationRunRecord, SqlitePersistence
+from grass.persistence import RunId, SimulationRunRecord, SqlitePersistence, WorldMaterialKind
 from grass.runtime import (
     JobStartProposal,
     PerceptionCandidate,
@@ -158,7 +158,11 @@ def test_reopened_runtime_continues_and_replay_does_not_regenerate_occurrence(
     world = _world()
     config = SimulationRunConfig(world.ref)
     record = SimulationRunRecord(
-        RunId("run"), BranchId("root"), world.ref, datetime(2026, 9, 14, tzinfo=UTC)
+        RunId("run"),
+        BranchId("root"),
+        world.ref,
+        WorldMaterialKind.DEFINITION_ONLY,
+        datetime(2026, 9, 14, tzinfo=UTC),
     )
     persistence = SqlitePersistence(path)
     persistence.register_run(record, world, config)
@@ -214,7 +218,11 @@ def test_reopened_runtime_uses_persisted_client_managed_decision_binding(
         ),
     )
     record = SimulationRunRecord(
-        RunId("run"), BranchId("root"), world.ref, datetime(2026, 9, 14, tzinfo=UTC)
+        RunId("run"),
+        BranchId("root"),
+        world.ref,
+        WorldMaterialKind.DEFINITION_ONLY,
+        datetime(2026, 9, 14, tzinfo=UTC),
     )
     persistence = SqlitePersistence(path)
     persistence.register_run(record, world, config)
@@ -255,11 +263,19 @@ def test_reopened_runtime_uses_persisted_client_managed_decision_binding(
     before_head = reopened_store.head_position(record.root_branch_id)
     before_history = tuple(reopened_store.read_transitions(record.root_branch_id))
 
-    result = asyncio.run(
-        _engine(reopened, RecordingOccurrenceResolver()).step(record.root_branch_id)
-    )
+    resolver = RecordingOccurrenceResolver()
+    engine = _engine(reopened, resolver)
+    scheduled = asyncio.run(engine.step(record.root_branch_id))
+    after_scheduled_head = reopened_store.head_position(record.root_branch_id)
+    after_scheduled_history = tuple(reopened_store.read_transitions(record.root_branch_id))
+    waiting = asyncio.run(engine.step(record.root_branch_id))
 
-    assert result.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
-    assert result.waiting_decision_point_ids == (DecisionPointId("plan-required"),)
-    assert reopened_store.head_position(record.root_branch_id) == before_head
-    assert tuple(reopened_store.read_transitions(record.root_branch_id)) == before_history
+    assert scheduled.work_kind is RuntimeWorkKind.SCENARIO_OCCURRENCE
+    assert scheduled.logical_time == LogicalTime(5)
+    assert resolver.requests
+    assert after_scheduled_head != before_head
+    assert after_scheduled_history != before_history
+    assert waiting.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
+    assert waiting.waiting_decision_point_ids == (DecisionPointId("plan-required"),)
+    assert reopened_store.head_position(record.root_branch_id) == after_scheduled_head
+    assert tuple(reopened_store.read_transitions(record.root_branch_id)) == after_scheduled_history

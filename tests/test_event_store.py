@@ -12,6 +12,7 @@ from grass.core import (
     CorrelationId,
     EventId,
     HistoryPosition,
+    InMemoryEventStore,
     LogicalTime,
     Provenance,
     ProvenanceSourceRef,
@@ -226,6 +227,18 @@ def test_store_has_no_update_or_delete_operations() -> None:
 
     assert not hasattr(store, "update")
     assert not hasattr(store, "delete")
+
+
+def test_branch_catalog_is_lexicographic() -> None:
+    store = InMemoryEventStore()
+    for value in ("zeta", "alpha", "middle"):
+        store.create_root_branch(BranchId(value))
+
+    assert [branch.branch_id.value for branch in store.list_branches()] == [
+        "alpha",
+        "middle",
+        "zeta",
+    ]
 
 
 def test_store_rejects_invalid_argument_types() -> None:

@@ -160,6 +160,8 @@ Make a normal user-defined world runnable without adding Python code to GRASS.
 
 ### Slice 15 — Application API and Query API
 
+**Status: complete**
+
 Expose stable use-case boundaries above the runtime without leaking write authority to clients.
 
 **Command/application surface:**
@@ -181,7 +183,8 @@ Expose stable use-case boundaries above the runtime without leaking write author
 
 Additional rules:
 
-- command paths may request authoritative changes only through `SimulationEngine`;
+- command paths may request authoritative changes only through trusted runtime/
+  `SimulationEngine` operations;
 - query paths are read-only and may reconstruct/project data from canonical history;
 - `ActorView`-style query DTOs may combine `WorldState`, `ExecutionState`, `CognitionState`, and history without introducing a new authoritative Actor aggregate;
 - actor query surfaces must not prematurely freeze the exact long-term actor-memory/retrieval model;

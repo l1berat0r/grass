@@ -75,7 +75,7 @@ class JobStartProposal:
 
 
 class JobStartPolicy(Protocol):
-    """Select trusted Job-start details for one already-derived ready step."""
+    """Deterministically select Job-start details without allocation or side effects."""
 
     def propose(
         self, ready_step: ReadyPlanStep, state: SimulationState, /

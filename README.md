@@ -12,9 +12,9 @@ LLMs, humans, scripts, deterministic providers, planners, and world resolvers ma
 
 ## Project status
 
-The initial architecture is baselined as **`design-0.1`**. Slices 0–14 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, and data-defined WorldPackage composition with per-run snapshots.
+The initial architecture is baselined as **`design-0.1`**. Slices 0–15 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, and transport-neutral Application/Query APIs.
 
-The next implementation step is **Slice 15**, which adds Application/Query APIs. Slices 16–17 then add a permanent local CLI and reusable WorldPackage templates. The exact post-0.1 order of actor-memory work, persistence evolution, observer/analyst capabilities, backend/API, and frontend is intentionally deferred until several real runs provide evidence.
+The next implementation step is **Slice 16**, which adds a permanent local CLI; Slice 17 then adds reusable WorldPackage templates. The exact post-0.1 order of actor-memory work, persistence evolution, observer/analyst capabilities, backend/API, and frontend is intentionally deferred until several real runs provide evidence.
 
 Start here:
 

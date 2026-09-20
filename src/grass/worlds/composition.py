@@ -101,6 +101,57 @@ def _jobs_do_not_conflict(
     return False
 
 
+class OccurrenceRuntimeComposer:
+    """Trusted adapter for the schema-v3 occurrence-only runtime subset."""
+
+    def validate(
+        self,
+        world_definition: WorldDefinition,
+        run_config: SimulationRunConfig,
+        /,
+    ) -> None:
+        if type(world_definition) is not WorldDefinition:
+            raise TypeError("world_definition must be a WorldDefinition")
+        if type(run_config) is not SimulationRunConfig:
+            raise TypeError("run_config must be a SimulationRunConfig")
+        if world_definition.schema_version != 3:
+            raise WorldCompositionError("occurrence composition requires schema version 3")
+        if run_config.world_definition_ref != world_definition.ref:
+            raise WorldCompositionError("run_config must reference world_definition")
+        occurrence_times = tuple(
+            rule.logical_time for rule in world_definition.scenario_event_rules
+        )
+        if len(set(occurrence_times)) != len(occurrence_times):
+            raise WorldCompositionError("duplicate scenario occurrence times are unsupported")
+
+    def compose(
+        self,
+        *,
+        event_store: EventStore,
+        world_definition: WorldDefinition,
+        run_config: SimulationRunConfig,
+        identity_source: RuntimeIdentitySource,
+        decision_invokers: Mapping[ProviderBindingId, DecisionInvoker] | None = None,
+    ) -> SimulationEngine:
+        self.validate(world_definition, run_config)
+        return SimulationEngine(
+            event_store=event_store,
+            world_definition=world_definition,
+            run_config=run_config,
+            identity_source=identity_source,
+            schedule_projector=_OccurrenceOnlyScheduleProjector(),
+            conflict_predicate=_jobs_do_not_conflict,
+            world_resolution_provider=_UnsupportedWorldResolver(),
+            scenario_occurrence_resolution_provider=DataDefinedScenarioOccurrenceResolver(
+                world_definition
+            ),
+            perception_projector=_NoPerceptionProjector(),
+            decision_trigger_policy=_UnsupportedDecisionTriggerPolicy(),
+            decision_invokers={} if decision_invokers is None else decision_invokers,
+            job_start_policy=_UnsupportedJobStartPolicy(),
+        )
+
+
 def compose_occurrence_engine(
     *,
     event_store: EventStore,
@@ -111,31 +162,10 @@ def compose_occurrence_engine(
 ) -> SimulationEngine:
     """Compose the existing engine for schema-v3 occurrence-only execution."""
 
-    if type(world_definition) is not WorldDefinition:
-        raise TypeError("world_definition must be a WorldDefinition")
-    if type(run_config) is not SimulationRunConfig:
-        raise TypeError("run_config must be a SimulationRunConfig")
-    if world_definition.schema_version != 3:
-        raise WorldCompositionError("occurrence composition requires schema version 3")
-    if run_config.world_definition_ref != world_definition.ref:
-        raise WorldCompositionError("run_config must reference world_definition")
-    occurrence_times = tuple(rule.logical_time for rule in world_definition.scenario_event_rules)
-    if len(set(occurrence_times)) != len(occurrence_times):
-        raise WorldCompositionError("duplicate scenario occurrence times are unsupported")
-
-    return SimulationEngine(
+    return OccurrenceRuntimeComposer().compose(
         event_store=event_store,
         world_definition=world_definition,
         run_config=run_config,
         identity_source=identity_source,
-        schedule_projector=_OccurrenceOnlyScheduleProjector(),
-        conflict_predicate=_jobs_do_not_conflict,
-        world_resolution_provider=_UnsupportedWorldResolver(),
-        scenario_occurrence_resolution_provider=DataDefinedScenarioOccurrenceResolver(
-            world_definition
-        ),
-        perception_projector=_NoPerceptionProjector(),
-        decision_trigger_policy=_UnsupportedDecisionTriggerPolicy(),
-        decision_invokers={} if decision_invokers is None else decision_invokers,
-        job_start_policy=_UnsupportedJobStartPolicy(),
+        decision_invokers=decision_invokers,
     )

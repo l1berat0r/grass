@@ -19,6 +19,7 @@ from grass.persistence.contracts import (
     RunId,
     RunRepository,
     SimulationRunRecord,
+    WorldMaterialKind,
 )
 from grass.worlds.package import (
     WorldPackage,
@@ -315,6 +316,8 @@ def register_world_package_run(
         raise TypeError("package must be a WorldPackage")
     if type(run_config) is not SimulationRunConfig:
         raise TypeError("run_config must be a SimulationRunConfig")
+    if record.world_material_kind is not WorldMaterialKind.PACKAGE_SNAPSHOT:
+        raise ValueError("package run record must use PACKAGE_SNAPSHOT world material")
     if record.world_definition_ref != package.world_definition.ref:
         raise ValueError("run record must reference the package WorldDefinition")
     if run_config.world_definition_ref != package.world_definition.ref:

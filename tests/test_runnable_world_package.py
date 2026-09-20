@@ -21,7 +21,12 @@ from grass.core import (
     build_genesis_transition,
     replay_branch,
 )
-from grass.persistence import RunId, SimulationRunRecord, SqlitePersistence
+from grass.persistence import (
+    RunId,
+    SimulationRunRecord,
+    SqlitePersistence,
+    WorldMaterialKind,
+)
 from grass.runtime import RuntimeStopReason, UuidRuntimeIdentitySource
 from grass.worlds import (
     FilesystemWorldSnapshotStore,
@@ -45,6 +50,7 @@ def test_packaged_run_reopens_without_author_files_and_preserves_branching(
         run_id,
         root_id,
         package.world_definition.ref,
+        WorldMaterialKind.PACKAGE_SNAPSHOT,
         datetime(2026, 9, 19, tzinfo=UTC),
     )
     config = SimulationRunConfig(package.world_definition.ref)

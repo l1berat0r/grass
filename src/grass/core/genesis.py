@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from grass.core._structured_data import StructuredValue
-from grass.core.events import EventToCommit, TransitionToCommit
+from grass.core.events import CommittedTransition, EventToCommit, TransitionToCommit
 from grass.core.identifiers import EventId
 from grass.core.initialization_events import SIMULATION_INITIALIZED
 from grass.core.provenance import Provenance, ProvenanceSourceRef
@@ -145,6 +145,14 @@ def _genesis_records(
     return tuple(records)
 
 
+def genesis_event_count(world_definition: WorldDefinition, /) -> int:
+    """Return the exact number of Events required by this definition's genesis."""
+
+    if type(world_definition) is not WorldDefinition:
+        raise TypeError("world_definition must be a WorldDefinition")
+    return len(_genesis_records(world_definition))
+
+
 def build_genesis_transition(
     world_definition: WorldDefinition,
     run_config: SimulationRunConfig,
@@ -201,3 +209,46 @@ def build_genesis_transition(
         logical_time=world_definition.initial_conditions.logical_time,
         events=events,
     )
+
+
+def validate_committed_genesis(
+    world_definition: WorldDefinition,
+    run_config: SimulationRunConfig,
+    committed: CommittedTransition,
+    /,
+) -> None:
+    """Require one committed transition to be this root's exact genesis encoding."""
+
+    if type(committed) is not CommittedTransition:
+        raise TypeError("committed must be a CommittedTransition")
+    expected = build_genesis_transition(
+        world_definition,
+        run_config,
+        committed.transition_ref,
+        tuple(event.event_id for event in committed.events),
+    )
+    if committed.logical_time != expected.logical_time:
+        raise GenesisError("committed genesis has an unexpected logical_time")
+    if len(committed.events) != len(expected.events):  # pragma: no cover - builder checks count
+        raise GenesisError("committed genesis has an unexpected Event count")
+
+    for sequence, (actual, record) in enumerate(
+        zip(committed.events, expected.events, strict=True),
+        start=1,
+    ):
+        if actual.sequence != sequence:
+            raise GenesisError("committed root genesis Event sequences must start at 1")
+        if actual.logical_time != expected.logical_time:
+            raise GenesisError("committed genesis Event has an unexpected logical_time")
+        if actual.event_type != record.event_type:
+            raise GenesisError("committed genesis Event has an unexpected event_type")
+        if actual.event_version != record.event_version:
+            raise GenesisError("committed genesis Event has an unexpected event_version")
+        if actual.payload != record.payload:
+            raise GenesisError("committed genesis Event has an unexpected payload")
+        if actual.provenance != record.provenance:
+            raise GenesisError("committed genesis Event has unexpected provenance")
+        if actual.causation_refs != record.causation_refs:
+            raise GenesisError("committed genesis Event has unexpected causation_refs")
+        if actual.correlation_id != record.correlation_id:
+            raise GenesisError("committed genesis Event has an unexpected correlation_id")

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -24,9 +25,11 @@ from grass.core import (
     WorldDefinitionRef,
     WorldScope,
     build_genesis_transition,
+    genesis_event_count,
     load_world_definition,
     project_transition,
     replay_branch,
+    validate_committed_genesis,
 )
 from grass.core.initialization_events import SIMULATION_INITIALIZED
 from grass.core.world_events import (
@@ -231,6 +234,32 @@ def test_empty_world_still_produces_non_empty_genesis() -> None:
 
     assert len(transition.events) == 1
     assert transition.events[0].event_type == SIMULATION_INITIALIZED
+
+
+def test_genesis_event_count_matches_exact_materialization() -> None:
+    assert genesis_event_count(definition()) == 7
+    assert genesis_event_count(definition(empty=True)) == 1
+
+
+def test_committed_genesis_validation_uses_actual_identities_and_exact_records() -> None:
+    world_definition = definition()
+    run_config = SimulationRunConfig(world_definition.ref)
+    store = rooted_store("root")
+    committed = store.commit_transition(build(world_definition, genesis_ids(7)))
+
+    validate_committed_genesis(world_definition, run_config, committed)
+
+    changed_event = replace(committed.events[1], payload={"unexpected": True})
+    changed = replace(committed, events=(committed.events[0], changed_event, *committed.events[2:]))
+    with pytest.raises(GenesisError, match="payload"):
+        validate_committed_genesis(world_definition, run_config, changed)
+
+    shifted = replace(
+        committed,
+        events=tuple(replace(event, sequence=event.sequence + 1) for event in committed.events),
+    )
+    with pytest.raises(GenesisError, match="start at 1"):
+        validate_committed_genesis(world_definition, run_config, shifted)
 
 
 def test_builder_is_pure_and_committed_genesis_projects_and_replays() -> None:

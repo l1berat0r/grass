@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Protocol
 
+from grass.core.event_store import EventStore
 from grass.core.identifiers import BranchId
 from grass.core.world_definitions import (
     SimulationRunConfig,
@@ -30,6 +33,13 @@ class UnsupportedStorageVersionError(PersistenceError):
 
 class RunNotFoundError(PersistenceError, LookupError):
     """The requested durable simulation run does not exist."""
+
+
+class WorldMaterialKind(StrEnum):
+    """Durable world material retained for one simulation run."""
+
+    DEFINITION_ONLY = "DEFINITION_ONLY"
+    PACKAGE_SNAPSHOT = "PACKAGE_SNAPSHOT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +65,7 @@ class SimulationRunRecord:
     run_id: RunId
     root_branch_id: BranchId
     world_definition_ref: WorldDefinitionRef
+    world_material_kind: WorldMaterialKind
     created_at: datetime
 
     def __post_init__(self) -> None:
@@ -64,6 +75,8 @@ class SimulationRunRecord:
             raise TypeError("root_branch_id must be a BranchId")
         if type(self.world_definition_ref) is not WorldDefinitionRef:
             raise TypeError("world_definition_ref must be a WorldDefinitionRef")
+        if type(self.world_material_kind) is not WorldMaterialKind:
+            raise TypeError("world_material_kind must be a WorldMaterialKind")
         if type(self.created_at) is not datetime:
             raise TypeError("created_at must be a datetime")
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
@@ -83,6 +96,14 @@ class RunRepository(Protocol):
     ) -> None: ...
 
     def read_run(self, run_id: RunId, /) -> SimulationRunRecord: ...
+
+    def list_runs(self) -> Sequence[SimulationRunRecord]: ...
+
+
+class RunEventStoreRepository(Protocol):
+    """Open the canonical EventStore scoped to one durable run."""
+
+    def event_store(self, run_id: RunId, /) -> EventStore: ...
 
 
 class WorldDefinitionSnapshotRepository(Protocol):

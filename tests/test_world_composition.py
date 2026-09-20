@@ -29,8 +29,12 @@ from grass.core import (
     project_scenario_occurrences,
     replay_branch,
 )
-from grass.runtime import UuidRuntimeIdentitySource
-from grass.worlds.composition import WorldCompositionError, compose_occurrence_engine
+from grass.runtime import RuntimeComposer, UuidRuntimeIdentitySource
+from grass.worlds.composition import (
+    OccurrenceRuntimeComposer,
+    WorldCompositionError,
+    compose_occurrence_engine,
+)
 from grass.worlds.mechanics import (
     DataDefinedScenarioOccurrenceResolver,
     WorldMechanicExecutionError,
@@ -211,6 +215,23 @@ def test_composition_rejects_duplicate_times_and_mismatched_config() -> None:
             ),
             identity_source=identity_source,
         )
+
+
+def test_occurrence_composer_implements_validation_and_composition_contract() -> None:
+    definition = _definition([_builtin_rule("constant", 5, 4)])
+    config = SimulationRunConfig(definition.ref)
+    composer: RuntimeComposer = OccurrenceRuntimeComposer()
+    store = InMemoryEventStore()
+
+    composer.validate(definition, config)
+    engine = composer.compose(
+        event_store=store,
+        world_definition=definition,
+        run_config=config,
+        identity_source=UuidRuntimeIdentitySource(),
+    )
+
+    assert engine is not None
 
 
 def test_composition_rejects_pre_v3_world_definition() -> None:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TypeAlias, cast
 
 from grass.core._structured_data import StructuredValue
-from grass.core.branches import HistoryPosition
+from grass.core.branches import Branch, HistoryPosition
 from grass.core.decision_invocations import (
     DecisionAcquisitionFailure,
     DecisionAcquisitionSuccess,
@@ -74,7 +74,9 @@ from grass.core.world_resolution import (
 )
 from grass.runtime.contracts import (
     AdvanceResult,
+    PerceptionCandidate,
     PerceptionProjector,
+    RunStatus,
     RuntimeIdentitySource,
     RuntimeIntegrityError,
     RuntimeStopReason,
@@ -86,6 +88,7 @@ from grass.runtime.perception import derive_outstanding_perception_candidates
 from grass.runtime.readiness import (
     JobStartPolicy,
     JobStartProposal,
+    ReadyPlanStep,
     UnsupportedRuntimeStateError,
     derive_ready_plan_steps,
 )
@@ -217,6 +220,11 @@ class SimulationEngine:
         state = replay_branch(self._store, position)
         return _Frontier(position, history, state, history[-1].logical_time)
 
+    def create_branch(self, branch_id: BranchId, fork_position: HistoryPosition, /) -> Branch:
+        """Create a child at one exact committed position without exposing EventStore."""
+
+        return self._store.fork_branch(branch_id, fork_position)
+
     def _transition_ref(self, branch_id: BranchId, kind: RuntimeWorkKind) -> TransitionRef:
         transition_id = self._ids.transition_id(branch_id, kind)
         return TransitionRef(branch_id, transition_id)
@@ -346,12 +354,44 @@ class SimulationEngine:
 
         return index.next_step(frontier.current_time, conflicts)
 
-    def _commit_perception(self, frontier: _Frontier) -> StepResult | None:
-        candidates = derive_outstanding_perception_candidates(
+    def _perception_candidates(self, frontier: _Frontier) -> tuple[PerceptionCandidate, ...]:
+        return derive_outstanding_perception_candidates(
             self._store,
             frontier.position,
             self._perception_projector,
         )
+
+    def _job_start_proposal(
+        self, frontier: _Frontier
+    ) -> tuple[ReadyPlanStep, JobStartProposal] | None:
+        for ready in derive_ready_plan_steps(frontier.state):
+            proposal = self._job_start_policy.propose(ready, frontier.state)
+            if proposal is None:
+                continue
+            if type(proposal) is not JobStartProposal:
+                raise RuntimeIntegrityError("JobStartPolicy returned invalid output")
+            return ready, proposal
+        return None
+
+    def inspect_status(self, branch_id: BranchId, /) -> RunStatus:
+        """Derive branch readiness without allocation, provider execution, or commit."""
+
+        frontier = self._frontier(branch_id)
+        if self._perception_candidates(frontier):
+            return RunStatus.READY
+        classified = self._pending_decisions(frontier)
+        if any(not client_managed for _, _, client_managed in classified):
+            return RunStatus.READY
+        if self._job_start_proposal(frontier) is not None:
+            return RunStatus.READY
+        if self._schedule(frontier) is not None:
+            return RunStatus.READY
+        if any(client_managed for _, _, client_managed in classified):
+            return RunStatus.WAITING_FOR_DECISION
+        return RunStatus.QUIESCENT
+
+    def _commit_perception(self, frontier: _Frontier) -> StepResult | None:
+        candidates = self._perception_candidates(frontier)
         if not candidates:
             return None
         candidate = candidates[0]
@@ -437,29 +477,26 @@ class SimulationEngine:
         return self._committed_result(frontier, kind, committed)
 
     def _commit_job_start(self, frontier: _Frontier) -> StepResult | None:
-        for ready in derive_ready_plan_steps(frontier.state):
-            proposal = self._job_start_policy.propose(ready, frontier.state)
-            if proposal is None:
-                continue
-            if type(proposal) is not JobStartProposal:
-                raise RuntimeIntegrityError("JobStartPolicy returned invalid output")
-            kind = RuntimeWorkKind.JOB_START
-            prepared = prepare_job_start_transition(
-                frontier.state,
-                ready.plan_step_ref,
-                self._ids.job_id(ready.plan_step_ref),
-                proposal.initial_progress,
-                self._transition_ref(frontier.position.branch_id, kind),
-                self._event_ids(2 if proposal.activate else 1),
-                base_history=frontier.history,
-                activate=proposal.activate,
-            )
-            committed = self._store.commit_transition(
-                prepared.transition,
-                expected_head=prepared.expected_head,
-            )
-            return self._committed_result(frontier, kind, committed)
-        return None
+        selected = self._job_start_proposal(frontier)
+        if selected is None:
+            return None
+        ready, proposal = selected
+        kind = RuntimeWorkKind.JOB_START
+        prepared = prepare_job_start_transition(
+            frontier.state,
+            ready.plan_step_ref,
+            self._ids.job_id(ready.plan_step_ref),
+            proposal.initial_progress,
+            self._transition_ref(frontier.position.branch_id, kind),
+            self._event_ids(2 if proposal.activate else 1),
+            base_history=frontier.history,
+            activate=proposal.activate,
+        )
+        committed = self._store.commit_transition(
+            prepared.transition,
+            expected_head=prepared.expected_head,
+        )
+        return self._committed_result(frontier, kind, committed)
 
     def _commit_job_frontier(
         self,
@@ -620,6 +657,11 @@ class SimulationEngine:
         if scheduler_step is not None and scheduler_step.target_time == frontier.current_time:
             return self._commit_scheduler_frontier(frontier, scheduler_step)
 
+        if scheduler_step is not None and (
+            target_time is None or scheduler_step.target_time <= target_time
+        ):
+            return self._commit_scheduler_frontier(frontier, scheduler_step)
+
         waiting = tuple(point_id for point_id, _, external in classified if external)
         if waiting:
             return self._stop_result(
@@ -631,9 +673,7 @@ class SimulationEngine:
             return self._stop_result(frontier, RuntimeStopReason.TARGET_REACHED)
         if scheduler_step is None:
             return self._stop_result(frontier, RuntimeStopReason.QUIESCENT)
-        if target_time is not None and scheduler_step.target_time > target_time:
-            return self._stop_result(frontier, RuntimeStopReason.TARGET_REACHED)
-        return self._commit_scheduler_frontier(frontier, scheduler_step)
+        return self._stop_result(frontier, RuntimeStopReason.TARGET_REACHED)
 
     async def advance(
         self,

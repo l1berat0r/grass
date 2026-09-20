@@ -142,7 +142,12 @@ from grass.core.gel import (
     prepare_gel,
     prepared_gel_uses_random,
 )
-from grass.core.genesis import GenesisError, build_genesis_transition
+from grass.core.genesis import (
+    GenesisError,
+    build_genesis_transition,
+    genesis_event_count,
+    validate_committed_genesis,
+)
 from grass.core.identifiers import (
     BlueprintId,
     BranchId,
@@ -576,6 +581,7 @@ __all__ = [
     "evaluate_observation_trigger",
     "group_conflict_components",
     "gel_schema_document",
+    "genesis_event_count",
     "load_world_definition",
     "load_gel_schema",
     "load_scenario_event_mechanic",
@@ -606,4 +612,5 @@ __all__ = [
     "validate_resolution_component_proposals",
     "validate_resolution_proposal",
     "validate_scenario_occurrence_resolution_proposal",
+    "validate_committed_genesis",
 ]

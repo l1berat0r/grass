@@ -33,6 +33,7 @@ from grass.persistence import (
     SimulationRunRecord,
     SqliteEventStore,
     SqlitePersistence,
+    WorldMaterialKind,
 )
 from tests.support import event_to_commit, transition_to_commit
 
@@ -69,6 +70,7 @@ def _store(tmp_path: Path, run: str = "run") -> tuple[SqlitePersistence, SqliteE
         RunId(run),
         BranchId("test:root"),
         world.ref,
+        WorldMaterialKind.DEFINITION_ONLY,
         datetime(2026, 9, 14, tzinfo=UTC),
     )
     persistence.register_run(record, world, SimulationRunConfig(world.ref))
@@ -242,6 +244,20 @@ def test_branch_prefixes_remain_isolated_after_restart(tmp_path: Path) -> None:
     assert child.events[0].sequence == 1
 
 
+def test_branch_catalog_is_lexicographic_and_survives_reopen(tmp_path: Path) -> None:
+    persistence, store = _store(tmp_path)
+    store.create_root_branch(BranchId("zeta"))
+    store.create_root_branch(BranchId("alpha"))
+
+    reopened = SqlitePersistence(persistence.path).event_store(RunId("run"))
+
+    assert [branch.branch_id.value for branch in reopened.list_branches()] == [
+        "alpha",
+        "test:root",
+        "zeta",
+    ]
+
+
 def test_run_scopes_branches_but_event_ids_remain_database_global(tmp_path: Path) -> None:
     persistence, first = _store(tmp_path, "one")
     world = _world()
@@ -249,6 +265,7 @@ def test_run_scopes_branches_but_event_ids_remain_database_global(tmp_path: Path
         RunId("two"),
         BranchId("test:root"),
         world.ref,
+        WorldMaterialKind.DEFINITION_ONLY,
         datetime(2026, 9, 14, tzinfo=UTC),
     )
     persistence.register_run(second_record, world, SimulationRunConfig(world.ref))

@@ -2,7 +2,11 @@
 
 """Data-defined WorldPackage loading, snapshots, and runtime composition."""
 
-from grass.worlds.composition import WorldCompositionError, compose_occurrence_engine
+from grass.worlds.composition import (
+    OccurrenceRuntimeComposer,
+    WorldCompositionError,
+    compose_occurrence_engine,
+)
 from grass.worlds.mechanics import (
     DataDefinedScenarioOccurrenceResolver,
     WorldMechanicExecutionError,
@@ -34,6 +38,7 @@ from grass.worlds.snapshots import (
 __all__ = [
     "DataDefinedScenarioOccurrenceResolver",
     "FilesystemWorldSnapshotStore",
+    "OccurrenceRuntimeComposer",
     "UnsupportedWorldPackageVersionError",
     "WORLD_PACKAGE_MANIFEST",
     "WORLD_PACKAGE_VERSION",

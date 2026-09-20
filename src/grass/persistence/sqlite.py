@@ -49,6 +49,7 @@ from grass.persistence.contracts import (
     RunNotFoundError,
     SimulationRunRecord,
     UnsupportedStorageVersionError,
+    WorldMaterialKind,
 )
 
 SQLITE_STORAGE_SCHEMA_VERSION = 1
@@ -69,6 +70,8 @@ _SCHEMA_STATEMENTS = (
         root_branch_id TEXT NOT NULL,
         world_definition_id TEXT NOT NULL,
         world_definition_version TEXT NOT NULL,
+        world_material_kind TEXT NOT NULL
+            CHECK (world_material_kind IN ('DEFINITION_ONLY', 'PACKAGE_SNAPSHOT')),
         created_at TEXT NOT NULL,
         FOREIGN KEY (world_definition_id, world_definition_version)
             REFERENCES world_definitions (world_definition_id, version)
@@ -150,6 +153,22 @@ def _parse_nonnegative_decimal(value: object, description: str) -> int:
     if len(value) > 1 and value[0] == "0":
         raise PersistenceIntegrityError(f"stored {description} is not a canonical decimal")
     return int(value)
+
+
+def _decode_run_record(row: sqlite3.Row) -> SimulationRunRecord:
+    try:
+        return SimulationRunRecord(
+            RunId(cast(str, row["run_id"])),
+            BranchId(cast(str, row["root_branch_id"])),
+            WorldDefinitionRef(
+                WorldDefinitionId(cast(str, row["world_definition_id"])),
+                cast(str, row["world_definition_version"]),
+            ),
+            WorldMaterialKind(cast(str, row["world_material_kind"])),
+            decode_datetime(cast(str, row["created_at"])),
+        )
+    except (TypeError, ValueError) as error:
+        raise PersistenceIntegrityError("stored simulation run is invalid") from error
 
 
 class SqlitePersistence:
@@ -277,12 +296,14 @@ class SqlitePersistence:
             connection.execute(
                 "INSERT INTO simulation_runs "
                 "(run_id, root_branch_id, world_definition_id, "
-                "world_definition_version, created_at) VALUES (?, ?, ?, ?, ?)",
+                "world_definition_version, world_material_kind, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     record.run_id.value,
                     record.root_branch_id.value,
                     record.world_definition_ref.world_definition_id.value,
                     record.world_definition_ref.version,
+                    record.world_material_kind.value,
                     created_at,
                 ),
             )
@@ -313,8 +334,8 @@ class SqlitePersistence:
         try:
             with closing(self._connect()) as connection:
                 row = connection.execute(
-                    "SELECT root_branch_id, world_definition_id, "
-                    "world_definition_version, created_at "
+                    "SELECT run_id, root_branch_id, world_definition_id, "
+                    "world_definition_version, world_material_kind, created_at "
                     "FROM simulation_runs WHERE run_id = ?",
                     (run_id.value,),
                 ).fetchone()
@@ -322,18 +343,21 @@ class SqlitePersistence:
             raise PersistenceError("could not read simulation run") from error
         if row is None:
             raise RunNotFoundError(f"simulation run is not registered: {run_id.value}")
+        return _decode_run_record(row)
+
+    def list_runs(self) -> tuple[SimulationRunRecord, ...]:
+        """Return runs in creation-time and identifier catalog order."""
+
         try:
-            return SimulationRunRecord(
-                run_id,
-                BranchId(cast(str, row["root_branch_id"])),
-                WorldDefinitionRef(
-                    WorldDefinitionId(cast(str, row["world_definition_id"])),
-                    cast(str, row["world_definition_version"]),
-                ),
-                decode_datetime(cast(str, row["created_at"])),
-            )
-        except (TypeError, ValueError) as error:
-            raise PersistenceIntegrityError("stored simulation run is invalid") from error
+            with closing(self._connect()) as connection:
+                rows = connection.execute(
+                    "SELECT run_id, root_branch_id, world_definition_id, "
+                    "world_definition_version, world_material_kind, created_at "
+                    "FROM simulation_runs ORDER BY created_at, run_id"
+                ).fetchall()
+        except sqlite3.Error as error:
+            raise PersistenceError("could not list simulation runs") from error
+        return tuple(_decode_run_record(row) for row in rows)
 
     def read_world_definition(self, run_id: RunId, /) -> WorldDefinition:
         if type(run_id) is not RunId:
@@ -582,6 +606,26 @@ class SqliteEventStore:
                 return self._read_branch(connection, branch_id)
         except sqlite3.Error as error:
             raise PersistenceError("could not read branch") from error
+
+    def list_branches(self) -> tuple[Branch, ...]:
+        """Return branches in identifier order for deterministic catalog display."""
+
+        try:
+            with closing(self._connect()) as connection:
+                self._require_run(connection)
+                rows = connection.execute(
+                    "SELECT branch_id FROM branches WHERE run_id = ? ORDER BY branch_id",
+                    (self._run_id.value,),
+                ).fetchall()
+                try:
+                    branch_ids = tuple(BranchId(cast(str, row["branch_id"])) for row in rows)
+                except (TypeError, ValueError) as error:
+                    raise PersistenceIntegrityError(
+                        "stored branch identifier is invalid"
+                    ) from error
+                return tuple(self._read_branch(connection, branch_id) for branch_id in branch_ids)
+        except sqlite3.Error as error:
+            raise PersistenceError("could not list branches") from error
 
     def _read_origin_transitions(
         self, connection: sqlite3.Connection, branch_id: BranchId

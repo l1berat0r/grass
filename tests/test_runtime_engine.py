@@ -81,6 +81,7 @@ from grass.runtime import (
     PerceptionCandidate,
     PerceptionProjector,
     ReadyPlanStep,
+    RunStatus,
     RuntimeStopReason,
     RuntimeWorkKind,
     SimulationEngine,
@@ -468,6 +469,69 @@ def test_client_managed_decision_waits_without_local_invoker() -> None:
     assert waiting.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
     assert waiting.waiting_decision_point_ids == (DecisionPointId("plan-required"),)
     assert store.head_position(ROOT) == before
+
+
+def test_future_scheduler_work_precedes_client_managed_wait() -> None:
+    definition = _definition(occurrence_time=5 * MINUTE)
+    bindings = _provider_configuration(ProviderExecutionLocation.CLIENT_MANAGED)
+    config = SimulationRunConfig(definition.ref, bindings)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    engine = _engine(store, definition, config)
+
+    scheduled = asyncio.run(engine.step(ROOT))
+    waiting = asyncio.run(engine.step(ROOT))
+
+    assert scheduled.work_kind is RuntimeWorkKind.SCENARIO_OCCURRENCE
+    assert scheduled.logical_time == LogicalTime(5 * MINUTE)
+    assert waiting.stop_reason is RuntimeStopReason.WAITING_FOR_DECISION
+
+
+def test_inspect_status_is_pure_and_prioritizes_scheduler_over_client_wait() -> None:
+    definition = _definition(occurrence_time=5 * MINUTE)
+    bindings = _provider_configuration(ProviderExecutionLocation.CLIENT_MANAGED)
+    config = SimulationRunConfig(definition.ref, bindings)
+    store = _store(definition, config)
+    _add_plan_required_point(store)
+    engine = _engine(store, definition, config)
+    before = store.head_position(ROOT)
+
+    assert engine.inspect_status(ROOT) is RunStatus.READY
+    assert store.head_position(ROOT) == before
+
+    asyncio.run(engine.step(ROOT))
+    assert engine.inspect_status(ROOT) is RunStatus.WAITING_FOR_DECISION
+
+
+def test_inspect_status_derives_perception_and_quiescence() -> None:
+    definition = _definition()
+    config = SimulationRunConfig(definition.ref)
+    store = _store(definition, config)
+
+    assert (
+        _engine(
+            store,
+            definition,
+            config,
+            perception=GenesisPerception(),
+        ).inspect_status(ROOT)
+        is RunStatus.READY
+    )
+    assert _engine(store, definition, config).inspect_status(ROOT) is RunStatus.QUIESCENT
+
+
+def test_engine_creates_branch_at_exact_position() -> None:
+    definition = _definition()
+    config = SimulationRunConfig(definition.ref)
+    store = _store(definition, config)
+    engine = _engine(store, definition, config)
+    fork_position = store.head_position(ROOT)
+    child_id = BranchId("child")
+
+    child = engine.create_branch(child_id, fork_position)
+
+    assert child.fork_position == fork_position
+    assert store.head_position(child_id).transition_ref == fork_position.transition_ref
 
 
 def test_client_managed_decision_does_not_invoke_configured_invoker() -> None:

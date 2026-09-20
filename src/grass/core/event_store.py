@@ -25,6 +25,8 @@ class EventStore(Protocol):
 
     def read_branch(self, branch_id: BranchId) -> Branch: ...
 
+    def list_branches(self) -> Sequence[Branch]: ...
+
     def head_position(self, branch_id: BranchId) -> HistoryPosition: ...
 
     def commit_transition(
@@ -101,6 +103,15 @@ class InMemoryEventStore:
             raise TypeError("branch_id must be a BranchId")
         with self._lock:
             return self._require_branch(branch_id)
+
+    def list_branches(self) -> tuple[Branch, ...]:
+        """Return branches in identifier order for deterministic catalog display."""
+
+        with self._lock:
+            return tuple(
+                self._branches[branch_id]
+                for branch_id in sorted(self._branches, key=lambda item: item.value)
+            )
 
     def head_position(self, branch_id: BranchId) -> HistoryPosition:
         """Capture the current complete visible head of one branch."""

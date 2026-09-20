@@ -35,6 +35,7 @@ class UnsupportedRuntimeFrontierError(RuntimeError):
 
 
 class RuntimeWorkKind(StrEnum):
+    INITIALIZATION = "INITIALIZATION"
     PERCEPTION = "PERCEPTION"
     DECISION = "DECISION"
     JOB_START = "JOB_START"
@@ -47,6 +48,14 @@ class RuntimeStopReason(StrEnum):
     WAITING_FOR_DECISION = "WAITING_FOR_DECISION"
     TARGET_REACHED = "TARGET_REACHED"
     STEP_BUDGET_EXHAUSTED = "STEP_BUDGET_EXHAUSTED"
+
+
+class RunStatus(StrEnum):
+    """Purely derived availability of work at one initialized branch head."""
+
+    READY = "READY"
+    WAITING_FOR_DECISION = "WAITING_FOR_DECISION"
+    QUIESCENT = "QUIESCENT"
 
 
 @dataclass(frozen=True, slots=True)
