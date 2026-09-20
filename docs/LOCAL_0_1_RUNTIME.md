@@ -6,7 +6,7 @@ The local 0.1 milestone is the first version of GRASS that should be usable as a
 
 The milestone is intentionally local-first. Its purpose is to prove runtime orchestration, persistence, world composition, actor/provider execution, branching, replay, inspection, and authoring workflows before committing to a backend/frontend architecture or a final actor-memory model.
 
-The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 through 14 are implemented, so Slices 0–14 are complete and Slice 15 is next.
+The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 through 15 are implemented, so Slices 0–15 are complete and Slice 16 is next.
 
 ## Architectural boundary
 
@@ -114,6 +114,12 @@ Run identity/metadata is not a new source of modeled world truth. Wall-clock met
 
 A run must retain or be able to recover the exact material world definition/package inputs used for execution so that continuation/replay does not depend on mutable files on disk.
 
+`SimulationRunRecord.world_material_kind` explicitly distinguishes definition-only runs
+from package-backed runs. Reopen follows that persisted discriminator and never infers
+semantics from snapshot-path presence. Normal Application creation allocates a canonical
+UUID RunId. Registration followed by an empty root is a recoverable internal state;
+opening the run idempotently commits exact genesis or validates genesis already present.
+
 ## Persistence baseline
 
 Local 0.1 uses SQLite through storage abstractions, not by embedding SQLite semantics into the core domain model.
@@ -157,7 +163,7 @@ SQLite is a local 0.1 implementation choice. Future evidence from real runs may 
 
 The Application API represents commands/use cases. It is the write-side surface for CLI and future clients.
 
-Candidate operations include:
+The implemented operations are:
 
 ```text
 create_run(...)
@@ -170,18 +176,31 @@ verify_run(...)
 
 Application commands may result in authoritative changes only through the runtime/engine and existing validated transition + EventStore commit path.
 
-The Application API should not expose mutable `SimulationState`, a write-capable raw EventStore, or lower-level shortcuts that let a client construct arbitrary authoritative Events.
+`OpenedRun` is an opaque handle. It does not expose mutable `SimulationState`, a
+write-capable EventStore, `SimulationEngine`, or lower-level shortcuts that let a client
+construct arbitrary authoritative Events. Branch creation requires an exact committed
+`HistoryPosition`, not a symbolic fork-at-head request.
+
+Runtime construction is replaceable through the trusted `RuntimeComposer` boundary.
+The default `OccurrenceRuntimeComposer` composes the Slice-14 occurrence-only subset;
+other installed composers can supply cognition, Job, and provider components without
+changing the Application API.
 
 ## Query API
 
 The Query API is read-only and optimized for useful inspection rather than mirroring internal class boundaries.
+
+Every branch-dependent query captures one exact head or accepts one exact historical
+position, then returns that position with its immutable view. Visible history includes
+ancestry; branch-origin history includes only transitions committed on the viewed branch.
+Branch views report topology, exact position, and visible/origin transition counts.
 
 Run/world queries:
 
 ```text
 list_runs()
 get_run(...)
-get_run_status(...)
+get_status(...)
 get_state(...)
 get_history(...)
 list_branches(...)
@@ -225,20 +244,29 @@ ActorView
 
 This query view is not a new authoritative Actor aggregate and must not freeze the future actor-memory/retrieval model prematurely.
 
+The provisional actor set is exactly the union of actor identifiers in Plans,
+Observations, and DecisionPoints. Actor history is mechanically attributed through
+cognition, Plans, Jobs, and Job resolution. A matching Event selects its complete atomic
+transition; Event sequence is not treated as causality.
+
 ## Runtime status
 
-Useful application-facing states may include concepts such as:
+The implemented derived status set is:
 
 ```text
 READY
-RUNNING
 WAITING_FOR_DECISION
 QUIESCENT
-TERMINATED
-FAILED
 ```
 
-Where practical these should be derived from authoritative history/state plus explicit ephemeral/external-input conditions, rather than stored as an independent mutable source of truth.
+These values are derived from authoritative history/state plus explicit runtime and
+external-input conditions, not stored as independent mutable truth. Inspection does not
+invoke providers, resolvers, GEL, randomness, identity allocation, commits, or logical-time
+advancement. Independent future scheduler work is `READY` before a client-managed wait.
+
+Verification is likewise read-only. It validates exact run material, branch topology,
+genesis, branch histories, identity uniqueness, and replay at every branch head. Static
+package/GEL validation is allowed, but mechanics and provider/resolver code are not run.
 
 ## CLI
 

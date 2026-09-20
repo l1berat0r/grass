@@ -35,14 +35,15 @@ After the baseline, material changes to core architectural contracts should norm
 - ADR-0019 — local runtime and Application/Query API boundary;
 - ADR-0020 — SQLite local persistence baseline;
 - ADR-0021 — runnable WorldPackages and templates;
-- ADR-0022 — runtime frontier orchestration semantics.
-- ADR-0023 — runnable world composition v1.
+- ADR-0022 — runtime frontier orchestration semantics;
+- ADR-0023 — runnable world composition v1;
+- ADR-0024 — Application and Query API v1.
 
 ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 
 ## Current implementation planning
 
-Slices 0–14 are implemented on the implementation branch. Slices 15–17 next add Application/Query APIs, CLI, and reusable templates. The post-Slice-17 sequence is intentionally left open until real runs provide evidence about actor memory, persistence/read models, observer needs, provider context/cost behavior, and whether backend/frontend should be next.
+Slices 0–15 are implemented on the implementation branch. Slices 16–17 next add the CLI and reusable templates. The post-Slice-17 sequence is intentionally left open until real runs provide evidence about actor memory, persistence/read models, observer needs, provider context/cost behavior, and whether backend/frontend should be next.
 
 Earlier ADRs may mention future slice numbers in their deferred sections. Those references record what was deferred at the time of the ADR; `ROADMAP.md` is authoritative for current implementation sequencing and does not change the accepted semantic decisions of those ADRs.
 

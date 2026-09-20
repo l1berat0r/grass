@@ -1144,6 +1144,29 @@ A Simulation Analyst is external/read-only. Deterministic metric computation sho
 
 Metrics may later include resource concentration/Gini/quantiles, mobility, network centrality, formal authority, social influence, information centrality, trust capital, and information flow. Observer/analyst knowledge may exceed actor knowledge; this must not leak into actor cognition.
 
+### 18.1 Local Application and Query APIs
+
+The transport-neutral local Application API owns package-backed run creation, reopen and
+empty-root genesis recovery, step/advance, exact-position branch creation, and read-only
+verification. Runtime dependencies are supplied through a trusted `RuntimeComposer`;
+the public `OpenedRun` handle exposes no engine, EventStore, arbitrary Event commit, or
+mutable projection surface. Run records explicitly distinguish definition-only material
+from immutable per-run package snapshots.
+
+The Query API captures one exact `HistoryPosition` for each branch-dependent response and
+reconstructs immutable views from canonical history. It exposes visible versus
+branch-origin history, state, Jobs, Decisions, and provisional actor views. Actor
+membership is currently derived only from Plans, Observations, and DecisionPoints;
+actor-oriented DTOs and mechanically attributed histories are read models rather than a
+new authoritative Actor aggregate.
+
+Application status is derived, not persisted. The initial statuses are `READY`,
+`WAITING_FOR_DECISION`, and `QUIESCENT`, and inspection performs no provider/resolver/GEL
+execution, identity allocation, commit, or logical-time advance. Integrity verification
+loads exact material and validates topology, genesis, identity uniqueness, and replay at
+all branch heads without regenerating historical execution. ADR-0024 records the complete
+v1 contract and deferred transport details.
+
 ## 19. Acceptance scenario
 
 The baseline architecture is exercised in [`ACCEPTANCE_SCENARIO.md`](ACCEPTANCE_SCENARIO.md).
