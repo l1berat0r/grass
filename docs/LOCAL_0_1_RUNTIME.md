@@ -6,7 +6,7 @@ The local 0.1 milestone is the first version of GRASS that should be usable as a
 
 The milestone is intentionally local-first. Its purpose is to prove runtime orchestration, persistence, world composition, actor/provider execution, branching, replay, inspection, and authoring workflows before committing to a backend/frontend architecture or a final actor-memory model.
 
-The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 through 15 are implemented, so Slices 0–15 are complete and Slice 16 is next.
+The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 through 16 are implemented, so Slices 0–16 are complete and Slice 17 is next.
 
 ## Architectural boundary
 
@@ -272,20 +272,20 @@ package/GEL validation is allowed, but mechanics and provider/resolver code are 
 
 The CLI is the first permanent client of the Application and Query APIs and remains useful after future HTTP/UI layers exist.
 
-Representative command families:
+The implemented command families are:
 
 ```text
 grass world validate WORLD
 
-grass run create WORLD --name RUN
+grass run create WORLD
 grass run list
-grass run status RUN
-grass run step RUN
-grass run advance RUN --until-idle
+grass run status RUN [--branch BRANCH]
+grass run step RUN [--branch BRANCH] [--target-time-ns N]
+grass run advance RUN [--branch BRANCH] [--target-time-ns N] [--max-steps N]
 grass run verify RUN
 
 grass branch list RUN
-grass branch create RUN --from BRANCH --name NEW_BRANCH
+grass branch create RUN --from PARENT --branch-id CHILD
 
 grass inspect state RUN
 grass inspect events RUN
@@ -312,6 +312,24 @@ CLI requirements:
 - no direct write-capable EventStore access;
 - a CLI-backed `HumanDecisionSource` for human-controlled actors, still routed through Slice-11 `DecisionInvoker`/validation/provenance semantics;
 - process restart between commands must not lose local runs.
+
+The default data root is exactly `.grass` under the current working directory,
+with `grass.db` and `world_snapshots/` beneath it. `--data-dir` replaces that
+root. RunIds are Application-generated UUIDs; Slice 16 has no friendly aliases.
+JSON schema v1 uses one success or failure envelope on stdout, explicit
+deterministic serializers, integer-nanosecond logical times, complete atomic
+transition groups, and full Event provenance. See `docs/CLI.md` for the exact
+command, output, error, and lifecycle contracts.
+
+`run status` is read-only. A registered empty root is reported as requiring
+recovery, while `run step` and `run advance` may perform normal idempotent
+genesis recovery through `open_run`. Branch creation captures one exact parent
+position before requesting the child through `OpenedRun`.
+
+The production CLI uses the occurrence-only composer and default provider-free
+`SimulationRunConfig`. `CliHumanDecisionSource` is implemented and tested with
+an injected actor-capable composer, but ordinary authored packages cannot yet
+configure interactive actor execution.
 
 ## Runnable user-defined worlds
 
@@ -404,18 +422,19 @@ A representative successful workflow is:
 grass template init small-team ./demo
 grass world validate ./demo
 
-grass run create ./demo --name demo-run
-grass run advance demo-run --until-idle
+grass run create ./demo
+# Retain the generated UUID as RUN.
+grass run advance RUN
 
-grass inspect actors demo-run
-grass inspect actor demo-run alice
-grass inspect actor-decisions demo-run alice
-grass inspect events demo-run
+grass inspect actors RUN
+grass inspect actor RUN alice
+grass inspect actor-decisions RUN alice
+grass inspect events RUN
 
-grass branch create demo-run --from root --name alternative
-grass run advance demo-run --branch alternative --until-idle
+grass branch create RUN --from root --branch-id alternative
+grass run advance RUN --branch alternative
 
-grass run verify demo-run
+grass run verify RUN
 ```
 
 The user may close the process and continue later. The run remains available through local persistence.

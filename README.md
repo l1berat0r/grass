@@ -12,13 +12,14 @@ LLMs, humans, scripts, deterministic providers, planners, and world resolvers ma
 
 ## Project status
 
-The initial architecture is baselined as **`design-0.1`**. Slices 0–15 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, and transport-neutral Application/Query APIs.
+The initial architecture is baselined as **`design-0.1`**. Slices 0–16 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, transport-neutral Application/Query APIs, and the permanent local CLI.
 
-The next implementation step is **Slice 16**, which adds a permanent local CLI; Slice 17 then adds reusable WorldPackage templates. The exact post-0.1 order of actor-memory work, persistence evolution, observer/analyst capabilities, backend/API, and frontend is intentionally deferred until several real runs provide evidence.
+The next implementation step is **Slice 17**, which adds reusable WorldPackage templates. The exact post-0.1 order of actor-memory work, persistence evolution, observer/analyst capabilities, backend/API, and frontend is intentionally deferred until several real runs provide evidence.
 
 Start here:
 
 - [Architecture baseline](docs/DESIGN.md)
+- [Local CLI](docs/CLI.md)
 - [Local GRASS 0.1 runtime](docs/LOCAL_0_1_RUNTIME.md)
 - [Acceptance scenario](docs/ACCEPTANCE_SCENARIO.md)
 - [Coding-agent instructions](AGENTS.md)
@@ -49,15 +50,15 @@ Start here:
 A representative target workflow is:
 
 ```text
-grass template init small-team ./demo
 grass world validate ./demo
-grass run create ./demo --name demo-run
-grass run advance demo-run --until-idle
-grass inspect actors demo-run
-grass inspect actor demo-run alice
-grass branch create demo-run --from root --name alternative
-grass run advance demo-run --branch alternative --until-idle
-grass run verify demo-run
+grass run create ./demo
+# Retain the generated UUID as RUN.
+grass run advance RUN
+grass inspect actors RUN
+grass inspect events RUN
+grass branch create RUN --from root --branch-id alternative
+grass run advance RUN --branch alternative
+grass run verify RUN
 ```
 
 Runs should survive process restarts through local persistence. Templates are ordinary valid WorldPackages and should exercise the same production runtime path as user-authored worlds.

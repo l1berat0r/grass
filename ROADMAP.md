@@ -14,7 +14,7 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
-**Current status:** Slices 0–14 are implemented on `impl/v0.1-gpt`. Slice 15 is next. The remaining Slices 15–17 complete the locally runnable GRASS 0.1 milestone so user-defined worlds can run without requiring changes to GRASS Python code. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
+**Current status:** Slices 0–16 are implemented on `impl/v0.1-gpt`. Slice 17 is next. Slice 17 completes the locally runnable GRASS 0.1 milestone with reusable templates. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
 
 ### Slice 0 — core value objects and package skeleton
 
@@ -192,6 +192,8 @@ Additional rules:
 - the same Application/Query APIs are intended to be reusable by later CLI, HTTP, UI, and other clients.
 
 ### Slice 16 — local CLI
+
+**Status: complete**
 
 Provide the first permanent user/developer interface to the local runtime.
 
