@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol, cast
 
-from grass.core._structured_data import StructuredValue
+from grass.core._structured_data import StructuredValue, freeze_structured_mapping
 from grass.core.cognition import BoundedReaction, DecisionOutcomeKind, ProposedPlan
 from grass.core.decision_invocations import (
     DecisionInvocationResult,
@@ -121,6 +121,191 @@ class DecisionModelIdAllocator(Protocol):
         ...
 
 
+def decode_decision_document(
+    request: DecisionRequest,
+    document_value: object,
+    allocator: DecisionModelIdAllocator,
+    /,
+) -> DecisionProposal:
+    """Decode one untrusted structured decision with trusted identity allocation."""
+
+    if type(request) is not DecisionRequest:
+        raise TypeError("request must be a DecisionRequest")
+    document = _mapping(document_value, "decision document")
+    kind_value = document.get("kind")
+    if type(kind_value) is not str:
+        raise DecisionOutputError("decision kind must be a string")
+    try:
+        kind = DecisionOutcomeKind(kind_value)
+    except ValueError as error:
+        raise DecisionOutputError("decision kind is unknown") from error
+    if kind is DecisionOutcomeKind.CONTINUE_PLAN:
+        _exact_fields(document, frozenset({"kind"}), "CONTINUE_PLAN")
+        try:
+            return DecisionProposal(kind)
+        except (TypeError, ValueError) as error:
+            raise DecisionOutputError("CONTINUE_PLAN is invalid for this request") from error
+    if kind is DecisionOutcomeKind.BOUNDED_REACTION:
+        _exact_fields(
+            document,
+            frozenset({"kind", "intent_description", "content"}),
+            "BOUNDED_REACTION",
+        )
+        intent = _string(document["intent_description"], "intent_description")
+        assert intent is not None
+        try:
+            return DecisionProposal(
+                kind,
+                bounded_reaction=BoundedReaction(intent, document["content"]),  # type: ignore[arg-type]
+            )
+        except (TypeError, ValueError) as error:
+            raise DecisionOutputError("bounded reaction is invalid") from error
+
+    _exact_fields(document, frozenset({"kind", "objective", "steps"}), kind.value)
+    objective = _string(document["objective"], "objective")
+    assert objective is not None
+    raw_steps = _sequence(document["steps"], "steps")
+    if not raw_steps or len(raw_steps) > MODEL_DECISION_MAX_STEPS:
+        raise DecisionOutputError("steps must contain between 1 and 64 entries")
+    drafts: list[
+        tuple[
+            str,
+            ActionPrimitive,
+            Mapping[str, StructuredValue],
+            Mapping[str, StructuredValue],
+            tuple[tuple[str, PlanDependencyCondition], ...],
+            str | None,
+        ]
+    ] = []
+    keys: set[str] = set()
+    for index, raw_step in enumerate(raw_steps):
+        step = _mapping(raw_step, f"steps[{index}]")
+        _exact_fields(
+            step,
+            frozenset(
+                {
+                    "key",
+                    "primitive",
+                    "bindings",
+                    "parameters",
+                    "dependencies",
+                    "description",
+                }
+            ),
+            f"steps[{index}]",
+        )
+        key = _string(step["key"], f"steps[{index}].key")
+        assert key is not None
+        if key in keys:
+            raise DecisionOutputError("decision step keys must be unique")
+        keys.add(key)
+        try:
+            primitive_value = _string(step["primitive"], "primitive")
+            assert primitive_value is not None
+            primitive = ActionPrimitive(primitive_value)
+        except (TypeError, ValueError) as error:
+            raise DecisionOutputError("decision step primitive is unknown") from error
+        dependencies: list[tuple[str, PlanDependencyCondition]] = []
+        for dependency_index, raw_dependency in enumerate(
+            _sequence(step["dependencies"], f"steps[{index}].dependencies")
+        ):
+            dependency = _mapping(raw_dependency, "dependency")
+            _exact_fields(dependency, frozenset({"key", "condition"}), "dependency")
+            dependency_key = _string(dependency["key"], "dependency.key")
+            assert dependency_key is not None
+            try:
+                condition_value = _string(dependency["condition"], "dependency.condition")
+                assert condition_value is not None
+                condition = PlanDependencyCondition(condition_value)
+            except (TypeError, ValueError) as error:
+                raise DecisionOutputError(
+                    f"dependency {dependency_index} condition is unknown"
+                ) from error
+            dependencies.append((dependency_key, condition))
+        if len(set(dependencies)) != len(dependencies):
+            raise DecisionOutputError("decision step dependencies must be unique")
+        drafts.append(
+            (
+                key,
+                primitive,
+                _structured_mapping(step["bindings"], "bindings"),
+                _structured_mapping(step["parameters"], "parameters"),
+                tuple(dependencies),
+                _string(step["description"], "description", nullable=True),
+            )
+        )
+    if any(dependency_key not in keys for draft in drafts for dependency_key, _ in draft[4]):
+        raise DecisionOutputError("dependencies must reference local decision step keys")
+    dependencies_by_key = {
+        key: frozenset(dependency_key for dependency_key, _condition in dependencies)
+        for key, _primitive, _bindings, _parameters, dependencies, _description in drafts
+    }
+    if any(key in dependencies for key, dependencies in dependencies_by_key.items()):
+        raise DecisionOutputError("a decision step cannot depend on itself")
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(key: str) -> None:
+        if key in visiting:
+            raise DecisionOutputError("decision step dependencies must form a DAG")
+        if key in visited:
+            return
+        visiting.add(key)
+        for dependency_key in dependencies_by_key[key]:
+            visit(dependency_key)
+        visiting.remove(key)
+        visited.add(key)
+
+    for key in keys:
+        visit(key)
+    subject = request.subject_plan
+    if kind is DecisionOutcomeKind.REVISE_PLAN and subject is None:
+        raise DecisionOutputError("REVISE_PLAN requires a subject Plan")
+    try:
+        step_ids = {
+            key: allocator.plan_step_id(request, key)
+            for key, _primitive, _bindings, _parameters, _dependencies, _description in drafts
+        }
+        steps = tuple(
+            PlanStep(
+                step_id=step_ids[key],
+                primitive=primitive,
+                blueprint_ref=None,
+                bindings=bindings,
+                parameters=parameters,
+                dependencies=frozenset(
+                    PlanDependency(step_ids[dependency_key], condition)
+                    for dependency_key, condition in dependencies
+                ),
+                origin=PlanStepOrigin.ACTOR_INTENT,
+                description=description,
+            )
+            for key, primitive, bindings, parameters, dependencies, description in drafts
+        )
+        if kind is DecisionOutcomeKind.REVISE_PLAN:
+            assert subject is not None
+            plan_id = subject.plan_id
+            version = subject.version + 1
+            replaces = subject.replaces_plan_ref
+        else:
+            plan_id = allocator.plan_id(request)
+            version = 1
+            replaces = None if subject is None else subject.ref
+        plan = ProposedPlan(
+            plan_id,
+            version,
+            request.decision_point.actor_id,
+            objective,
+            steps,
+            replaces,
+        )
+        return DecisionProposal(kind, proposed_plan=plan)
+    except DecisionOutputError:
+        raise
+    except (TypeError, ValueError) as error:
+        raise DecisionOutputError("decision Plan draft is invalid") from error
+
+
 def _exact_fields(value: Mapping[str, object], fields: frozenset[str], name: str) -> None:
     if frozenset(value) != fields:
         raise DecisionOutputError(f"{name} must contain exactly {sorted(fields)}")
@@ -148,7 +333,10 @@ def _string(value: object, name: str, *, nullable: bool = False) -> str | None:
 
 def _structured_mapping(value: object, name: str) -> Mapping[str, StructuredValue]:
     mapping = _mapping(value, name)
-    return mapping  # type: ignore[return-value]
+    try:
+        return freeze_structured_mapping(mapping, description=name)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as error:
+        raise DecisionOutputError(f"{name} must contain structured values") from error
 
 
 def _plan_context(request: DecisionRequest) -> StructuredValue:
@@ -225,156 +413,7 @@ class DecisionModelCodec:
             raise TypeError("request must be a DecisionRequest")
         if type(response) is not ModelResponse:
             raise TypeError("response must be a ModelResponse")
-        document = _mapping(response.output, "model decision")
-        kind_value = document.get("kind")
-        if type(kind_value) is not str:
-            raise DecisionOutputError("model decision kind must be a string")
-        try:
-            kind = DecisionOutcomeKind(kind_value)
-        except ValueError as error:
-            raise DecisionOutputError("model decision kind is unknown") from error
-        if kind is DecisionOutcomeKind.CONTINUE_PLAN:
-            _exact_fields(document, frozenset({"kind"}), "CONTINUE_PLAN")
-            try:
-                return DecisionProposal(kind)
-            except (TypeError, ValueError) as error:
-                raise DecisionOutputError("CONTINUE_PLAN is invalid for this request") from error
-        if kind is DecisionOutcomeKind.BOUNDED_REACTION:
-            _exact_fields(
-                document,
-                frozenset({"kind", "intent_description", "content"}),
-                "BOUNDED_REACTION",
-            )
-            intent = _string(document["intent_description"], "intent_description")
-            assert intent is not None
-            try:
-                return DecisionProposal(
-                    kind,
-                    bounded_reaction=BoundedReaction(intent, document["content"]),  # type: ignore[arg-type]
-                )
-            except (TypeError, ValueError) as error:
-                raise DecisionOutputError("bounded reaction is invalid") from error
-
-        _exact_fields(document, frozenset({"kind", "objective", "steps"}), kind.value)
-        objective = _string(document["objective"], "objective")
-        assert objective is not None
-        raw_steps = _sequence(document["steps"], "steps")
-        if not raw_steps or len(raw_steps) > MODEL_DECISION_MAX_STEPS:
-            raise DecisionOutputError("steps must contain between 1 and 64 entries")
-        drafts: list[
-            tuple[
-                str,
-                ActionPrimitive,
-                Mapping[str, StructuredValue],
-                Mapping[str, StructuredValue],
-                tuple[tuple[str, PlanDependencyCondition], ...],
-                str | None,
-            ]
-        ] = []
-        keys: set[str] = set()
-        for index, raw_step in enumerate(raw_steps):
-            step = _mapping(raw_step, f"steps[{index}]")
-            _exact_fields(
-                step,
-                frozenset(
-                    {
-                        "key",
-                        "primitive",
-                        "bindings",
-                        "parameters",
-                        "dependencies",
-                        "description",
-                    }
-                ),
-                f"steps[{index}]",
-            )
-            key = _string(step["key"], f"steps[{index}].key")
-            assert key is not None
-            if key in keys:
-                raise DecisionOutputError("model step keys must be unique")
-            keys.add(key)
-            try:
-                primitive_value = _string(step["primitive"], "primitive")
-                assert primitive_value is not None
-                primitive = ActionPrimitive(primitive_value)
-            except (TypeError, ValueError) as error:
-                raise DecisionOutputError("model step primitive is unknown") from error
-            dependencies: list[tuple[str, PlanDependencyCondition]] = []
-            for dependency_index, raw_dependency in enumerate(
-                _sequence(step["dependencies"], f"steps[{index}].dependencies")
-            ):
-                dependency = _mapping(raw_dependency, "dependency")
-                _exact_fields(dependency, frozenset({"key", "condition"}), "dependency")
-                dependency_key = _string(dependency["key"], "dependency.key")
-                assert dependency_key is not None
-                try:
-                    condition_value = _string(dependency["condition"], "dependency.condition")
-                    assert condition_value is not None
-                    condition = PlanDependencyCondition(condition_value)
-                except (TypeError, ValueError) as error:
-                    raise DecisionOutputError(
-                        f"dependency {dependency_index} condition is unknown"
-                    ) from error
-                dependencies.append((dependency_key, condition))
-            if len(set(dependencies)) != len(dependencies):
-                raise DecisionOutputError("model step dependencies must be unique")
-            drafts.append(
-                (
-                    key,
-                    primitive,
-                    _structured_mapping(step["bindings"], "bindings"),
-                    _structured_mapping(step["parameters"], "parameters"),
-                    tuple(dependencies),
-                    _string(step["description"], "description", nullable=True),
-                )
-            )
-        if any(dependency_key not in keys for draft in drafts for dependency_key, _ in draft[4]):
-            raise DecisionOutputError("dependencies must reference local model step keys")
-        try:
-            step_ids = {
-                key: allocator.plan_step_id(request, key)
-                for key, _primitive, _bindings, _parameters, _dependencies, _description in drafts
-            }
-            steps = tuple(
-                PlanStep(
-                    step_id=step_ids[key],
-                    primitive=primitive,
-                    blueprint_ref=None,
-                    bindings=bindings,
-                    parameters=parameters,
-                    dependencies=frozenset(
-                        PlanDependency(step_ids[dependency_key], condition)
-                        for dependency_key, condition in dependencies
-                    ),
-                    origin=PlanStepOrigin.ACTOR_INTENT,
-                    description=description,
-                )
-                for key, primitive, bindings, parameters, dependencies, description in drafts
-            )
-            subject = request.subject_plan
-            if kind is DecisionOutcomeKind.REVISE_PLAN:
-                if subject is None:
-                    raise DecisionOutputError("REVISE_PLAN requires a subject Plan")
-                plan_id = subject.plan_id
-                version = subject.version + 1
-                replaces = subject.replaces_plan_ref
-            else:
-                plan_id = allocator.plan_id(request)
-                version = 1
-                replaces = None if subject is None else subject.ref
-            plan = ProposedPlan(
-                plan_id,
-                version,
-                request.decision_point.actor_id,
-                objective,
-                steps,
-                replaces,
-            )
-            return DecisionProposal(kind, proposed_plan=plan)
-        except DecisionOutputError:
-            raise
-        except (TypeError, ValueError) as error:
-            raise DecisionOutputError("model Plan draft is invalid") from error
+        return decode_decision_document(request, response.output, allocator)
 
 
 class SyncDecisionProviderAdapter:

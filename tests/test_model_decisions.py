@@ -41,6 +41,7 @@ from grass.providers import (
     DecisionModelCodec,
     ModelBackedDecisionInvoker,
     SyncDecisionProviderAdapter,
+    decode_decision_document,
 )
 
 
@@ -104,6 +105,38 @@ class StableAllocator:
 
 def response(output: dict[str, object]) -> ModelResponse:
     return ModelResponse(output, "fake-model-provider", "model-actual", "request-1", "complete")  # type: ignore[arg-type]
+
+
+def test_invalid_dependency_graph_allocates_no_trusted_ids() -> None:
+    allocator = StableAllocator()
+    document = {
+        "kind": "REPLACE_PLAN",
+        "objective": "Invalid cycle",
+        "steps": [
+            {
+                "key": "first",
+                "primitive": "WAIT",
+                "bindings": {},
+                "parameters": {},
+                "dependencies": [{"key": "second", "condition": "SUCCESS"}],
+                "description": None,
+            },
+            {
+                "key": "second",
+                "primitive": "WAIT",
+                "bindings": {},
+                "parameters": {},
+                "dependencies": [{"key": "first", "condition": "SUCCESS"}],
+                "description": None,
+            },
+        ],
+    }
+
+    with pytest.raises(DecisionOutputError, match="DAG"):
+        decode_decision_document(decision_request(), document, allocator)
+
+    assert allocator.plan_calls == 0
+    assert allocator.step_keys == []
 
 
 @pytest.mark.parametrize(

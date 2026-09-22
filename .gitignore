@@ -34,5 +34,6 @@ Thumbs.db
 !.env.example
 
 # Local simulation output (future)
+.grass/
 .simulations/
 artifacts/

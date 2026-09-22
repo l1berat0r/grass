@@ -8,6 +8,7 @@ from grass.providers.decision import (
     DecisionModelIdAllocator,
     ModelBackedDecisionInvoker,
     SyncDecisionProviderAdapter,
+    decode_decision_document,
 )
 from grass.providers.human import HumanDecisionInvoker, HumanDecisionSource
 from grass.providers.openai import OpenAIModelProvider
@@ -23,4 +24,5 @@ __all__ = [
     "OpenAICompatibleModelProvider",
     "OpenAIModelProvider",
     "SyncDecisionProviderAdapter",
+    "decode_decision_document",
 ]

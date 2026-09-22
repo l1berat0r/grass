@@ -32,6 +32,10 @@ class QueryNotFoundError(QueryError, LookupError):
     """A requested run, branch, or projected value does not exist."""
 
 
+class RunInitializationRequiredError(QueryError):
+    """A registered run has a valid empty parentless root."""
+
+
 class VerificationIntegrityError(RuntimeError):
     """Persisted run material or canonical history is internally inconsistent."""
 

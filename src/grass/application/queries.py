@@ -27,6 +27,7 @@ from grass.application.contracts import (
     QueryError,
     QueryNotFoundError,
     QueryPosition,
+    RunInitializationRequiredError,
     RunView,
     StateView,
 )
@@ -67,7 +68,7 @@ from grass.core.identifiers import (
 from grass.core.replay import replay_branch
 from grass.core.resolution_events import RESOLUTION_EVENT_TYPES, decode_resolution_event
 from grass.core.state import SimulationState
-from grass.persistence.contracts import RunId, RunNotFoundError
+from grass.persistence.contracts import RunId, RunNotFoundError, SimulationRunRecord
 from grass.runtime.composition import RuntimeComposer
 from grass.runtime.contracts import RunStatus, RuntimeIdentitySource
 from grass.worlds.snapshots import FilesystemWorldSnapshotStore
@@ -127,6 +128,11 @@ class LocalSimulationQueries:
         records = tuple(self._storage.list_runs())
         return tuple(self.get_run(record.run_id) for record in records)
 
+    def list_run_records(self) -> tuple[SimulationRunRecord, ...]:
+        """Return registrations without requiring every run's material to load."""
+
+        return tuple(self._storage.list_runs())
+
     def get_run(self, run_id: RunId) -> RunView:
         material = self._material(run_id)
         try:
@@ -166,14 +172,23 @@ class LocalSimulationQueries:
                 f"branch or history position does not exist: {viewed_branch_id.value}"
             ) from error
         if not history or captured.transition_ref is None:
-            raise QueryError("branch is empty or uninitialized")
+            if (
+                viewed_branch_id == material.record.root_branch_id
+                and branch.fork_position is None
+                and not history
+                and captured.transition_ref is None
+            ):
+                branches = tuple(store.list_branches())
+                if len(branches) != 1 or branches[0] != branch:
+                    raise QueryError("uninitialized run has invalid branch topology")
+                raise RunInitializationRequiredError("simulation run requires root initialization")
+            raise QueryError("branch has invalid empty history")
         if history[-1].transition_ref != captured.transition_ref:
             raise QueryError("visible history does not end at the requested position")
         try:
             state = replay_branch(store, captured)
         except (TypeError, ValueError, RuntimeError) as error:
             raise QueryError("branch history cannot be replayed") from error
-        del material
         query_position = QueryPosition(run_id, captured, history[-1].logical_time)
         return _CapturedBranch(store, branch, query_position, history, state)
 
@@ -183,6 +198,7 @@ class LocalSimulationQueries:
         if type(run_id) is not RunId:
             raise TypeError("run_id must be a RunId")
         viewed_branch_id = self._branch_id(run_id, branch_id)
+        self._capture(run_id, viewed_branch_id, None)
         material = self._material(run_id)
         self._composer.validate(material.definition, material.config)
         engine = self._composer.compose(

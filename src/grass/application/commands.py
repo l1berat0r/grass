@@ -28,6 +28,7 @@ from grass.runtime.contracts import (
     AdvanceResult,
     RunStatus,
     RuntimeIdentitySource,
+    RuntimeIntegrityError,
     StepResult,
 )
 from grass.runtime.engine import SimulationEngine
@@ -227,8 +228,19 @@ class LocalSimulationApplication:
         material = load_run_material(self._storage, self._snapshot_store, run_id)
         self._composer.validate(material.definition, material.config)
         identity_source = self._identity_source_factory()
+        event_store = self._storage.event_store(run_id)
+        try:
+            root = event_store.read_branch(material.record.root_branch_id)
+            head = event_store.head_position(root.branch_id)
+            branches = tuple(event_store.list_branches())
+        except ValueError as error:
+            raise RuntimeIntegrityError("run has invalid root branch topology") from error
+        if root.fork_position is not None:
+            raise RuntimeIntegrityError("registered root branch is not parentless")
+        if head.transition_ref is None and (len(branches) != 1 or branches[0] != root):
+            raise RuntimeIntegrityError("uninitialized run has invalid branch topology")
         initialize_root(
-            event_store=self._storage.event_store(run_id),
+            event_store=event_store,
             branch_id=material.record.root_branch_id,
             world_definition=material.definition,
             run_config=material.config,
