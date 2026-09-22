@@ -18,6 +18,7 @@ from grass.core import (
     SimulationRunConfig,
     WorldDefinition,
 )
+from grass.core.initialization_events import SIMULATION_INITIALIZED
 from grass.persistence import RunId, SimulationRunRecord, SqlitePersistence, WorldMaterialKind
 from grass.runtime import RuntimeComposer, RuntimeIdentitySource, SimulationEngine
 from grass.worlds import (
@@ -44,6 +45,40 @@ def invoke(
         composer=composer,
     )
     return code, cast("dict[str, object]", json.loads(stdout.getvalue())), stderr.getvalue()
+
+
+def register_recoverable_run(
+    tmp_path: Path,
+) -> tuple[Path, SimulationRunRecord, EventStore]:
+    author, _, _, _ = write_world_package(tmp_path)
+    package = load_world_package(author)
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    persistence = SqlitePersistence(data_root / "grass.db")
+    snapshots = FilesystemWorldSnapshotStore(data_root / "world_snapshots")
+    record = SimulationRunRecord(
+        RunId("recoverable"),
+        BranchId("root"),
+        package.world_definition.ref,
+        WorldMaterialKind.PACKAGE_SNAPSHOT,
+        datetime.now(UTC),
+    )
+    register_world_package_run(
+        persistence,
+        snapshots,
+        record,
+        package,
+        SimulationRunConfig(package.world_definition.ref),
+    )
+    return data_root, record, persistence.event_store(record.run_id)
+
+
+def initialization_event_count(store: EventStore, branch_id: BranchId) -> int:
+    return sum(
+        event.event_type == SIMULATION_INITIALIZED
+        for transition in store.read_transitions(branch_id)
+        for event in transition.events
+    )
 
 
 class RejectingComposer:
@@ -197,38 +232,128 @@ def test_read_only_command_surface_handles_empty_execution_and_cognition(
     }
 
 
-def test_status_does_not_recover_empty_root_but_step_does(tmp_path: Path) -> None:
-    author, _, _, _ = write_world_package(tmp_path)
-    package = load_world_package(author)
-    data_root = tmp_path / "data"
-    data_root.mkdir()
-    persistence = SqlitePersistence(data_root / "grass.db")
-    snapshots = FilesystemWorldSnapshotStore(data_root / "world_snapshots")
-    record = SimulationRunRecord(
-        RunId("recoverable"),
-        BranchId("root"),
-        package.world_definition.ref,
-        WorldMaterialKind.PACKAGE_SNAPSHOT,
-        datetime.now(UTC),
+def test_status_does_not_recover_implicit_or_explicit_empty_root(tmp_path: Path) -> None:
+    data_root, record, store = register_recoverable_run(tmp_path)
+
+    commands = (
+        ("run", "status", record.run_id.value),
+        ("run", "status", record.run_id.value, "--branch", record.root_branch_id.value),
     )
-    register_world_package_run(
-        persistence,
-        snapshots,
-        record,
-        package,
-        SimulationRunConfig(package.world_definition.ref),
+    for command in commands:
+        status_code, status, _ = invoke(data_root, *command)
+
+        assert status_code == 1
+        assert cast(dict[str, object], status["error"])["code"] == "RUN_RECOVERY_REQUIRED"
+        assert store.read_transitions(record.root_branch_id) == ()
+
+
+def test_explicit_root_step_recovers_and_does_not_duplicate_initialization(
+    tmp_path: Path,
+) -> None:
+    data_root, record, store = register_recoverable_run(tmp_path)
+    command = (
+        "run",
+        "step",
+        record.run_id.value,
+        "--branch",
+        record.root_branch_id.value,
     )
-    store = persistence.event_store(record.run_id)
 
-    status_code, status, _ = invoke(data_root, "run", "status", record.run_id.value)
+    step_code, stepped, _ = invoke(data_root, *command)
 
-    assert status_code == 1
-    assert cast(dict[str, object], status["error"])["code"] == "RUN_RECOVERY_REQUIRED"
-    assert store.read_transitions(record.root_branch_id) == ()
-
-    step_code, _, _ = invoke(data_root, "run", "step", record.run_id.value)
     assert step_code == 0
-    assert len(store.read_transitions(record.root_branch_id)) >= 1
+    step_data = cast(dict[str, object], stepped["data"])
+    result = cast(dict[str, object], step_data["result"])
+    assert step_data["branch_id"] == record.root_branch_id.value
+    assert result["work_kind"] == "SCENARIO_OCCURRENCE"
+    assert result["committed_transition"] is not None
+    assert initialization_event_count(store, record.root_branch_id) == 1
+
+    second_code, second, _ = invoke(data_root, *command)
+    assert second_code == 0
+    second_result = cast(dict[str, object], cast(dict[str, object], second["data"])["result"])
+    assert second_result["stop_reason"] == "QUIESCENT"
+    assert initialization_event_count(store, record.root_branch_id) == 1
+
+
+def test_explicit_root_advance_recovers_and_returns_normal_stop(tmp_path: Path) -> None:
+    data_root, record, store = register_recoverable_run(tmp_path)
+
+    advance_code, advanced, _ = invoke(
+        data_root,
+        "run",
+        "advance",
+        record.run_id.value,
+        "--branch",
+        record.root_branch_id.value,
+    )
+
+    assert advance_code == 0
+    advance_data = cast(dict[str, object], advanced["data"])
+    result = cast(dict[str, object], advance_data["result"])
+    assert advance_data["branch_id"] == record.root_branch_id.value
+    assert result["committed_steps"] == 1
+    assert result["stop_reason"] == "QUIESCENT"
+    assert initialization_event_count(store, record.root_branch_id) == 1
+
+
+def test_missing_execution_branch_does_not_recover_empty_root(tmp_path: Path) -> None:
+    data_root, record, store = register_recoverable_run(tmp_path)
+
+    for operation in ("step", "advance"):
+        code, document, _ = invoke(
+            data_root,
+            "run",
+            operation,
+            record.run_id.value,
+            "--branch",
+            "missing",
+        )
+
+        assert code == 1
+        assert cast(dict[str, object], document["error"])["code"] == "BRANCH_NOT_FOUND"
+        assert store.read_transitions(record.root_branch_id) == ()
+
+
+def test_initialized_implicit_and_explicit_root_advance_are_equivalent(tmp_path: Path) -> None:
+    author, _, _, _ = write_world_package(tmp_path)
+    results: list[tuple[object, object, object, object]] = []
+
+    for selection in ("implicit", "explicit"):
+        data_root = tmp_path / selection
+        create_code, created, _ = invoke(data_root, "run", "create", str(author))
+        assert create_code == 0
+        run_id = cast(
+            str,
+            cast(
+                dict[str, object],
+                cast(dict[str, object], created["data"])["run"],
+            )["run_id"],
+        )
+        branch_arguments = () if selection == "implicit" else ("--branch", "root")
+
+        advance_code, advanced, _ = invoke(
+            data_root,
+            "run",
+            "advance",
+            run_id,
+            *branch_arguments,
+        )
+
+        assert advance_code == 0
+        advance_data = cast(dict[str, object], advanced["data"])
+        result = cast(dict[str, object], advance_data["result"])
+        assert advance_data["branch_id"] == "root"
+        results.append(
+            (
+                result["logical_time_ns"],
+                result["committed_steps"],
+                result["stop_reason"],
+                result["waiting_decision_point_ids"],
+            )
+        )
+
+    assert results[0] == results[1]
 
 
 def test_run_list_is_best_effort_for_recoverable_and_invalid_runs(tmp_path: Path) -> None:

@@ -227,6 +227,18 @@ def _actual_branch(
     return application.queries.get_run(run_id).record.root_branch_id
 
 
+def _validate_execution_branch(
+    application: LocalSimulationApplication,
+    run_id: RunId,
+    selected: BranchId | None,
+) -> None:
+    if selected is None:
+        return
+    root_branch_id = application.queries.get_run(run_id).record.root_branch_id
+    if selected != root_branch_id:
+        application.queries.get_branch(run_id, selected)
+
+
 def _catalog(application: LocalSimulationApplication) -> dict[str, JsonValue]:
     entries: list[JsonValue] = []
     records = sorted(
@@ -305,8 +317,7 @@ async def _dispatch(
     if command == "run.step":
         run_id = _run_id(arguments)
         selected = _branch_id(arguments)
-        if selected is not None:
-            queries.get_branch(run_id, selected)
+        _validate_execution_branch(application, run_id, selected)
         opened = application.open_run(run_id)
         step_outcome = await opened.step(selected, target_time=_target_time(arguments))
         return {
@@ -317,8 +328,7 @@ async def _dispatch(
     if command == "run.advance":
         run_id = _run_id(arguments)
         selected = _branch_id(arguments)
-        if selected is not None:
-            queries.get_branch(run_id, selected)
+        _validate_execution_branch(application, run_id, selected)
         opened = application.open_run(run_id)
         advance_outcome = await opened.advance(
             selected,
