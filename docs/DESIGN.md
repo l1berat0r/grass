@@ -317,6 +317,21 @@ and frontier semantics unchanged. Its accepted vertical slice is occurrence-only
 actor bootstrap, perception, Plans/Jobs, plugins, random scenario time, and unsupported
 same-time scenario frontiers remain deferred.
 
+### 5.4 Slice 17 template delivery
+
+Built-in templates are trusted packaged authoring resources, not special simulation
+scenarios. A fixed GRASS registry owns each template name, description, and exact file
+inventory. Package version, WorldDefinition identity, and schema version are derived by
+loading the actual bundled package. Both bundled and initialized material pass through the
+normal WorldPackage loader and occurrence-only production-composer validation.
+
+`template init` creates an ordinary editable WorldPackage directory without merge,
+overwrite, or force behavior. It rewrites only the copied `world_definition_id` to match
+the destination basename before normal validation. Template list/show/init use no run
+database, EventStore, Application construction, hidden mechanics, or privileged Event
+path. The first starter, `occurrence-counter`, exercises only the accepted one-shot GEL
+StateVariable mechanic. Actor-capable templates remain deferred.
+
 ## 6. Scenario events and stochastic time
 
 A scenario may define future material occurrences through `ScenarioEventRule`.

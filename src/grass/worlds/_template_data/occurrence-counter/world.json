@@ -1,0 +1,74 @@
+{
+  "initial_conditions": {
+    "entities": [],
+    "logical_time": 0,
+    "relations": [],
+    "resources": [],
+    "state_variables": [
+      {
+        "scope": {
+          "kind": "WORLD"
+        },
+        "state_variable_type": "counter",
+        "value": 0
+      }
+    ]
+  },
+  "metadata": {
+    "description": "An occurrence-only starter that increments a counter through GEL."
+  },
+  "scenario_event_rules": [
+    {
+      "mechanic": {
+        "kind": "GEL",
+        "program": {
+          "input_schema": {
+            "fields": {
+              "current_value": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "INTEGER"
+              }
+            },
+            "type": "OBJECT"
+          },
+          "language_version": 1,
+          "output_schema": {
+            "fields": {
+              "new_value": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "INTEGER"
+              }
+            },
+            "type": "OBJECT"
+          },
+          "source_file": "mechanics/increment.gel"
+        },
+        "target": {
+          "scope": {
+            "kind": "WORLD"
+          },
+          "state_variable_type": "counter"
+        },
+        "usage": "SET_STATE_VARIABLE"
+      },
+      "rule_id": "increment-counter",
+      "trigger": {
+        "kind": "AT_TIME",
+        "logical_time": 10
+      }
+    }
+  ],
+  "schema_version": 3,
+  "version": "1.0.0",
+  "vocabulary": {
+    "entity_types": [],
+    "relation_types": [],
+    "resource_types": [],
+    "state_variable_types": [
+      "counter"
+    ]
+  },
+  "world_definition_id": "occurrence-counter"
+}

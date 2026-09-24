@@ -51,6 +51,14 @@ from grass.worlds import (
     WorldSnapshotError,
     WorldSnapshotIntegrityError,
     WorldSnapshotNotFoundError,
+    WorldTemplateDestinationError,
+    WorldTemplateDestinationExistsError,
+    WorldTemplateError,
+    WorldTemplateIntegrityError,
+    WorldTemplateNotFoundError,
+    get_world_template,
+    initialize_world_template,
+    list_world_templates,
     load_world_package,
 )
 
@@ -103,6 +111,18 @@ def _build_parser() -> _Parser:
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--json", action="store_true", dest="json_output")
     families = parser.add_subparsers(dest="family", required=True)
+
+    template = families.add_parser("template")
+    template_commands = template.add_subparsers(dest="template_command", required=True)
+    template_list = template_commands.add_parser("list")
+    template_list.set_defaults(command="template.list")
+    template_show = template_commands.add_parser("show")
+    template_show.add_argument("name", type=_non_empty)
+    template_show.set_defaults(command="template.show")
+    template_init = template_commands.add_parser("init")
+    template_init.add_argument("name", type=_non_empty)
+    template_init.add_argument("destination", type=Path)
+    template_init.set_defaults(command="template.init")
 
     world = families.add_parser("world")
     world_commands = world.add_subparsers(dest="world_command", required=True)
@@ -279,6 +299,25 @@ async def _dispatch(
     composer: RuntimeComposer,
 ) -> dict[str, JsonValue]:
     command = cast("str", arguments.command)
+    if command == "template.list":
+        return {
+            "templates": [
+                output.world_template_info(template) for template in list_world_templates()
+            ]
+        }
+    if command == "template.show":
+        return {"template": output.world_template_info(get_world_template(arguments.name))}
+    if command == "template.init":
+        template = get_world_template(arguments.name)
+        package = initialize_world_template(arguments.name, arguments.destination)
+        return {
+            "template": output.world_template_info(template),
+            "destination": str(arguments.destination),
+            "initialized_world_definition_ref": output.world_definition_ref(
+                package.world_definition.ref
+            ),
+            "schema_version": package.world_definition.schema_version,
+        }
     if command == "world.validate":
         package = load_world_package(arguments.world)
         config = SimulationRunConfig(package.world_definition.ref)
@@ -463,6 +502,14 @@ def _map_failure(command: str, error: BaseException) -> CliFailure:
         return error
     if isinstance(error, CliUsageError):
         return CliFailure("USAGE_ERROR", message)
+    if isinstance(error, WorldTemplateNotFoundError):
+        return CliFailure("TEMPLATE_NOT_FOUND", message)
+    if isinstance(error, WorldTemplateDestinationExistsError):
+        return CliFailure("TEMPLATE_DESTINATION_EXISTS", message)
+    if isinstance(error, WorldTemplateDestinationError):
+        return CliFailure("TEMPLATE_DESTINATION_INVALID", message)
+    if isinstance(error, (WorldTemplateIntegrityError, WorldTemplateError)):
+        return CliFailure("TEMPLATE_INVALID", message)
     if isinstance(error, RunInitializationRequiredError):
         return CliFailure("RUN_RECOVERY_REQUIRED", message)
     if isinstance(error, WorldSnapshotNotFoundError):
@@ -545,8 +592,11 @@ def run_cli(
     selected_composer = OccurrenceRuntimeComposer() if composer is None else composer
     data_root = Path.cwd() / ".grass" if arguments.data_dir is None else arguments.data_dir
     try:
+        applicationless = frozenset(
+            {"template.list", "template.show", "template.init", "world.validate"}
+        )
         application = (
-            None if command == "world.validate" else _application(data_root, selected_composer)
+            None if command in applicationless else _application(data_root, selected_composer)
         )
         data = asyncio.run(_dispatch(arguments, application, selected_composer))
     except KeyboardInterrupt:

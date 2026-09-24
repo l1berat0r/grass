@@ -12,9 +12,9 @@ LLMs, humans, scripts, deterministic providers, planners, and world resolvers ma
 
 ## Project status
 
-The initial architecture is baselined as **`design-0.1`**. Slices 0–16 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, transport-neutral Application/Query APIs, and the permanent local CLI.
+The initial architecture is baselined as **`design-0.1`**. Slices 0–17 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, transport-neutral Application/Query APIs, the permanent local CLI, and reusable occurrence-only WorldPackage template infrastructure.
 
-The next implementation step is **Slice 17**, which adds reusable WorldPackage templates. The exact post-0.1 order of actor-memory work, persistence evolution, observer/analyst capabilities, backend/API, and frontend is intentionally deferred until several real runs provide evidence.
+The next architecture activity is the post-Slice-17 **Diagnostics Architecture** checkpoint. Actor-capable ordinary WorldPackage composition and actor templates are planned for Slice 18 only after their required architecture is accepted.
 
 Start here:
 
@@ -50,14 +50,15 @@ Start here:
 A representative target workflow is:
 
 ```text
+grass template init occurrence-counter ./demo
 grass world validate ./demo
 grass run create ./demo
 # Retain the generated UUID as RUN.
-grass run advance RUN
-grass inspect actors RUN
-grass inspect events RUN
 grass branch create RUN --from root --branch-id alternative
+grass run advance RUN
 grass run advance RUN --branch alternative
+grass inspect state RUN
+grass inspect events RUN
 grass run verify RUN
 ```
 

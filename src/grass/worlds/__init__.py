@@ -34,6 +34,17 @@ from grass.worlds.snapshots import (
     WorldSnapshotPathError,
     register_world_package_run,
 )
+from grass.worlds.templates import (
+    WorldTemplateDestinationError,
+    WorldTemplateDestinationExistsError,
+    WorldTemplateError,
+    WorldTemplateInfo,
+    WorldTemplateIntegrityError,
+    WorldTemplateNotFoundError,
+    get_world_template,
+    initialize_world_template,
+    list_world_templates,
+)
 
 __all__ = [
     "DataDefinedScenarioOccurrenceResolver",
@@ -58,6 +69,15 @@ __all__ = [
     "WorldSnapshotNotFoundError",
     "WorldSnapshotPathError",
     "compose_occurrence_engine",
+    "get_world_template",
+    "initialize_world_template",
+    "list_world_templates",
     "load_world_package",
     "register_world_package_run",
+    "WorldTemplateDestinationError",
+    "WorldTemplateDestinationExistsError",
+    "WorldTemplateError",
+    "WorldTemplateInfo",
+    "WorldTemplateIntegrityError",
+    "WorldTemplateNotFoundError",
 ]

@@ -2,11 +2,11 @@
 
 ## Purpose
 
-The local 0.1 milestone is the first version of GRASS that should be usable as a complete simulator without requiring the user to add Python code to GRASS itself.
+The local 0.1 work proves usable simulator capabilities without requiring the user to add Python code to GRASS itself.
 
-The milestone is intentionally local-first. Its purpose is to prove runtime orchestration, persistence, world composition, actor/provider execution, branching, replay, inspection, and authoring workflows before committing to a backend/frontend architecture or a final actor-memory model.
+The work is intentionally local-first. Slices 12 through 17 prove runtime orchestration, persistence, occurrence-only world composition, branching, replay, inspection, and template authoring workflows before committing to a backend/frontend architecture or a final actor-memory model. Actor-capable ordinary worlds remain a separate milestone.
 
-The milestone spans Slices 12–17 in `ROADMAP.md`. Slices 12 through 16 are implemented, so Slices 0–16 are complete and Slice 17 is next.
+Slices 0–17 are complete. The next activity is the Diagnostics Architecture checkpoint described in `ROADMAP.md`; actor-capable WorldPackage composition follows only after its Slice-18 architecture is accepted.
 
 ## Architectural boundary
 
@@ -275,6 +275,10 @@ The CLI is the first permanent client of the Application and Query APIs and rema
 The implemented command families are:
 
 ```text
+grass template list
+grass template show NAME
+grass template init NAME DESTINATION
+
 grass world validate WORLD
 
 grass run create WORLD
@@ -398,48 +402,50 @@ Expected CLI workflows:
 
 ```text
 grass template list
-grass template show minimal
-grass template init small-team ./my-world
+grass template show occurrence-counter
+grass template init occurrence-counter ./my-world
 ```
 
-Initial template set should include at least:
-
-- `minimal`: minimal actor interaction and provider wiring;
-- `resource-conflict`: multiple actors competing over a scarce shared resource;
-- `small-team`: multiple actors, communication, Plans/Jobs, state changes, and useful actor inspection.
+Slice 17 uses a fixed trusted registry and file inventory and ships
+`occurrence-counter`, an occurrence-only GEL StateVariable example. Initialization copies
+an editable package, rewrites its WorldDefinition identity to the destination basename,
+and validates it through the normal package loader and production composer. It does not
+construct `.grass`, SQLite, EventStore, or Application infrastructure.
 
 Templates serve three purposes simultaneously:
 
 1. authoring starting points;
 2. runnable documentation/examples;
-3. high-level acceptance/regression worlds for the complete local runtime.
+3. high-level acceptance/regression worlds for their supported production runtime path.
+
+ADR-0021's actor interaction, team/social, and shared-resource conflict examples remain
+the eventual local template set. They move to Slice 18 or later because ordinary authored
+worlds cannot yet declare/bootstrap actors, configure perception/provider execution, or
+participate in Plans/Jobs and resource conflict semantics.
 
 ## Local 0.1 acceptance workflow
 
 A representative successful workflow is:
 
 ```text
-grass template init small-team ./demo
+grass template init occurrence-counter ./demo
 grass world validate ./demo
 
 grass run create ./demo
 # Retain the generated UUID as RUN.
-grass run advance RUN
-
-grass inspect actors RUN
-grass inspect actor RUN alice
-grass inspect actor-decisions RUN alice
-grass inspect events RUN
-
 grass branch create RUN --from root --branch-id alternative
+grass run advance RUN
 grass run advance RUN --branch alternative
+
+grass inspect state RUN
+grass inspect events RUN
 
 grass run verify RUN
 ```
 
 The user may close the process and continue later. The run remains available through local persistence.
 
-At least simple scenarios should be able to use supported model-backed providers, deterministic/scripted policies, and human decisions in the same overall engine architecture.
+Actor-capable ordinary package and provider authoring remains Slice 18 architecture work.
 
 ## Deliberately deferred until after practical local runs
 

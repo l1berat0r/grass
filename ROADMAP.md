@@ -14,7 +14,7 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
-**Current status:** Slices 0–16 are implemented on `impl/v0.1-gpt`. Slice 17 is next. Slice 17 completes the locally runnable GRASS 0.1 milestone with reusable templates. Backend/frontend, actor-memory evolution, observer/analyst capabilities, and persistence beyond the local baseline are intentionally not pre-sequenced before the post-Slice-17 architecture checkpoint.
+**Current status:** Slices 0–17 are implemented on `impl/v0.1-gpt`. The next activity is the post-Slice-17 Diagnostics Architecture checkpoint. Slice 18 actor-capable WorldPackage composition requires a new accepted architecture decision; backend/frontend and other later capabilities remain unsequenced.
 
 ### Slice 0 — core value objects and package skeleton
 
@@ -217,52 +217,93 @@ CLI requirements:
 - no direct projection mutation, scheduler mutation, raw Event insertion, or bypass of world/decision validation;
 - integration tests showing that CLI-driven runs are replayable, branch-safe, provenance-preserving, and reopen correctly across separate processes.
 
-### Slice 17 — reusable world templates and executable examples
+### Slice 17 — reusable WorldPackage template infrastructure and occurrence examples
 
-Make world authoring approachable without creating a second scenario mechanism.
+**Status: complete**
 
-- templates are ordinary valid WorldPackages processed by exactly the same validation/composition/runtime path as user-created worlds;
-- provide `grass template list`, `grass template show`, and `grass template init`-style workflows;
-- initial examples should cover at least a minimal actor interaction, a shared-resource conflict, and a small multi-actor team/social scenario;
-- templates should be copyable/editable starting points rather than hidden special cases;
-- template worlds double as executable examples and high-level acceptance/regression scenarios for the local 0.1 runtime.
+Make current world authoring approachable without creating a second scenario mechanism.
 
-## Local GRASS 0.1 acceptance milestone
+- provide `grass template list`, `grass template show`, and `grass template init`;
+- use a fixed trusted registry and packaged resource inventory;
+- initialize copyable/editable ordinary WorldPackages with no hidden mechanics or privileged runtime path;
+- validate bundled and initialized packages through the normal loader and occurrence-only production composer;
+- ship the honest occurrence-only `occurrence-counter` starter;
+- exercise normal creation, execution, inspection, branching, reopen, replay verification, and distribution packaging.
 
-After Slice 17, a new user should be able to perform a workflow equivalent to:
+ADR-0021 defines the eventual local template capabilities and examples. This roadmap
+sequences their delivery: Slice 17 supplies template infrastructure and examples supported
+by current occurrence-only composition; Slice 18 and later supply actor-oriented examples
+after their architecture is accepted.
+
+## Post-Slice-17 occurrence milestone
+
+After Slice 17, a new user can perform this workflow using the actual current CLI:
 
 ```text
-grass template init small-team ./demo
+grass template list
+grass template show occurrence-counter
+grass template init occurrence-counter ./demo
 grass world validate ./demo
-grass run create ./demo --name demo-run
-grass run advance demo-run --until-idle
-grass inspect actors demo-run
-grass inspect actor demo-run alice
-grass inspect actor-decisions demo-run alice
-grass inspect events demo-run
-grass branch create demo-run --from root --name alternative
-grass run advance demo-run --branch alternative --until-idle
-grass run verify demo-run
+grass run create ./demo
+# Retain the generated UUID as RUN.
+grass branch create RUN --from root --branch-id alternative
+grass run advance RUN
+grass run advance RUN --branch alternative
+grass inspect state RUN
+grass inspect events RUN
+grass run verify RUN
 ```
 
-The process may terminate and restart between commands; the run remains available through local persistence. At least simple worlds can mix supported model-backed, scripted/deterministic, and human decision providers without changing GRASS source code.
+The process may terminate and restart between commands. The run continues from its durable
+package snapshot and canonical history without depending on the editable template copy.
 
-## Post-Slice-17 architecture checkpoint
+## Post-Slice-17 architecture checkpoint — Diagnostics Architecture
 
-Do not pre-commit the next implementation order before exercising several real local runs.
+Stop before actor-capable WorldPackage implementation. The next architecture activity is
+Diagnostics Architecture, preserving this boundary:
 
-The checkpoint should inspect actual data shape, query patterns, run size, provider context/cost behavior, authoring ergonomics, and performance before deciding the next slice. Candidate areas include:
+```text
+Query API
+    what happened / state and history facts
 
-- exact actor memory/retrieval/compaction model;
-- persistence evolution beyond SQLite and derived indexes/read models;
-- observer/analyst and branch-comparison capabilities;
-- HTTP/backend/session APIs;
-- frontend/UI;
-- client-managed providers and richer human possession workflows;
-- larger-scale/distributed execution;
-- improved world-authoring tooling.
+Diagnostics API
+    why it happened / why runtime is in this condition
 
-Frontend is therefore deliberately deferred rather than assumed to be the immediate successor to the local 0.1 milestone.
+Debug tooling
+    lower-level implementation inspection
+```
+
+Slice 17 does not implement Diagnostics. The checkpoint should also inspect actual data
+shape, query patterns, run size, authoring ergonomics, and performance before actor-capable
+composition is designed.
+
+### Slice 18 — actor-capable WorldPackage composition and actor templates
+
+**Status: planned; requires a new accepted architecture decision**
+
+Define the missing ordinary-package architecture before implementing actor templates. The
+decision must cover actor declaration/bootstrap, actor query visibility, initial cognition
+and DecisionPoints where needed, perception, DecisionPoint triggering, provider/run-config
+ownership and authoring, Plan/Job participation, actor world effects, and the resource
+interaction/conflict semantics needed by conflict examples.
+
+The intended actor-oriented set includes minimal actor interaction, a small multi-actor
+team/social scenario, and a shared-resource conflict scenario. Shared-resource conflict may
+move to a later slice if its semantics should follow the initial actor-capable composition
+rather than be frozen with it.
+
+Do not emulate these examples with Entity-property conventions, metadata conventions,
+opaque PlanStep parameters, narrated StateVariable changes, test-only composition, or hidden
+template mechanics.
+
+## Remaining actor-capable local 0.1 milestone
+
+Slice 18 and later should unlock ordinary authored worlds with query-visible actors,
+DecisionPoints, provider-backed decisions, Plans/Jobs, communication/perception, and
+world-affecting actor behavior. Exact package and CLI contracts remain for the required
+architecture decision rather than being invented by the Slice-17 template layer.
+
+Frontend remains deliberately deferred rather than assumed to follow the local milestone.
 
 ## Explicitly later / not required for local 0.1
 

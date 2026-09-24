@@ -26,10 +26,16 @@ grass --data-dir ./experiment run list
 ```
 
 The CLI has no global/XDG configuration and stores no credentials.
+Template list/show/init do not use the data root. They read trusted packaged resources or
+write only the explicitly selected authoring destination.
 
 ## Commands
 
 ```text
+grass template list
+grass template show NAME
+grass template init NAME DESTINATION
+
 grass world validate WORLD
 
 grass run create WORLD
@@ -167,6 +173,10 @@ Stable JSON error codes are:
 
 ```text
 USAGE_ERROR
+TEMPLATE_NOT_FOUND
+TEMPLATE_INVALID
+TEMPLATE_DESTINATION_INVALID
+TEMPLATE_DESTINATION_EXISTS
 WORLD_INVALID
 WORLD_SNAPSHOT_MISSING
 WORLD_SNAPSHOT_INVALID
@@ -196,12 +206,23 @@ WorldPackages cannot yet configure terminal actor loops. The source is tested
 through an injected trusted actor-capable composer and the normal
 `HumanDecisionInvoker`, validation, provenance, and engine commit path.
 
+## Templates
+
+`template list` and `template show` expose deterministic trusted registry metadata.
+`template init` copies one fixed trusted file inventory into a new ordinary editable
+WorldPackage directory. The destination must not exist, is never merged or overwritten,
+and its basename becomes the copied `world_definition_id` before normal package and
+production-composer validation.
+
+The Slice-17 starter is `occurrence-counter`. It changes one world StateVariable through
+one referenced GEL occurrence and uses no actor semantics or special runtime path.
+
 ## Deliberately deferred
 
 - run aliases and authored run-configuration files;
 - provider profiles, credentials, probes, and client-managed submission;
 - actor bootstrap and actor-capable ordinary WorldPackages;
-- Slice-17 templates and examples;
+- actor-capable templates and examples from Slice 18 or later;
 - historical-position selectors, pagination, and filtering;
 - branch rename, delete, merge, and rebase;
 - Diagnostics/Debug APIs, TUI, colors, and shell completion;

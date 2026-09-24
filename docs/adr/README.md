@@ -44,7 +44,7 @@ ADR-0002 remains Draft and documents the current replaceable capability-evaluati
 
 ## Current implementation planning
 
-Slices 0–16 are implemented on the implementation branch. Slice 17 next adds reusable templates. The post-Slice-17 sequence is intentionally left open until real runs provide evidence about actor memory, persistence/read models, observer needs, provider context/cost behavior, and whether backend/frontend should be next.
+Slices 0–17 are implemented on the implementation branch. The next activity is the post-Slice-17 Diagnostics Architecture checkpoint. Slice 18 actor-capable WorldPackage composition requires a new accepted architecture decision; `ROADMAP.md` retains the current sequencing.
 
 Earlier ADRs may mention future slice numbers in their deferred sections. Those references record what was deferred at the time of the ADR; `ROADMAP.md` is authoritative for current implementation sequencing and does not change the accepted semantic decisions of those ADRs.
 
