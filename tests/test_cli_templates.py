@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import shutil
 from io import StringIO
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from grass.cli.main import run_cli
+from grass.worlds import WorldTemplateIntegrityError
+
+cli_main = importlib.import_module("grass.cli.main")
 
 
 def invoke(data_root: Path, *arguments: str) -> tuple[int, dict[str, object], str]:
@@ -68,6 +74,42 @@ def test_template_cli_metadata_init_and_errors_are_application_free(tmp_path: Pa
     assert cast(dict[str, object], missing["error"])["code"] == "TEMPLATE_NOT_FOUND"
     assert exists_code == 1
     assert cast(dict[str, object], exists["error"])["code"] == ("TEMPLATE_DESTINATION_EXISTS")
+    assert not data_root.exists()
+
+
+def test_template_cli_maps_invalid_destination_without_application(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    destination = tmp_path / "Not-Safe"
+
+    code, document, _ = invoke(
+        data_root,
+        "template",
+        "init",
+        "occurrence-counter",
+        str(destination),
+    )
+
+    assert code == 1
+    assert cast(dict[str, object], document["error"])["code"] == ("TEMPLATE_DESTINATION_INVALID")
+    assert not destination.exists()
+    assert not data_root.exists()
+
+
+def test_template_cli_maps_template_integrity_error_without_application(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "data"
+
+    def invalid_templates() -> None:
+        raise WorldTemplateIntegrityError("injected invalid template")
+
+    monkeypatch.setattr(cli_main, "list_world_templates", invalid_templates)
+
+    code, document, _ = invoke(data_root, "template", "list")
+
+    assert code == 1
+    assert cast(dict[str, object], document["error"])["code"] == "TEMPLATE_INVALID"
     assert not data_root.exists()
 
 

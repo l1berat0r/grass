@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 
 import grass.worlds.templates as templates
-from grass.core import SimulationRunConfig, WorldDefinitionId
+from grass.core import SimulationRunConfig, WorldDefinition, WorldDefinitionId
 from grass.worlds import (
     OccurrenceRuntimeComposer,
+    WorldCompositionError,
     WorldPackage,
     WorldPackageFormatError,
     WorldTemplateDestinationError,
@@ -48,12 +49,35 @@ def test_registry_metadata_comes_from_fixed_inventory_and_valid_package() -> Non
         get_world_template("missing")
 
 
-def test_initialized_template_is_an_ordinary_valid_occurrence_package(tmp_path: Path) -> None:
+def test_registry_specs_are_name_ordered_and_unique() -> None:
+    first = templates._TemplateSpec("first", "First", ("package.json",))
+    second = templates._TemplateSpec("second", "Second", ("package.json",))
+
+    assert templates._validated_specs((second, first)) == (first, second)
+    with pytest.raises(ValueError, match="names must be unique"):
+        templates._validated_specs((first, first))
+
+
+def test_initialized_template_is_an_ordinary_valid_occurrence_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     destination = tmp_path / "demo"
+    published_packages: list[WorldPackage] = []
+
+    def recording_load(directory: os.PathLike[str] | str) -> WorldPackage:
+        loaded = package_load_world_package(directory)
+        if Path(directory) == destination:
+            published_packages.append(loaded)
+        return loaded
+
+    monkeypatch.setattr(templates, "load_world_package", recording_load)
 
     package = initialize_world_template("occurrence-counter", destination)
     loaded = load_world_package(destination)
 
+    assert published_packages == [package]
+    assert package is published_packages[0]
     assert package == loaded
     assert package.world_definition.world_definition_id == WorldDefinitionId("demo")
     assert package.world_definition.ref.version == "1.0.0"
@@ -151,6 +175,55 @@ def test_failed_publication_removes_only_the_created_destination(
     assert not destination.exists()
 
 
+def test_corrupted_published_destination_fails_validation_and_is_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "demo"
+    write_files = templates._write_files
+
+    def corrupting_write(root: Path, files: dict[str, bytes]) -> None:
+        write_files(root, files)
+        if root == destination:
+            (root / "world.json").write_text("not json\n", encoding="utf-8")
+
+    monkeypatch.setattr(templates, "_write_files", corrupting_write)
+
+    with pytest.raises(WorldTemplateDestinationError, match="initialization failed"):
+        initialize_world_template("occurrence-counter", destination)
+
+    assert not destination.exists()
+
+
+def test_published_destination_composition_failure_is_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "demo"
+    validate = OccurrenceRuntimeComposer.validate
+    demo_validations = 0
+
+    def failing_validate(
+        self: OccurrenceRuntimeComposer,
+        world_definition: WorldDefinition,
+        config: SimulationRunConfig,
+    ) -> None:
+        nonlocal demo_validations
+        validate(self, world_definition, config)
+        if world_definition.world_definition_id == WorldDefinitionId("demo"):
+            demo_validations += 1
+            if demo_validations == 2:
+                raise WorldCompositionError("injected published composition failure")
+
+    monkeypatch.setattr(OccurrenceRuntimeComposer, "validate", failing_validate)
+
+    with pytest.raises(WorldTemplateDestinationError, match="initialization failed"):
+        initialize_world_template("occurrence-counter", destination)
+
+    assert demo_validations == 2
+    assert not destination.exists()
+
+
 def test_failed_publication_does_not_remove_a_replaced_destination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -173,5 +246,33 @@ def test_failed_publication_does_not_remove_a_replaced_destination(
 
     with pytest.raises(WorldTemplateDestinationError, match="initialization failed"):
         initialize_world_template("occurrence-counter", destination)
+
+    assert (destination / "keep").read_text(encoding="utf-8") == "keep"
+
+
+def test_cleanup_does_not_delete_a_destination_replaced_after_guard_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "demo"
+    guard = templates._create_destination(destination)
+    destination_is_guarded = templates._destination_is_guarded
+    replaced = False
+
+    def replacing_check(path: Path, selected_guard: templates._DestinationGuard) -> bool:
+        nonlocal replaced
+        guarded = destination_is_guarded(path, selected_guard)
+        if path == destination and guarded and not replaced:
+            replaced = True
+            for child in path.iterdir():
+                child.unlink()
+            path.rmdir()
+            path.mkdir()
+            (path / "keep").write_text("keep", encoding="utf-8")
+        return guarded
+
+    monkeypatch.setattr(templates, "_destination_is_guarded", replacing_check)
+
+    templates._remove_created_directory(destination, guard)
 
     assert (destination / "keep").read_text(encoding="utf-8") == "keep"

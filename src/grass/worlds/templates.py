@@ -109,17 +109,26 @@ class _TemplateSpec:
         object.__setattr__(self, "files", files)
 
 
-_SPECS = (
-    _TemplateSpec(
-        "occurrence-counter",
-        "A minimal occurrence-only world that increments one StateVariable through GEL.",
-        (
-            "README.md",
-            "mechanics/increment.gel",
-            "package.json",
-            "world.json",
+def _validated_specs(specs: tuple[_TemplateSpec, ...], /) -> tuple[_TemplateSpec, ...]:
+    names = tuple(spec.name for spec in specs)
+    if len(set(names)) != len(names):
+        raise ValueError("template names must be unique")
+    return tuple(sorted(specs, key=lambda spec: spec.name))
+
+
+_SPECS = _validated_specs(
+    (
+        _TemplateSpec(
+            "occurrence-counter",
+            "A minimal occurrence-only world that increments one StateVariable through GEL.",
+            (
+                "README.md",
+                "mechanics/increment.gel",
+                "package.json",
+                "world.json",
+            ),
         ),
-    ),
+    )
 )
 _SPECS_BY_NAME = MappingProxyType({item.name: item for item in _SPECS})
 
@@ -200,8 +209,20 @@ def _destination_is_guarded(path: Path, guard: _DestinationGuard) -> bool:
 
 
 def _remove_created_directory(path: Path, guard: _DestinationGuard) -> None:
-    if _destination_is_guarded(path, guard):
-        shutil.rmtree(path, ignore_errors=True)
+    if not _destination_is_guarded(path, guard):
+        return
+    quarantine = path.with_name(f".{path.name}.grass-template-cleanup-{secrets.token_hex(16)}")
+    try:
+        path.rename(quarantine)
+    except OSError:
+        return
+    if _destination_is_guarded(quarantine, guard):
+        shutil.rmtree(quarantine, ignore_errors=True)
+        return
+    try:
+        quarantine.rename(path)
+    except OSError:
+        pass
 
 
 def _validate_materialized(spec: _TemplateSpec, files: dict[str, bytes]) -> WorldPackage:
@@ -318,19 +339,26 @@ def initialize_world_template(name: str, destination: Path, /) -> WorldPackage:
             staged = Path(temporary) / target.name
             staged.mkdir()
             _write_files(staged, initialized_files)
-            initialized = load_world_package(staged)
+            staged_package = load_world_package(staged)
             OccurrenceRuntimeComposer().validate(
-                initialized.world_definition,
-                SimulationRunConfig(initialized.world_definition.ref),
+                staged_package.world_definition,
+                SimulationRunConfig(staged_package.world_definition.ref),
             )
 
-            destination_guard = _create_destination(target)
-            _write_files(target, initialized_files)
-            if not _destination_is_guarded(target, destination_guard):
-                raise OSError("template destination changed during initialization")
-            (target / destination_guard.marker_name).unlink()
+        destination_guard = _create_destination(target)
+        _write_files(target, initialized_files)
+        if not _destination_is_guarded(target, destination_guard):
+            raise OSError("template destination changed during initialization")
+        published = load_world_package(target)
+        OccurrenceRuntimeComposer().validate(
+            published.world_definition,
+            SimulationRunConfig(published.world_definition.ref),
+        )
+        if not _destination_is_guarded(target, destination_guard):
+            raise OSError("template destination changed during initialization")
+        (target / destination_guard.marker_name).unlink()
         succeeded = True
-        return initialized
+        return published
     except FileExistsError as error:
         if destination_guard is None:
             raise WorldTemplateDestinationExistsError(
