@@ -6,19 +6,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NoReturn, TextIO, cast
 
 from grass.application import (
+    FilesystemRunWorkspaceManager,
     LocalSimulationApplication,
     QueryError,
     QueryNotFoundError,
     RunInitializationRequiredError,
+    RunWorkspaceError,
     VerificationIntegrityError,
 )
-from grass.cli import output
+from grass.cli import output, presentation
 from grass.cli.output import JsonValue
 from grass.core import (
     BranchId,
@@ -109,7 +112,23 @@ def _branch_option(parser: argparse.ArgumentParser) -> None:
 def _build_parser() -> _Parser:
     parser = _Parser(prog="grass", description="GRASS local simulation CLI")
     parser.add_argument("--data-dir", type=Path)
-    parser.add_argument("--json", action="store_true", dest="json_output")
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        dest="output_format",
+        help="output format (default: text)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="compatibility shortcut for --format json",
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable ANSI color in text output",
+    )
     families = parser.add_subparsers(dest="family", required=True)
 
     template = families.add_parser("template")
@@ -233,6 +252,7 @@ def _application(data_root: Path, composer: RuntimeComposer) -> LocalSimulationA
     return LocalSimulationApplication(
         SqlitePersistence(data_root / "grass.db"),
         FilesystemWorldSnapshotStore(data_root / "world_snapshots"),
+        FilesystemRunWorkspaceManager(data_root / "runs"),
         composer=composer,
     )
 
@@ -537,6 +557,8 @@ def _map_failure(command: str, error: BaseException) -> CliFailure:
         return CliFailure("WORLD_SNAPSHOT_INVALID", message)
     if isinstance(error, PersistenceError):
         return CliFailure("STORAGE_ERROR", message)
+    if isinstance(error, RunWorkspaceError):
+        return CliFailure("STORAGE_ERROR", message)
     if isinstance(
         error,
         (
@@ -558,6 +580,40 @@ def _map_failure(command: str, error: BaseException) -> CliFailure:
     return CliFailure("INTERNAL_ERROR", "An unexpected internal error occurred.")
 
 
+def _raw_json_requested(arguments: Sequence[str], /) -> bool:
+    json_shortcut = False
+    selected_format: str | None = None
+    for index, value in enumerate(arguments):
+        if value == "--json":
+            json_shortcut = True
+        elif value.startswith("--format="):
+            selected_format = value.partition("=")[2]
+        if value == "--format" and index + 1 < len(arguments):
+            selected_format = arguments[index + 1]
+    return json_shortcut or selected_format == "json"
+
+
+def _output_format(arguments: argparse.Namespace, /) -> str:
+    selected = cast("str | None", arguments.output_format)
+    if arguments.json_output and selected == "text":
+        raise CliUsageError("--json cannot be combined with --format text")
+    if arguments.json_output:
+        return "json"
+    return "text" if selected is None else selected
+
+
+def _color_enabled(
+    stream: TextIO,
+    *,
+    no_color: bool,
+    environment: Mapping[str, str],
+) -> bool:
+    if no_color or environment.get("NO_COLOR", "") != "":
+        return False
+    isatty = getattr(stream, "isatty", None)
+    return bool(callable(isatty) and isatty())
+
+
 def run_cli(
     argv: Sequence[str],
     *,
@@ -567,16 +623,22 @@ def run_cli(
     composer: RuntimeComposer | None = None,
 ) -> int:
     raw = tuple(argv)
-    json_requested = "--json" in raw
+    json_requested = _raw_json_requested(raw)
     parser = _build_parser()
     if json_requested and ("--help" in raw or "-h" in raw):
+        message = (
+            "--json cannot be combined with --help"
+            if "--json" in raw
+            else "--format json cannot be combined with --help"
+        )
         output.write_json(
             stdout,
-            output.error_document("cli", "USAGE_ERROR", "--json cannot be combined with --help"),
+            output.error_document("cli", "USAGE_ERROR", message),
         )
         return 2
     try:
         arguments = parser.parse_args(raw)
+        selected_format = _output_format(arguments)
     except CliUsageError as error:
         if json_requested:
             output.write_json(
@@ -601,23 +663,32 @@ def run_cli(
         data = asyncio.run(_dispatch(arguments, application, selected_composer))
     except KeyboardInterrupt:
         failure = CliFailure("INTERRUPTED", "Command interrupted.")
-        if arguments.json_output:
+        if selected_format == "json":
             output.write_json(stdout, output.error_document(command, failure.code, failure.message))
         else:
             stderr.write(f"{failure.code}: {failure.message}\n")
         return 130
     except Exception as error:
         failure = _map_failure(command, error)
-        if arguments.json_output:
+        if selected_format == "json":
             output.write_json(stdout, output.error_document(command, failure.code, failure.message))
         else:
             stderr.write(f"{failure.code}: {failure.message}\n")
         return 1
 
-    if arguments.json_output:
+    if selected_format == "json":
         output.write_json(stdout, output.success_document(command, data))
     else:
-        output.write_human(stdout, data)
+        presentation.write_text(
+            stdout,
+            command,
+            data,
+            color=_color_enabled(
+                stdout,
+                no_color=cast("bool", arguments.no_color),
+                environment=os.environ,
+            ),
+        )
     del stdin  # Reserved for CliHumanDecisionSource composition in actor-capable runtimes.
     return 0
 

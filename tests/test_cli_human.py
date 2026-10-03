@@ -11,7 +11,7 @@ from uuid import UUID
 
 import pytest
 
-from grass.application import LocalSimulationApplication
+from grass.application import FilesystemRunWorkspaceManager, LocalSimulationApplication
 from grass.cli.human import CliHumanDecisionSource
 from grass.core import (
     DecisionOutcomeKind,
@@ -149,6 +149,7 @@ def test_cli_human_decision_uses_application_runtime_and_provenance(tmp_path: Pa
     application = LocalSimulationApplication(
         SqlitePersistence(tmp_path / "grass.db"),
         FilesystemWorldSnapshotStore(tmp_path / "snapshots"),
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
         composer=DecisionRuntimeComposer(),
         decision_invokers={binding_id: HumanDecisionInvoker(source, binding)},
     )

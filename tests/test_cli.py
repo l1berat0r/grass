@@ -131,6 +131,12 @@ def test_cli_run_branch_inspection_and_verification_workflow(tmp_path: Path) -> 
     run_data = cast(dict[str, object], created["data"])
     record = cast(dict[str, object], run_data["run"])
     run_id = cast(str, record["run_id"])
+    assert (data_root / "grass.db").is_file()
+    assert (data_root / "world_snapshots" / run_id).is_dir()
+    assert (data_root / "runs" / run_id).is_dir()
+    assert list((data_root / "runs" / run_id).iterdir()) == []
+    assert not (data_root / "runs" / run_id / "grass.db").exists()
+    assert not (data_root / "runs" / run_id / "world_snapshots").exists()
     branch_code, branch, _ = invoke(
         data_root,
         "branch",
@@ -268,12 +274,55 @@ def test_explicit_root_step_recovers_and_does_not_duplicate_initialization(
     assert result["work_kind"] == "SCENARIO_OCCURRENCE"
     assert result["committed_transition"] is not None
     assert initialization_event_count(store, record.root_branch_id) == 1
+    assert not (data_root / "runs").exists()
 
     second_code, second, _ = invoke(data_root, *command)
     assert second_code == 0
     second_result = cast(dict[str, object], cast(dict[str, object], second["data"])["result"])
     assert second_result["stop_reason"] == "QUIESCENT"
     assert initialization_event_count(store, record.root_branch_id) == 1
+
+
+def test_workspace_contents_and_absence_do_not_affect_reopen_history_or_verification(
+    tmp_path: Path,
+) -> None:
+    author, _, _, _ = write_world_package(tmp_path)
+    data_root = tmp_path / "data"
+    _, created, _ = invoke(data_root, "run", "create", str(author))
+    run_id = cast(
+        str,
+        cast(dict[str, object], cast(dict[str, object], created["data"])["run"])["run_id"],
+    )
+    workspace = data_root / "runs" / run_id
+    marker = workspace / "notes.txt"
+    marker.write_text("non-authoritative", encoding="utf-8")
+    _, before, _ = invoke(data_root, "inspect", "events", run_id)
+
+    verify_with_content, _, _ = invoke(data_root, "run", "verify", run_id)
+    marker.unlink()
+    workspace.rmdir()
+    status_code, _, _ = invoke(data_root, "run", "status", run_id)
+    _, after, _ = invoke(data_root, "inspect", "events", run_id)
+    verify_without_workspace, _, _ = invoke(data_root, "run", "verify", run_id)
+    step_code, _, _ = invoke(data_root, "run", "step", run_id)
+
+    assert (verify_with_content, status_code, verify_without_workspace, step_code) == (0, 0, 0, 0)
+    assert before["data"] == after["data"]
+    assert not workspace.exists()
+
+
+def test_workspace_creation_failure_registers_no_run_or_snapshot(tmp_path: Path) -> None:
+    author, _, _, _ = write_world_package(tmp_path)
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    (data_root / "runs").write_text("not a directory", encoding="utf-8")
+
+    code, document, _ = invoke(data_root, "run", "create", str(author))
+
+    assert code == 1
+    assert cast(dict[str, object], document["error"])["code"] == "STORAGE_ERROR"
+    assert SqlitePersistence(data_root / "grass.db").list_runs() == ()
+    assert not (data_root / "world_snapshots").exists()
 
 
 def test_explicit_root_advance_recovers_and_returns_normal_stop(tmp_path: Path) -> None:

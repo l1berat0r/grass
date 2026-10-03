@@ -17,6 +17,9 @@ The default data root is `.grass` under the current working directory:
 .grass/
     grass.db
     world_snapshots/
+        <run-id>/
+    runs/
+        <run-id>/
 ```
 
 Use `--data-dir PATH` before the command family to replace the entire root:
@@ -28,6 +31,31 @@ grass --data-dir ./experiment run list
 The CLI has no global/XDG configuration and stores no credentials.
 Template list/show/init do not use the data root. They read trusted packaged resources or
 write only the explicitly selected authoring destination.
+
+`grass.db` is the one canonical SQLite database for all local runs. Package-backed runs
+retain immutable authored material under `world_snapshots/<run-id>/`. The empty workspace
+created at `runs/<run-id>/` is operational and non-authoritative: it stores no canonical
+simulation state, and its contents are never used to reconstruct or verify history.
+
+## Global output options
+
+Global options appear before the command family:
+
+```text
+grass --format text ...
+grass --format json ...
+grass --json ...
+grass --no-color ...
+```
+
+`text` is the default. `--json` is a compatibility shortcut for `--format json`.
+Combining `--json` with `--format json` is accepted; combining it with `--format text` is a
+usage error. `--no-color` is accepted but has no effect in JSON mode.
+
+Text output uses command-aware tables, detail views, nested sections, and Event timelines.
+ANSI color is supplemental and enabled automatically only when stdout is a TTY. Redirected
+output, JSON, `--no-color`, and a non-empty `NO_COLOR` environment variable disable ANSI.
+Status and health values remain explicit text with or without color.
 
 ## Commands
 
@@ -93,6 +121,16 @@ package-backed run reopens from its immutable per-run snapshot.
 
 ## Lifecycle behavior
 
+Package-backed creation validates first, allocates the RunId, creates the empty workspace,
+publishes the immutable package snapshot, registers the run in SQLite, and then requests
+genesis. Workspace or snapshot/registration failure does not register a successful run;
+pre-registration cleanup is best-effort. Once registration succeeds, the workspace is
+retained across genesis failure because the registered empty root remains recoverable.
+
+Runs created before workspace support remain valid. Reopen, status, queries, replay, and
+verification neither require nor lazily create a missing workspace. A process interruption
+may leave an unregistered workspace orphan; SQLite remains the run catalog authority.
+
 Registration and genesis cannot be one transaction across all storage
 boundaries. A valid registered run with an empty parentless root is therefore
 reported by `run list` as `RECOVERABLE`.
@@ -122,11 +160,13 @@ atomic transitions; Event sequence is ordering, not inferred causality.
 
 ## JSON v1
 
-Place `--json` before the command family:
+Prefer `--format json` before the command family:
 
 ```text
-grass --json run list
+grass --format json run list
 ```
+
+`grass --json run list` remains equivalent for compatibility.
 
 Success and failure envelopes are:
 
@@ -225,5 +265,5 @@ one referenced GEL occurrence and uses no actor semantics or special runtime pat
 - actor-capable templates and examples from Slice 18 or later;
 - historical-position selectors, pagination, and filtering;
 - branch rename, delete, merge, and rebase;
-- Diagnostics/Debug APIs, TUI, colors, and shell completion;
+- Diagnostics/Debug APIs, TUI, and shell completion;
 - HTTP, WebSocket, backend, and frontend interfaces.

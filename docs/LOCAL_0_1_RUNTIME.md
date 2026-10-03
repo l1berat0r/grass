@@ -148,6 +148,12 @@ SQLite retains the canonical semantic WorldDefinition, including resolved GEL so
 schema, and language version. Reopen validates that the filesystem snapshot reconstructs
 the same definition and never falls back to mutable author files.
 
+The local application also creates an empty operational workspace at `runs/<run_id>/`
+before snapshot publication. It is not canonical persistence, package material, or a
+projection/checkpoint store. Existing runs may have no workspace, and open, replay,
+queries, and verification do not inspect or create it. Arbitrary workspace contents cannot
+change run validity or reconstructed state.
+
 Derived/rebuildable data should not become canonical merely for convenience. This includes, by default:
 
 - `SimulationState` snapshots/projections;
@@ -317,13 +323,28 @@ CLI requirements:
 - a CLI-backed `HumanDecisionSource` for human-controlled actors, still routed through Slice-11 `DecisionInvoker`/validation/provenance semantics;
 - process restart between commands must not lose local runs.
 
-The default data root is exactly `.grass` under the current working directory,
-with `grass.db` and `world_snapshots/` beneath it. `--data-dir` replaces that
-root. RunIds are Application-generated UUIDs; Slice 16 has no friendly aliases.
+The default data root is exactly `.grass` under the current working directory:
+
+```text
+.grass/
+    grass.db
+    world_snapshots/
+        <run-id>/
+    runs/
+        <run-id>/
+```
+
+`--data-dir` replaces that root. SQLite remains directly under the root and contains
+multiple runs; snapshots are not moved beneath `runs/`. RunIds are Application-generated
+UUIDs; Slice 16 has no friendly aliases.
 JSON schema v1 uses one success or failure envelope on stdout, explicit
 deterministic serializers, integer-nanosecond logical times, complete atomic
 transition groups, and full Event provenance. See `docs/CLI.md` for the exact
 command, output, error, and lifecycle contracts.
+
+CLI output defaults to command-aware text. `--format json` selects JSON v1 and `--json`
+remains its compatibility shortcut. Text color is automatic for TTY stdout only and is
+disabled by redirection, `--no-color`, or non-empty `NO_COLOR`; JSON never contains ANSI.
 
 `run status` is read-only. A registered empty root is reported as requiring
 recovery, while `run step` and `run advance` may perform normal idempotent

@@ -12,7 +12,12 @@ from uuid import UUID
 
 import pytest
 
-from grass.application import HistoryScope, LocalSimulationApplication
+import grass.application.commands as commands_module
+from grass.application import (
+    FilesystemRunWorkspaceManager,
+    HistoryScope,
+    LocalSimulationApplication,
+)
 from grass.core import (
     BoundedReaction,
     BranchId,
@@ -57,6 +62,7 @@ from grass.runtime import (
 )
 from grass.worlds import (
     FilesystemWorldSnapshotStore,
+    WorldSnapshotError,
     WorldSnapshotNotFoundError,
     load_world_package,
     register_world_package_run,
@@ -156,6 +162,7 @@ def _application(tmp_path: Path) -> LocalSimulationApplication:
     return LocalSimulationApplication(
         SqlitePersistence(tmp_path / "grass.db"),
         FilesystemWorldSnapshotStore(tmp_path / "world_snapshots"),
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
     )
 
 
@@ -176,6 +183,8 @@ def test_create_generates_safe_distinct_uuid_runs_and_reopens_without_authors(
     assert str(UUID(first.run_id.value)) == first.run_id.value
     assert str(UUID(second.run_id.value)) == second.run_id.value
     assert first.root_branch_id == BranchId("root")
+    assert (tmp_path / "runs" / first.run_id.value).is_dir()
+    assert (tmp_path / "runs" / second.run_id.value).is_dir()
     assert not hasattr(first, "engine")
     assert not hasattr(first, "event_store")
     shutil.rmtree(author)
@@ -196,6 +205,7 @@ def test_registered_empty_root_survives_interruption_and_open_recovers(
     interrupted = LocalSimulationApplication(
         persistence,
         snapshots,
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
         identity_source_factory=FailingInitializationIds,
     )
 
@@ -204,11 +214,59 @@ def test_registered_empty_root_survives_interruption_and_open_recovers(
 
     records = persistence.list_runs()
     assert len(records) == 1
+    assert (tmp_path / "runs" / records[0].run_id.value).is_dir()
     store = persistence.event_store(records[0].run_id)
     assert store.read_transitions(BranchId("root")) == ()
 
-    recovered = LocalSimulationApplication(persistence, snapshots).open_run(records[0].run_id)
+    recovered = LocalSimulationApplication(
+        persistence,
+        snapshots,
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
+    ).open_run(records[0].run_id)
     assert len(store.read_transitions(recovered.root_branch_id)) == 1
+
+
+def test_creation_failure_before_registration_removes_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    author, _, _, _ = write_world_package(tmp_path)
+    package = load_world_package(author)
+    persistence = SqlitePersistence(tmp_path / "grass.db")
+    snapshots = FilesystemWorldSnapshotStore(tmp_path / "world_snapshots")
+    workspaces = FilesystemRunWorkspaceManager(tmp_path / "runs")
+    application = LocalSimulationApplication(persistence, snapshots, workspaces)
+
+    def fail_registration(*args: object) -> None:
+        del args
+        raise RuntimeError("injected registration failure")
+
+    monkeypatch.setattr(commands_module, "register_world_package_run", fail_registration)
+
+    with pytest.raises(RuntimeError, match="injected registration failure"):
+        application.create_run(package, SimulationRunConfig(package.world_definition.ref))
+
+    assert persistence.list_runs() == ()
+    assert list(workspaces.root.iterdir()) == []
+
+
+def test_snapshot_failure_removes_workspace_and_registers_no_run(tmp_path: Path) -> None:
+    author, _, _, _ = write_world_package(tmp_path)
+    package = load_world_package(author)
+    persistence = SqlitePersistence(tmp_path / "grass.db")
+    snapshot_root = tmp_path / "world_snapshots"
+    snapshot_root.write_text("not a directory", encoding="utf-8")
+    workspaces = FilesystemRunWorkspaceManager(tmp_path / "runs")
+    application = LocalSimulationApplication(
+        persistence,
+        FilesystemWorldSnapshotStore(snapshot_root),
+        workspaces,
+    )
+
+    with pytest.raises(WorldSnapshotError, match="snapshot root"):
+        application.create_run(package, SimulationRunConfig(package.world_definition.ref))
+
+    assert persistence.list_runs() == ()
+    assert list(workspaces.root.iterdir()) == []
 
 
 def test_open_rejects_invalid_nonempty_root(tmp_path: Path) -> None:
@@ -234,7 +292,11 @@ def test_open_rejects_invalid_nonempty_root(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RuntimeIntegrityError, match="malformed genesis"):
-        LocalSimulationApplication(persistence, snapshots).open_run(record.run_id)
+        LocalSimulationApplication(
+            persistence,
+            snapshots,
+            FilesystemRunWorkspaceManager(tmp_path / "runs"),
+        ).open_run(record.run_id)
 
 
 def test_open_material_behavior_follows_only_persisted_kind(tmp_path: Path) -> None:
@@ -252,7 +314,11 @@ def test_open_material_behavior_follows_only_persisted_kind(tmp_path: Path) -> N
     )
     persistence.register_run(definition_only, package.world_definition, config)
 
-    opened = LocalSimulationApplication(persistence, snapshots).open_run(definition_only.run_id)
+    opened = LocalSimulationApplication(
+        persistence,
+        snapshots,
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
+    ).open_run(definition_only.run_id)
     assert opened.run_id == definition_only.run_id
 
     package_record = SimulationRunRecord(
@@ -264,7 +330,11 @@ def test_open_material_behavior_follows_only_persisted_kind(tmp_path: Path) -> N
     )
     persistence.register_run(package_record, package.world_definition, config)
     with pytest.raises(WorldSnapshotNotFoundError):
-        LocalSimulationApplication(persistence, snapshots).open_run(package_record.run_id)
+        LocalSimulationApplication(
+            persistence,
+            snapshots,
+            FilesystemRunWorkspaceManager(tmp_path / "runs"),
+        ).open_run(package_record.run_id)
 
 
 def test_package_registration_rejects_definition_only_record_before_publish(
@@ -366,6 +436,7 @@ def test_application_executes_server_managed_human_decision(tmp_path: Path) -> N
     application = LocalSimulationApplication(
         SqlitePersistence(tmp_path / "grass.db"),
         FilesystemWorldSnapshotStore(tmp_path / "world_snapshots"),
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
         composer=DecisionRuntimeComposer(),
         decision_invokers={binding_id: HumanDecisionInvoker(source, binding)},
     )
@@ -387,12 +458,14 @@ def test_query_status_delegates_without_identity_allocation(tmp_path: Path) -> N
     package = load_world_package(author)
     persistence = SqlitePersistence(tmp_path / "grass.db")
     snapshots = FilesystemWorldSnapshotStore(tmp_path / "world_snapshots")
-    created = LocalSimulationApplication(persistence, snapshots).create_run(
+    workspaces = FilesystemRunWorkspaceManager(tmp_path / "runs")
+    created = LocalSimulationApplication(persistence, snapshots, workspaces).create_run(
         package, SimulationRunConfig(package.world_definition.ref)
     )
     inspecting = LocalSimulationApplication(
         persistence,
         snapshots,
+        workspaces,
         identity_source_factory=NoAllocationIds,
     )
 

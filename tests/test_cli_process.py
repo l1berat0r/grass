@@ -46,6 +46,11 @@ def test_separate_cli_processes_reopen_snapshot_advance_branch_and_verify(tmp_pa
             cast(dict[str, object], created["data"])["run"],
         )["run_id"],
     )
+    workspace = data_root / "runs" / run_id
+    assert (data_root / "grass.db").is_file()
+    assert (data_root / "world_snapshots" / run_id).is_dir()
+    assert workspace.is_dir()
+    workspace.rmdir()
     shutil.rmtree(author)
 
     status = run_process(data_root, "run", "status", run_id)
@@ -83,3 +88,4 @@ def test_separate_cli_processes_reopen_snapshot_advance_branch_and_verify(tmp_pa
         ]
         == 2
     )
+    assert not workspace.exists()

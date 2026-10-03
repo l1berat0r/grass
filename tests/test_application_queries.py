@@ -12,6 +12,7 @@ from grass.application import (
     ActorHistoryAttributionKind,
     ActorMembershipEvidence,
     DecisionStatus,
+    FilesystemRunWorkspaceManager,
     HistoryScope,
     LocalSimulationApplication,
     LocalSimulationQueries,
@@ -273,6 +274,7 @@ def populated_queries(
     application = LocalSimulationApplication(
         persistence,
         FilesystemWorldSnapshotStore(tmp_path / "snapshots"),
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
     )
     return application.queries, store, historical, fork_position
 

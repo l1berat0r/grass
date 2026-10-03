@@ -257,6 +257,23 @@ grass run verify RUN
 The process may terminate and restart between commands. The run continues from its durable
 package snapshot and canonical history without depending on the editable template copy.
 
+### Slice 17.1 — local CLI workspaces and presentation
+
+**Status: complete**
+
+Improve local usability before the next architecture activity without changing simulation
+or persistence semantics:
+
+- create a non-authoritative `runs/<run-id>/` operational workspace before snapshot
+  publication and SQLite registration;
+- keep SQLite at `grass.db` and immutable package material at
+  `world_snapshots/<run-id>/`;
+- preserve existing runs when their workspace is absent and keep replay/verification
+  independent of workspace contents;
+- make command-aware text the default presentation while preserving JSON v1 through
+  `--format json` and the compatible `--json` shortcut;
+- provide lightweight TTY-aware ANSI color with `--no-color` and `NO_COLOR` support.
+
 ## Post-Slice-17 architecture checkpoint — Diagnostics Architecture
 
 Stop before actor-capable WorldPackage implementation. The next architecture activity is

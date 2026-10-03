@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from grass.application import (
+    FilesystemRunWorkspaceManager,
     LocalSimulationApplication,
     VerificationIntegrityError,
 )
@@ -43,7 +44,11 @@ def _created(tmp_path: Path):  # type: ignore[no-untyped-def]
     package = load_world_package(author)
     persistence = SqlitePersistence(tmp_path / "grass.db")
     snapshots = FilesystemWorldSnapshotStore(tmp_path / "world_snapshots")
-    application = LocalSimulationApplication(persistence, snapshots)
+    application = LocalSimulationApplication(
+        persistence,
+        snapshots,
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
+    )
     opened = application.create_run(package, SimulationRunConfig(package.world_definition.ref))
     return application, opened, persistence, snapshots
 
@@ -61,6 +66,7 @@ def test_verify_valid_run_counts_unique_origin_history_and_does_not_execute(
     verifier_only = LocalSimulationApplication(
         persistence,
         snapshots,
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
         identity_source_factory=fail_factory,
     )
     report = verifier_only.verify_run(opened.run_id)
@@ -122,7 +128,11 @@ def test_verify_definition_only_run_does_not_inspect_snapshot_paths(tmp_path: Pa
         datetime.now(UTC),
     )
     persistence.register_run(record, package.world_definition, config)
-    application = LocalSimulationApplication(persistence, snapshots)
+    application = LocalSimulationApplication(
+        persistence,
+        snapshots,
+        FilesystemRunWorkspaceManager(tmp_path / "runs"),
+    )
     application.open_run(record.run_id)
     snapshots.root.mkdir(exist_ok=True)
     (snapshots.root / record.run_id.value).write_text("not a snapshot", encoding="utf-8")

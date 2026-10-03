@@ -13,6 +13,7 @@ from grass.application._material import LocalSimulationStorage, load_run_materia
 from grass.application.contracts import VerificationReport
 from grass.application.queries import LocalSimulationQueries
 from grass.application.verification import LocalSimulationVerifier
+from grass.application.workspaces import FilesystemRunWorkspaceManager
 from grass.core.branches import Branch, HistoryPosition
 from grass.core.decision_invocations import DecisionInvoker
 from grass.core.identifiers import BranchId, ProviderBindingId
@@ -119,6 +120,7 @@ class LocalSimulationApplication:
         self,
         storage: LocalSimulationStorage,
         snapshot_store: FilesystemWorldSnapshotStore,
+        workspace_manager: FilesystemRunWorkspaceManager,
         *,
         composer: RuntimeComposer | None = None,
         identity_source_factory: Callable[[], RuntimeIdentitySource] = UuidRuntimeIdentitySource,
@@ -136,6 +138,8 @@ class LocalSimulationApplication:
             raise TypeError("storage must implement local run persistence repositories")
         if not isinstance(snapshot_store, FilesystemWorldSnapshotStore):
             raise TypeError("snapshot_store must be a FilesystemWorldSnapshotStore")
+        if not isinstance(workspace_manager, FilesystemRunWorkspaceManager):
+            raise TypeError("workspace_manager must be a FilesystemRunWorkspaceManager")
         selected_composer = OccurrenceRuntimeComposer() if composer is None else composer
         if not callable(getattr(selected_composer, "validate", None)) or not callable(
             getattr(selected_composer, "compose", None)
@@ -151,6 +155,7 @@ class LocalSimulationApplication:
 
         self._storage = storage
         self._snapshot_store = snapshot_store
+        self._workspace_manager = workspace_manager
         self._composer = selected_composer
         self._identity_source_factory = identity_source_factory
         self._decision_invokers = MappingProxyType(invokers)
@@ -204,13 +209,21 @@ class LocalSimulationApplication:
             WorldMaterialKind.PACKAGE_SNAPSHOT,
             datetime.now(UTC),
         )
-        register_world_package_run(
-            self._storage,
-            self._snapshot_store,
-            record,
-            package,
-            run_config,
-        )
+        self._workspace_manager.create(run_id)
+        try:
+            register_world_package_run(
+                self._storage,
+                self._snapshot_store,
+                record,
+                package,
+                run_config,
+            )
+        except Exception:
+            try:
+                self._workspace_manager.remove_empty(run_id)
+            except Exception:
+                pass
+            raise
         event_store = self._storage.event_store(run_id)
         identity_source = self._identity_source_factory()
         initialize_root(

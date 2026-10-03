@@ -64,6 +64,26 @@ grass run verify RUN
 
 Runs should survive process restarts through local persistence. Templates are ordinary valid WorldPackages and should exercise the same production runtime path as user-authored worlds.
 
+CLI output defaults to human-oriented text. Scripts should select the stable JSON v1
+contract explicitly with `grass --format json ...`; the existing `grass --json ...`
+shortcut remains supported.
+
+The default local application data root is:
+
+```text
+.grass/
+    grass.db
+    world_snapshots/
+        <run-id>/
+    runs/
+        <run-id>/
+```
+
+SQLite contains canonical run metadata and Event history. `world_snapshots/` contains the
+immutable authored package material used by each package-backed run. `runs/` contains
+non-authoritative per-run workspaces for future operational/user-facing material; replay,
+history, reopen, and verification do not depend on workspace contents.
+
 ## Development methodology
 
 `design-0.1` is the first design baseline. Implementation details that preserve accepted contracts may be decided locally, while material changes to authority, persistence, replay, provider, action, scheduler, world-resolution, scenario-mechanics, or application/runtime boundaries should normally use an ADR first.

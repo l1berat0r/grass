@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from enum import Enum
 from typing import TextIO, TypeAlias
 
 from grass.application import (
@@ -604,19 +603,3 @@ def error_document(command: str, code: str, message: str, /) -> dict[str, JsonVa
 def write_json(stream: TextIO, document: Mapping[str, JsonValue], /) -> None:
     stream.write(json.dumps(document, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
     stream.write("\n")
-
-
-def write_human(stream: TextIO, data: Mapping[str, JsonValue], /) -> None:
-    for key, value in data.items():
-        if isinstance(value, list):
-            stream.write(f"{key}:\n")
-            if not value:
-                stream.write("  (none)\n")
-            for item in value:
-                stream.write(f"  {json.dumps(item, ensure_ascii=True, sort_keys=True)}\n")
-        elif isinstance(value, dict):
-            stream.write(f"{key}: {json.dumps(value, ensure_ascii=True, sort_keys=True)}\n")
-        elif isinstance(value, Enum):  # pragma: no cover - serializers emit values
-            stream.write(f"{key}: {value.value}\n")
-        else:
-            stream.write(f"{key}: {value}\n")

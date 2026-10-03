@@ -26,6 +26,12 @@ from grass.application.contracts import (
 )
 from grass.application.queries import LocalSimulationQueries
 from grass.application.verification import LocalSimulationVerifier, verify_run
+from grass.application.workspaces import (
+    FilesystemRunWorkspaceManager,
+    RunWorkspaceConflictError,
+    RunWorkspaceError,
+    RunWorkspacePathError,
+)
 
 __all__ = [
     "ActorHistoryAttribution",
@@ -36,6 +42,7 @@ __all__ = [
     "BranchView",
     "DecisionStatus",
     "DecisionView",
+    "FilesystemRunWorkspaceManager",
     "HistoryScope",
     "HistoryView",
     "JobView",
@@ -47,6 +54,9 @@ __all__ = [
     "QueryNotFoundError",
     "QueryPosition",
     "RunInitializationRequiredError",
+    "RunWorkspaceConflictError",
+    "RunWorkspaceError",
+    "RunWorkspacePathError",
     "RunView",
     "StateView",
     "VerificationIntegrityError",
