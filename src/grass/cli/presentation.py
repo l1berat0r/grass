@@ -227,6 +227,29 @@ def _present_template_show(stream: TextIO, data: Mapping[str, JsonValue], style:
     _write_nested(stream, template["files"], indent=2)
 
 
+def _present_init(stream: TextIO, data: Mapping[str, JsonValue], style: TextStyle) -> None:
+    _write_fields(
+        stream,
+        (
+            ("Data root", _scalar(data["data_root"])),
+            ("Database", _scalar(data["database"])),
+        ),
+        style,
+    )
+    stream.write(f"\n{style.heading('World templates')}\n")
+    rows = []
+    for item in _sequence(data["world_templates"]):
+        installation = _mapping(item)
+        rows.append(
+            (
+                _scalar(installation["name"]),
+                _scalar(installation["status"]),
+                _scalar(installation["path"]),
+            )
+        )
+    _write_table(stream, ("NAME", "STATUS", "PATH"), rows, style)
+
+
 def _present_run_list(stream: TextIO, data: Mapping[str, JsonValue], style: TextStyle) -> None:
     rows = []
     errors: list[tuple[str, str]] = []
@@ -500,6 +523,7 @@ def _present_nested_result(stream: TextIO, data: Mapping[str, JsonValue], style:
 
 
 _PRESENTERS: Mapping[str, Presenter] = {
+    "init": _present_init,
     "template.list": _present_template_list,
     "template.show": _present_template_show,
     "template.init": _present_nested_result,

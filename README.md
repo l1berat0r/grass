@@ -50,9 +50,9 @@ Start here:
 A representative target workflow is:
 
 ```text
-grass template init occurrence-counter ./demo
-grass world validate ./demo
-grass run create ./demo
+grass init
+grass template list
+grass run create --template occurrence-counter
 # Retain the generated UUID as RUN.
 grass branch create RUN --from root --branch-id alternative
 grass run advance RUN
@@ -61,6 +61,9 @@ grass inspect state RUN
 grass inspect events RUN
 grass run verify RUN
 ```
+
+Use `grass template init occurrence-counter ./demo` followed by `grass run create ./demo`
+when a separately editable authoring copy is preferred.
 
 Runs should survive process restarts through local persistence. Templates are ordinary valid WorldPackages and should exercise the same production runtime path as user-authored worlds.
 
@@ -77,12 +80,18 @@ The default local application data root is:
         <run-id>/
     runs/
         <run-id>/
+    templates/
+        worlds/
+            occurrence-counter/
 ```
 
 SQLite contains canonical run metadata and Event history. `world_snapshots/` contains the
 immutable authored package material used by each package-backed run. `runs/` contains
 non-authoritative per-run workspaces for future operational/user-facing material; replay,
 history, reopen, and verification do not depend on workspace contents.
+`templates/worlds/` contains editable local copies of bundled WorldPackage templates.
+Existing valid copies are preserved by repeated `grass init`; run creation snapshots the
+selected package normally and never depends on the installed copy afterward.
 
 ## Development methodology
 

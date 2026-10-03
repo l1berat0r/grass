@@ -23,6 +23,12 @@ from grass.application import (
 )
 from grass.cli import output, presentation
 from grass.cli.output import JsonValue
+from grass.cli.workspace import (
+    LocalWorkspaceInitializationError,
+    ensure_local_storage_paths,
+    initialize_local_workspace,
+    installed_world_template_store,
+)
 from grass.core import (
     BranchId,
     DecisionOutputError,
@@ -57,8 +63,11 @@ from grass.worlds import (
     WorldTemplateDestinationError,
     WorldTemplateDestinationExistsError,
     WorldTemplateError,
+    WorldTemplateInstallationConflictError,
+    WorldTemplateInstallationError,
     WorldTemplateIntegrityError,
     WorldTemplateNotFoundError,
+    WorldTemplateNotInstalledError,
     get_world_template,
     initialize_world_template,
     list_world_templates,
@@ -131,6 +140,9 @@ def _build_parser() -> _Parser:
     )
     families = parser.add_subparsers(dest="family", required=True)
 
+    initialize = families.add_parser("init")
+    initialize.set_defaults(command="init")
+
     template = families.add_parser("template")
     template_commands = template.add_subparsers(dest="template_command", required=True)
     template_list = template_commands.add_parser("list")
@@ -152,7 +164,9 @@ def _build_parser() -> _Parser:
     run = families.add_parser("run")
     run_commands = run.add_subparsers(dest="run_command", required=True)
     create = run_commands.add_parser("create")
-    create.add_argument("world", type=Path)
+    source = create.add_mutually_exclusive_group(required=True)
+    source.add_argument("world", nargs="?", type=Path)
+    source.add_argument("--template", type=_non_empty)
     create.set_defaults(command="run.create")
     list_runs = run_commands.add_parser("list")
     list_runs.set_defaults(command="run.list")
@@ -248,7 +262,7 @@ def _target_time(arguments: argparse.Namespace) -> LogicalTime | None:
 
 
 def _application(data_root: Path, composer: RuntimeComposer) -> LocalSimulationApplication:
-    data_root.mkdir(parents=True, exist_ok=True)
+    ensure_local_storage_paths(data_root)
     return LocalSimulationApplication(
         SqlitePersistence(data_root / "grass.db"),
         FilesystemWorldSnapshotStore(data_root / "world_snapshots"),
@@ -317,8 +331,19 @@ async def _dispatch(
     arguments: argparse.Namespace,
     application: LocalSimulationApplication | None,
     composer: RuntimeComposer,
+    data_root: Path,
 ) -> dict[str, JsonValue]:
     command = cast("str", arguments.command)
+    if command == "init":
+        initialized = initialize_local_workspace(data_root)
+        return {
+            "data_root": str(initialized.data_root),
+            "database": str(initialized.database),
+            "template_roots": {"worlds": str(initialized.world_template_root)},
+            "world_templates": [
+                output.world_template_installation(item) for item in initialized.world_templates
+            ],
+        }
     if command == "template.list":
         return {
             "templates": [
@@ -351,7 +376,12 @@ async def _dispatch(
     assert application is not None
     queries = application.queries
     if command == "run.create":
-        package = load_world_package(arguments.world)
+        template_name = cast("str | None", arguments.template)
+        package = (
+            load_world_package(cast("Path", arguments.world))
+            if template_name is None
+            else installed_world_template_store(data_root).load_installed(template_name)
+        )
         opened = application.create_run(
             package,
             SimulationRunConfig(package.world_definition.ref),
@@ -524,6 +554,10 @@ def _map_failure(command: str, error: BaseException) -> CliFailure:
         return CliFailure("USAGE_ERROR", message)
     if isinstance(error, WorldTemplateNotFoundError):
         return CliFailure("TEMPLATE_NOT_FOUND", message)
+    if isinstance(error, WorldTemplateNotInstalledError):
+        return CliFailure("TEMPLATE_NOT_INSTALLED", message)
+    if isinstance(error, WorldTemplateInstallationConflictError):
+        return CliFailure("TEMPLATE_INSTALLATION_CONFLICT", message)
     if isinstance(error, WorldTemplateDestinationExistsError):
         return CliFailure("TEMPLATE_DESTINATION_EXISTS", message)
     if isinstance(error, WorldTemplateDestinationError):
@@ -556,6 +590,8 @@ def _map_failure(command: str, error: BaseException) -> CliFailure:
     if isinstance(error, WorldSnapshotError):
         return CliFailure("WORLD_SNAPSHOT_INVALID", message)
     if isinstance(error, PersistenceError):
+        return CliFailure("STORAGE_ERROR", message)
+    if isinstance(error, (WorldTemplateInstallationError, LocalWorkspaceInitializationError)):
         return CliFailure("STORAGE_ERROR", message)
     if isinstance(error, RunWorkspaceError):
         return CliFailure("STORAGE_ERROR", message)
@@ -655,12 +691,12 @@ def run_cli(
     data_root = Path.cwd() / ".grass" if arguments.data_dir is None else arguments.data_dir
     try:
         applicationless = frozenset(
-            {"template.list", "template.show", "template.init", "world.validate"}
+            {"init", "template.list", "template.show", "template.init", "world.validate"}
         )
         application = (
             None if command in applicationless else _application(data_root, selected_composer)
         )
-        data = asyncio.run(_dispatch(arguments, application, selected_composer))
+        data = asyncio.run(_dispatch(arguments, application, selected_composer, data_root))
     except KeyboardInterrupt:
         failure = CliFailure("INTERRUPTED", "Command interrupted.")
         if selected_format == "json":

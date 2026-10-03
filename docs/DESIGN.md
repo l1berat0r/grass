@@ -332,6 +332,14 @@ database, EventStore, Application construction, hidden mechanics, or privileged 
 path. The first starter, `occurrence-counter`, exercises only the accepted one-shot GEL
 StateVariable mechanic. Actor-capable templates remain deferred.
 
+The local CLI may install mutable copies of currently bundled templates beneath its
+application data root at `templates/worlds/<template-name>/`. Installed copies remain
+ordinary WorldPackages: existing valid copies are preserved, invalid collisions are not
+overwritten, and name-based run creation loads the local package before entering the normal
+snapshot, registration, and genesis path. Bundled source resources, mutable installed
+copies, immutable per-run snapshots, and non-authoritative run workspaces are distinct.
+Neither Core nor the transport-neutral Application API knows the CLI filesystem layout.
+
 ## 6. Scenario events and stochastic time
 
 A scenario may define future material occurrences through `ScenarioEventRule`.

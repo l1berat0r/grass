@@ -332,6 +332,9 @@ The default data root is exactly `.grass` under the current working directory:
         <run-id>/
     runs/
         <run-id>/
+    templates/
+        worlds/
+            <template-name>/
 ```
 
 `--data-dir` replaces that root. SQLite remains directly under the root and contains
@@ -345,6 +348,10 @@ command, output, error, and lifecycle contracts.
 CLI output defaults to command-aware text. `--format json` selects JSON v1 and `--json`
 remains its compatibility shortcut. Text color is automatic for TTY stdout only and is
 disabled by redirection, `--no-color`, or non-empty `NO_COLOR`; JSON never contains ANSI.
+
+`grass init` explicitly initializes this complete data-root layout and installs missing
+bundled templates. Existing Application-backed commands retain their lazy storage bootstrap
+for compatibility; they do not silently install or rewrite templates.
 
 `run status` is read-only. A registered empty root is reported as requiring
 recovery, while `run step` and `run advance` may perform normal idempotent
@@ -422,16 +429,25 @@ Templates are ordinary valid WorldPackages. They must not use a privileged hidde
 Expected CLI workflows:
 
 ```text
+grass init
 grass template list
 grass template show occurrence-counter
+grass run create --template occurrence-counter
 grass template init occurrence-counter ./my-world
 ```
 
 Slice 17 uses a fixed trusted registry and file inventory and ships
-`occurrence-counter`, an occurrence-only GEL StateVariable example. Initialization copies
+`occurrence-counter`, an occurrence-only GEL StateVariable example. `template init` copies
 an editable package, rewrites its WorldDefinition identity to the destination basename,
-and validates it through the normal package loader and production composer. It does not
-construct `.grass`, SQLite, EventStore, or Application infrastructure.
+and validates it through the normal package loader and production composer. That command
+does not construct `.grass`, SQLite, EventStore, or Application infrastructure.
+
+Initialization also supports mutable local copies under
+`.grass/templates/worlds/<template-name>/`. These copies are ordinary WorldPackages, are
+preserved when valid, and may be selected by name through `run create --template`. They are
+not a second template model, do not replace the bundled registry, and have no authority
+after normal run snapshot publication. Invalid existing paths are reported as conflicts
+without overwrite or repair.
 
 Templates serve three purposes simultaneously:
 
@@ -449,10 +465,8 @@ participate in Plans/Jobs and resource conflict semantics.
 A representative successful workflow is:
 
 ```text
-grass template init occurrence-counter ./demo
-grass world validate ./demo
-
-grass run create ./demo
+grass init
+grass run create --template occurrence-counter
 # Retain the generated UUID as RUN.
 grass branch create RUN --from root --branch-id alternative
 grass run advance RUN
@@ -463,6 +477,9 @@ grass inspect events RUN
 
 grass run verify RUN
 ```
+
+The equivalent authoring workflow may initialize, edit, validate, and pass an explicit
+package directory to `run create` instead.
 
 The user may close the process and continue later. The run remains available through local persistence.
 

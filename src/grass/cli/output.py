@@ -56,7 +56,7 @@ from grass.core import (
 from grass.core.provider_bindings import ProviderBindingConfiguration
 from grass.persistence import SimulationRunRecord
 from grass.runtime import AdvanceResult, StepResult
-from grass.worlds import WorldTemplateInfo
+from grass.worlds import WorldTemplateInfo, WorldTemplateInstallation
 
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
@@ -585,6 +585,14 @@ def world_template_info(value: WorldTemplateInfo, /) -> dict[str, JsonValue]:
         "world_definition_ref": world_definition_ref(value.world_definition_ref),
         "schema_version": value.schema_version,
         "files": list(value.files),
+    }
+
+
+def world_template_installation(value: WorldTemplateInstallation, /) -> dict[str, JsonValue]:
+    return {
+        "name": value.template.name,
+        "path": str(value.path),
+        "status": value.status.value,
     }
 
 

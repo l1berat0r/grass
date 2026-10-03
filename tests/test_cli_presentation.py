@@ -48,6 +48,18 @@ def test_text_is_default_and_template_list_is_a_table(tmp_path: Path) -> None:
     assert "\x1b[" not in stdout
 
 
+def test_init_has_a_dedicated_text_summary(tmp_path: Path) -> None:
+    code, stdout, stderr = _invoke(tmp_path / "data", "init")
+
+    assert code == 0
+    assert stderr == ""
+    assert "Data root:" in stdout
+    assert "Database:" in stdout
+    assert "World templates" in stdout
+    assert "occurrence-counter" in stdout
+    assert "INSTALLED" in stdout
+
+
 def test_json_format_and_legacy_shortcut_are_identical_and_unstyled(tmp_path: Path) -> None:
     format_code, formatted, format_stderr = _invoke(
         tmp_path / "data", "--format", "json", "template", "list"
@@ -268,6 +280,7 @@ def test_event_history_is_a_structured_timeline_and_escapes_terminal_controls() 
 def test_every_cli_command_has_an_explicit_text_presenter() -> None:
     assert presenter_commands() == frozenset(
         {
+            "init",
             "template.list",
             "template.show",
             "template.init",

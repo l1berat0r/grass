@@ -273,6 +273,10 @@ or persistence semantics:
 - make command-aware text the default presentation while preserving JSON v1 through
   `--format json` and the compatible `--json` shortcut;
 - provide lightweight TTY-aware ANSI color with `--no-color` and `NO_COLOR` support.
+- initialize the complete data root explicitly with `grass init`, installing missing
+  bundled world templates under `templates/worlds/` while preserving valid local edits;
+- allow installed ordinary WorldPackages to enter the unchanged run-creation path through
+  `run create --template NAME` without fallback to bundled source material.
 
 ## Post-Slice-17 architecture checkpoint — Diagnostics Architecture
 

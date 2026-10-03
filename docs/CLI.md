@@ -20,6 +20,9 @@ The default data root is `.grass` under the current working directory:
         <run-id>/
     runs/
         <run-id>/
+    templates/
+        worlds/
+            <template-name>/
 ```
 
 Use `--data-dir PATH` before the command family to replace the entire root:
@@ -28,14 +31,17 @@ Use `--data-dir PATH` before the command family to replace the entire root:
 grass --data-dir ./experiment run list
 ```
 
-The CLI has no global/XDG configuration and stores no credentials.
-Template list/show/init do not use the data root. They read trusted packaged resources or
-write only the explicitly selected authoring destination.
+The CLI has no global/XDG configuration and stores no credentials. `grass init` creates
+the complete directory skeleton, initializes SQLite, and installs missing bundled world
+templates. Template list/show/init remain independent of the data root: they read trusted
+packaged resources or write only the explicitly selected authoring destination.
 
 `grass.db` is the one canonical SQLite database for all local runs. Package-backed runs
 retain immutable authored material under `world_snapshots/<run-id>/`. The empty workspace
 created at `runs/<run-id>/` is operational and non-authoritative: it stores no canonical
 simulation state, and its contents are never used to reconstruct or verify history.
+`templates/worlds/` contains mutable local copies of bundled templates as ordinary
+WorldPackages. It is neither canonical history nor immutable run material.
 
 ## Global output options
 
@@ -60,6 +66,8 @@ Status and health values remain explicit text with or without color.
 ## Commands
 
 ```text
+grass init
+
 grass template list
 grass template show NAME
 grass template init NAME DESTINATION
@@ -67,6 +75,7 @@ grass template init NAME DESTINATION
 grass world validate WORLD
 
 grass run create WORLD
+grass run create --template NAME
 grass run list
 grass run status RUN [--branch BRANCH]
 grass run step RUN [--branch BRANCH] [--target-time-ns N]
@@ -104,6 +113,16 @@ open and recovery behavior as omitting `--branch`.
 ## Typical workflow
 
 ```text
+grass init
+grass template list
+grass run create --template occurrence-counter
+# Retain the reported UUID as RUN.
+```
+
+For a separately editable authoring copy:
+
+```text
+grass template init occurrence-counter ./my-world
 grass world validate ./my-world
 grass run create ./my-world
 # Retain the reported UUID as RUN.
@@ -217,6 +236,8 @@ TEMPLATE_NOT_FOUND
 TEMPLATE_INVALID
 TEMPLATE_DESTINATION_INVALID
 TEMPLATE_DESTINATION_EXISTS
+TEMPLATE_NOT_INSTALLED
+TEMPLATE_INSTALLATION_CONFLICT
 WORLD_INVALID
 WORLD_SNAPSHOT_MISSING
 WORLD_SNAPSHOT_INVALID
@@ -253,6 +274,20 @@ through an injected trusted actor-capable composer and the normal
 WorldPackage directory. The destination must not exist, is never merged or overwritten,
 and its basename becomes the copied `world_definition_id` before normal package and
 production-composer validation.
+
+`grass init` installs each currently bundled template beneath
+`<data-root>/templates/worlds/<name>/`. A missing copy is reported as `INSTALLED`. An
+existing valid ordinary WorldPackage is reported as `PRESERVED` and is not compared with
+or replaced by bundled bytes, so user edits survive repeated initialization. A file,
+symlink, or invalid package at the managed path is an explicit conflict and is never
+modified. Newly added bundled names are installed on a later `grass init`; removed names
+are not deleted.
+
+`run create --template NAME` loads only the installed local copy and then follows the same
+WorldPackage validation, immutable run snapshot, registration, and genesis path as
+`run create WORLD`. It never falls back to bundled source material. Bundled source,
+installed mutable copy, immutable per-run snapshot, and non-authoritative run workspace
+remain distinct.
 
 The Slice-17 starter is `occurrence-counter`. It changes one world StateVariable through
 one referenced GEL occurrence and uses no actor semantics or special runtime path.

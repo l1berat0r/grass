@@ -269,6 +269,12 @@ def list_world_templates() -> tuple[WorldTemplateInfo, ...]:
     return tuple(_validated_template(spec)[0] for spec in _SPECS)
 
 
+def world_template_names() -> tuple[str, ...]:
+    """Return registered bundled template names without loading resource material."""
+
+    return tuple(spec.name for spec in _SPECS)
+
+
 def get_world_template(name: str, /) -> WorldTemplateInfo:
     """Return validated metadata for one trusted built-in template."""
 

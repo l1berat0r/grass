@@ -96,6 +96,29 @@ def test_built_distributions_include_and_run_template_resources(tmp_path: Path) 
         env=environment,
         cwd=tmp_path,
     )
+    workspace_initialized = subprocess.run(
+        (str(grass), "--json", "init"),
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+        cwd=tmp_path,
+    )
+    run_created = subprocess.run(
+        (
+            str(grass),
+            "--json",
+            "run",
+            "create",
+            "--template",
+            "occurrence-counter",
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+        cwd=tmp_path,
+    )
     subprocess.run(
         (str(python), "-I", "-c", "import grass.worlds, grass.cli"),
         check=True,
@@ -108,3 +131,5 @@ def test_built_distributions_include_and_run_template_resources(tmp_path: Path) 
     assert cast(dict[str, object], json.loads(listed.stdout))["command"] == "template.list"
     assert cast(dict[str, object], json.loads(initialized.stdout))["command"] == "template.init"
     assert cast(dict[str, object], json.loads(validated.stdout))["command"] == "world.validate"
+    assert cast(dict[str, object], json.loads(workspace_initialized.stdout))["command"] == "init"
+    assert cast(dict[str, object], json.loads(run_created.stdout))["command"] == "run.create"

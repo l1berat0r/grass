@@ -34,6 +34,14 @@ from grass.worlds.snapshots import (
     WorldSnapshotPathError,
     register_world_package_run,
 )
+from grass.worlds.template_installations import (
+    FilesystemWorldTemplateStore,
+    WorldTemplateInstallation,
+    WorldTemplateInstallationConflictError,
+    WorldTemplateInstallationError,
+    WorldTemplateInstallationStatus,
+    WorldTemplateNotInstalledError,
+)
 from grass.worlds.templates import (
     WorldTemplateDestinationError,
     WorldTemplateDestinationExistsError,
@@ -44,11 +52,13 @@ from grass.worlds.templates import (
     get_world_template,
     initialize_world_template,
     list_world_templates,
+    world_template_names,
 )
 
 __all__ = [
     "DataDefinedScenarioOccurrenceResolver",
     "FilesystemWorldSnapshotStore",
+    "FilesystemWorldTemplateStore",
     "OccurrenceRuntimeComposer",
     "UnsupportedWorldPackageVersionError",
     "WORLD_PACKAGE_MANIFEST",
@@ -78,6 +88,12 @@ __all__ = [
     "WorldTemplateDestinationExistsError",
     "WorldTemplateError",
     "WorldTemplateInfo",
+    "WorldTemplateInstallation",
+    "WorldTemplateInstallationConflictError",
+    "WorldTemplateInstallationError",
+    "WorldTemplateInstallationStatus",
     "WorldTemplateIntegrityError",
     "WorldTemplateNotFoundError",
+    "WorldTemplateNotInstalledError",
+    "world_template_names",
 ]
