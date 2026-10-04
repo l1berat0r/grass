@@ -107,11 +107,12 @@ class RejectingComposer:
 def test_world_validation_runs_package_and_composer_validation(tmp_path: Path) -> None:
     author, _, _, _ = write_world_package(tmp_path)
 
-    code, success, _ = invoke(tmp_path / "data", "world", "validate", str(author))
+    code, success, _ = invoke(tmp_path / "data", "world", "validate", "--path", str(author))
     rejected_code, rejected, _ = invoke(
         tmp_path / "other-data",
         "world",
         "validate",
+        "--path",
         str(author),
         composer=RejectingComposer(),
     )
@@ -123,11 +124,24 @@ def test_world_validation_runs_package_and_composer_validation(tmp_path: Path) -
     assert cast(dict[str, object], rejected["error"])["code"] == "WORLD_INVALID"
 
 
+def test_external_world_packages_require_explicit_path_syntax(tmp_path: Path) -> None:
+    author, _, _, _ = write_world_package(tmp_path)
+    data_root = tmp_path / "data"
+
+    for command in (("world", "validate"), ("run", "create")):
+        positional_code, positional, _ = invoke(data_root, *command, str(author))
+        explicit_code, _, _ = invoke(data_root, *command, "--path", str(author))
+
+        assert positional_code == 2
+        assert cast(dict[str, object], positional["error"])["code"] == "USAGE_ERROR"
+        assert explicit_code == 0
+
+
 def test_cli_run_branch_inspection_and_verification_workflow(tmp_path: Path) -> None:
     author, _, _, _ = write_world_package(tmp_path)
     data_root = tmp_path / "data"
 
-    create_code, created, _ = invoke(data_root, "run", "create", str(author))
+    create_code, created, _ = invoke(data_root, "run", "create", "--path", str(author))
     run_data = cast(dict[str, object], created["data"])
     record = cast(dict[str, object], run_data["run"])
     run_id = cast(str, record["run_id"])
@@ -199,7 +213,7 @@ def test_read_only_command_surface_handles_empty_execution_and_cognition(
 ) -> None:
     author, _, _, _ = write_world_package(tmp_path)
     data_root = tmp_path / "data"
-    _, created, _ = invoke(data_root, "run", "create", str(author))
+    _, created, _ = invoke(data_root, "run", "create", "--path", str(author))
     run_id = cast(
         str,
         cast(
@@ -288,7 +302,7 @@ def test_workspace_contents_and_absence_do_not_affect_reopen_history_or_verifica
 ) -> None:
     author, _, _, _ = write_world_package(tmp_path)
     data_root = tmp_path / "data"
-    _, created, _ = invoke(data_root, "run", "create", str(author))
+    _, created, _ = invoke(data_root, "run", "create", "--path", str(author))
     run_id = cast(
         str,
         cast(dict[str, object], cast(dict[str, object], created["data"])["run"])["run_id"],
@@ -317,7 +331,7 @@ def test_workspace_creation_failure_registers_no_run_or_snapshot(tmp_path: Path)
     data_root.mkdir()
     (data_root / "runs").write_text("not a directory", encoding="utf-8")
 
-    code, document, _ = invoke(data_root, "run", "create", str(author))
+    code, document, _ = invoke(data_root, "run", "create", "--path", str(author))
 
     assert code == 1
     assert cast(dict[str, object], document["error"])["code"] == "STORAGE_ERROR"
@@ -370,7 +384,7 @@ def test_initialized_implicit_and_explicit_root_advance_are_equivalent(tmp_path:
 
     for selection in ("implicit", "explicit"):
         data_root = tmp_path / selection
-        create_code, created, _ = invoke(data_root, "run", "create", str(author))
+        create_code, created, _ = invoke(data_root, "run", "create", "--path", str(author))
         assert create_code == 0
         run_id = cast(
             str,
@@ -429,7 +443,7 @@ def test_run_list_is_best_effort_for_recoverable_and_invalid_runs(tmp_path: Path
     )
     register_world_package_run(persistence, snapshots, recoverable, package, config)
     persistence.register_run(invalid, package.world_definition, config)
-    healthy_code, healthy, _ = invoke(data_root, "run", "create", str(author))
+    healthy_code, healthy, _ = invoke(data_root, "run", "create", "--path", str(author))
     assert healthy_code == 0
 
     code, document, _ = invoke(data_root, "run", "list")
@@ -467,7 +481,7 @@ def test_json_usage_and_not_found_errors_have_stable_codes(tmp_path: Path) -> No
 def test_missing_branch_is_not_mislabeled_as_missing_projected_value(tmp_path: Path) -> None:
     author, _, _, _ = write_world_package(tmp_path)
     data_root = tmp_path / "data"
-    _, created, _ = invoke(data_root, "run", "create", str(author))
+    _, created, _ = invoke(data_root, "run", "create", "--path", str(author))
     run_id = cast(
         str,
         cast(

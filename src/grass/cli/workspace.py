@@ -4,16 +4,34 @@
 
 from __future__ import annotations
 
+import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
 
 from grass.persistence import SqlitePersistence
-from grass.worlds import FilesystemWorldTemplateStore, WorldTemplateInstallation
+from grass.worlds import (
+    FilesystemWorldTemplateStore,
+    WorldPackage,
+    WorldTemplateInstallation,
+    load_world_package,
+)
+
+_LOCAL_WORLD_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 
 class LocalWorkspaceInitializationError(RuntimeError):
     """The local CLI data root cannot be initialized safely."""
+
+
+def validate_local_world_name(value: str, /) -> str:
+    """Return one safe local world name or reject it before path construction."""
+
+    if type(value) is not str:
+        raise TypeError("local world name must be a string")
+    if _LOCAL_WORLD_NAME.fullmatch(value) is None:
+        raise ValueError("local world name must match [a-z0-9]+(?:-[a-z0-9]+)*")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +51,9 @@ class LocalWorkspacePaths:
     @property
     def worlds(self) -> Path:
         return self.root / "worlds"
+
+    def world(self, name: str, /) -> Path:
+        return self.worlds / validate_local_world_name(name)
 
     @property
     def world_snapshots(self) -> Path:
@@ -124,6 +145,30 @@ def installed_world_template_store(paths: LocalWorkspacePaths, /) -> FilesystemW
             raise LocalWorkspaceInitializationError(f"could not inspect {description}") from error
         _ensure_directory(path, description)
     return FilesystemWorldTemplateStore(paths.world_templates)
+
+
+def load_cli_world_source(
+    paths: LocalWorkspacePaths,
+    /,
+    *,
+    workspace_name: str | None = None,
+    external_path: Path | None = None,
+    template_name: str | None = None,
+) -> WorldPackage:
+    """Load exactly one CLI-selected managed world, external path, or installed template."""
+
+    if type(paths) is not LocalWorkspacePaths:
+        raise TypeError("paths must be LocalWorkspacePaths")
+    if sum(item is not None for item in (workspace_name, external_path, template_name)) != 1:
+        raise ValueError("exactly one world source must be selected")
+    if workspace_name is not None:
+        return load_world_package(paths.world(workspace_name))
+    if external_path is not None:
+        if not isinstance(external_path, Path):
+            raise TypeError("external_path must be a Path")
+        return load_world_package(external_path)
+    assert template_name is not None
+    return installed_world_template_store(paths).load_installed(template_name)
 
 
 def initialize_local_workspace(paths: LocalWorkspacePaths, /) -> LocalWorkspaceInitialization:

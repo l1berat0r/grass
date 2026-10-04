@@ -38,7 +38,7 @@ def run_process(root: Path, *arguments: str) -> dict[str, object]:
 def test_separate_cli_processes_reopen_snapshot_advance_branch_and_verify(tmp_path: Path) -> None:
     author, _, _, _ = write_world_package(tmp_path)
     data_root = tmp_path / "data"
-    created = run_process(data_root, "run", "create", str(author))
+    created = run_process(data_root, "run", "create", "--path", str(author))
     run_id = cast(
         str,
         cast(

@@ -36,8 +36,9 @@ grass --data-dir ./experiment run list
 The CLI has no global/XDG configuration and stores no credentials. `grass init` creates
 the complete directory skeleton, initializes SQLite, and installs missing bundled world
 templates. Every implicitly selected application path is beneath the data root. Explicit
-input paths and `template init --output PATH` may refer outside it. Template list/show
-validate trusted packaged resources in memory and perform no filesystem writes.
+`--path PATH` inputs and `template init --output PATH` destinations may refer outside it.
+Template list/show validate trusted packaged resources in memory and perform no filesystem
+writes.
 
 `grass.db` is the one canonical SQLite database for all local runs. Package-backed runs
 retain immutable authored material under `world_snapshots/<run-id>/`. The empty workspace
@@ -82,8 +83,10 @@ grass template show NAME
 grass template init TEMPLATE [WORLD_NAME] [--output PATH]
 
 grass world validate WORLD
+grass world validate --path PATH
 
 grass run create WORLD
+grass run create --path PATH
 grass run create --template NAME
 grass run list
 grass run status RUN [--branch BRANCH]
@@ -119,6 +122,14 @@ open and recovery behavior as omitting `--branch`.
 `run advance` stops with the exact runtime stop reason and has no
 `--until-idle` mode.
 
+`WORLD` is a safe logical name resolved only beneath `<data-root>/worlds/`. It never falls
+back to a same-named directory in the process working directory. `--path PATH` explicitly
+selects an external WorldPackage using normal filesystem path semantics and is not rebased
+under `--data-dir`. If a managed world and external path have the same basename, `WORLD`
+selects the managed world and `--path` selects the external package without precedence
+guessing. `--template NAME` remains the separate installed-template source under
+`<data-root>/templates/worlds/`.
+
 ## Typical workflow
 
 ```text
@@ -132,8 +143,8 @@ For a separately editable authoring copy:
 
 ```text
 grass template init occurrence-counter my-world
-grass world validate .grass/worlds/my-world
-grass run create .grass/worlds/my-world
+grass world validate my-world
+grass run create my-world
 # Retain the reported UUID as RUN.
 grass run status RUN
 grass run advance RUN
@@ -291,6 +302,11 @@ match it when both are present. The destination must not exist, is never merged 
 overwritten, and its basename becomes the copied `world_definition_id` before normal
 package and production-composer validation.
 
+Managed copies are subsequently addressed by that same `WORLD_NAME` through `world
+validate WORLD` and `run create WORLD`; callers do not need to know the physical workspace
+layout. An external copy initialized through `--output` is consumed explicitly through
+`--path`.
+
 `grass init` installs each currently bundled template beneath
 `<data-root>/templates/worlds/<name>/`. A missing copy is reported as `INSTALLED`. An
 existing valid ordinary WorldPackage is reported as `PRESERVED` and is not compared with
@@ -302,9 +318,9 @@ are not deleted. Material edits to a preserved local copy require a correspondin
 
 `run create --template NAME` loads only the installed local copy and then follows the same
 WorldPackage validation, immutable run snapshot, registration, and genesis path as
-`run create WORLD`. It never falls back to bundled source material. Bundled source,
-installed mutable copy, immutable per-run snapshot, and non-authoritative run workspace
-remain distinct.
+`run create WORLD` and `run create --path PATH`. It never falls back to bundled source
+material. Bundled source, installed mutable copy, immutable per-run snapshot, and
+non-authoritative run workspace remain distinct.
 
 The Slice-17 starter is `occurrence-counter`. It changes one world StateVariable through
 one referenced GEL occurrence and uses no actor semantics or special runtime path.

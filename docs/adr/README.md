@@ -52,9 +52,9 @@ ADR-0026 resets the unreleased complete WorldDefinition representation to its in
 schema version 1 and supersedes the schema-number and compatibility statements in
 ADR-0016 and ADR-0023. It does not change their remaining accepted decisions.
 
-ADR-0027 centralizes local CLI path selection and distinguishes implicit workspace-managed
-state from explicit external package paths. It does not change simulation or persistence
-authority.
+ADR-0027 centralizes local CLI path selection, gives managed editable worlds logical CLI
+addresses, and distinguishes them from explicit external package paths. It does not change
+simulation or persistence authority.
 
 Earlier ADRs may mention future slice numbers in their deferred sections. Those references record what was deferred at the time of the ADR; `ROADMAP.md` is authoritative for current implementation sequencing and does not change the accepted semantic decisions of those ADRs.
 

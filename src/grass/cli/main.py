@@ -7,7 +7,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -30,7 +29,8 @@ from grass.cli.workspace import (
     ensure_local_storage_paths,
     ensure_local_world_root,
     initialize_local_workspace,
-    installed_world_template_store,
+    load_cli_world_source,
+    validate_local_world_name,
 )
 from grass.core import (
     BranchId,
@@ -74,7 +74,6 @@ from grass.worlds import (
     get_world_template,
     initialize_world_template,
     list_world_templates,
-    load_world_package,
 )
 
 
@@ -89,9 +88,6 @@ class CliFailure(RuntimeError):
         self.message = message
 
 
-_WORLD_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
-
-
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         raise CliUsageError(message)
@@ -104,9 +100,10 @@ def _non_empty(value: str) -> str:
 
 
 def _world_name(value: str) -> str:
-    if _WORLD_NAME.fullmatch(value) is None:
-        raise argparse.ArgumentTypeError("value must match [a-z0-9]+(?:-[a-z0-9]+)*")
-    return value
+    try:
+        return validate_local_world_name(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def _non_negative(value: str) -> int:
@@ -171,14 +168,17 @@ def _build_parser() -> _Parser:
     world = families.add_parser("world")
     world_commands = world.add_subparsers(dest="world_command", required=True)
     validate = world_commands.add_parser("validate")
-    validate.add_argument("world", type=Path)
+    validate_source = validate.add_mutually_exclusive_group(required=True)
+    validate_source.add_argument("world", nargs="?", metavar="WORLD", type=_world_name)
+    validate_source.add_argument("--path", dest="world_path", metavar="PATH", type=Path)
     validate.set_defaults(command="world.validate")
 
     run = families.add_parser("run")
     run_commands = run.add_subparsers(dest="run_command", required=True)
     create = run_commands.add_parser("create")
     source = create.add_mutually_exclusive_group(required=True)
-    source.add_argument("world", nargs="?", type=Path)
+    source.add_argument("world", nargs="?", metavar="WORLD", type=_world_name)
+    source.add_argument("--path", dest="world_path", metavar="PATH", type=Path)
     source.add_argument("--template", type=_non_empty)
     create.set_defaults(command="run.create")
     list_runs = run_commands.add_parser("list")
@@ -373,9 +373,7 @@ async def _dispatch(
         explicit_output = cast("Path | None", arguments.output)
         if explicit_output is None:
             ensure_local_world_root(paths)
-            destination = paths.worlds / (
-                arguments.name if selected_name is None else selected_name
-            )
+            destination = paths.world(arguments.name if selected_name is None else selected_name)
         else:
             destination = explicit_output
         package = initialize_world_template(arguments.name, destination)
@@ -388,7 +386,11 @@ async def _dispatch(
             "schema_version": package.world_definition.schema_version,
         }
     if command == "world.validate":
-        package = load_world_package(arguments.world)
+        package = load_cli_world_source(
+            paths,
+            workspace_name=cast("str | None", arguments.world),
+            external_path=cast("Path | None", arguments.world_path),
+        )
         config = SimulationRunConfig(package.world_definition.ref)
         composer.validate(package.world_definition, config)
         return {
@@ -400,11 +402,11 @@ async def _dispatch(
     assert application is not None
     queries = application.queries
     if command == "run.create":
-        template_name = cast("str | None", arguments.template)
-        package = (
-            load_world_package(cast("Path", arguments.world))
-            if template_name is None
-            else installed_world_template_store(paths).load_installed(template_name)
+        package = load_cli_world_source(
+            paths,
+            workspace_name=cast("str | None", arguments.world),
+            external_path=cast("Path | None", arguments.world_path),
+            template_name=cast("str | None", arguments.template),
         )
         opened = application.create_run(
             package,

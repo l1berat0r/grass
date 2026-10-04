@@ -13,6 +13,7 @@ import pytest
 
 from grass.cli.main import run_cli
 from grass.worlds import WorldTemplateIntegrityError
+from tests.test_world_packages import world_document, write_world_package
 
 cli_main = importlib.import_module("grass.cli.main")
 
@@ -122,6 +123,14 @@ def test_template_cli_logical_name_uses_selected_workspace_not_process_cwd(
     assert not (process_directory / "test").exists()
     assert {path.name for path in data_root.iterdir()} == {"worlds"}
 
+    validate_code, _, _ = invoke(data_root, "world", "validate", "test")
+
+    assert validate_code == 0
+    assert {path.name for path in data_root.iterdir()} == {"worlds"}
+    create_code, _, _ = invoke(data_root, "run", "create", "test")
+    assert create_code == 0
+    assert list(process_directory.iterdir()) == []
+
 
 def test_template_cli_logical_name_uses_default_dot_grass_workspace(
     tmp_path: Path,
@@ -144,6 +153,80 @@ def test_template_cli_logical_name_uses_default_dot_grass_workspace(
     )
     assert destination.is_dir()
     assert not (tmp_path / "test").exists()
+
+    for command in (("world", "validate", "test"), ("run", "create", "test")):
+        command_stdout = StringIO()
+        command_code = run_cli(
+            ("--json", *command),
+            stdin=StringIO(),
+            stdout=command_stdout,
+            stderr=StringIO(),
+        )
+        assert command_code == 0
+        assert json.loads(command_stdout.getvalue())["command"] == ".".join(command[:2])
+
+
+@pytest.mark.parametrize("command", [("world", "validate"), ("run", "create")])
+def test_logical_world_never_falls_back_to_process_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: tuple[str, str],
+) -> None:
+    process_directory = tmp_path / "process"
+    process_directory.mkdir()
+    write_world_package(process_directory, name="demo")
+    data_root = tmp_path / "workspace"
+    monkeypatch.chdir(process_directory)
+
+    code, document, _ = invoke(data_root, *command, "demo")
+
+    assert code == 1
+    assert cast(dict[str, object], document["error"])["code"] == "WORLD_INVALID"
+    assert not (data_root / "world_snapshots").exists()
+    assert not (data_root / "runs").exists()
+
+
+def test_workspace_world_and_explicit_path_do_not_compete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "workspace"
+    process_directory = tmp_path / "process"
+    process_directory.mkdir()
+    external_document = world_document("demo")
+    external_document["version"] = "9.0.0"
+    write_world_package(process_directory, name="demo", document=external_document)
+    monkeypatch.chdir(process_directory)
+    invoke(data_root, "template", "init", "occurrence-counter", "demo")
+
+    logical_validate_code, logical_validate, _ = invoke(data_root, "world", "validate", "demo")
+    external_validate_code, external_validate, _ = invoke(
+        data_root, "world", "validate", "--path", "./demo"
+    )
+    logical_create_code, logical_create, _ = invoke(data_root, "run", "create", "demo")
+    external_create_code, external_create, _ = invoke(
+        data_root, "run", "create", "--path", "./demo"
+    )
+
+    assert (
+        logical_validate_code,
+        external_validate_code,
+        logical_create_code,
+        external_create_code,
+    ) == (0, 0, 0, 0)
+    logical_validate_ref = cast(
+        dict[str, object], cast(dict[str, object], logical_validate["data"])["world_definition_ref"]
+    )
+    external_validate_ref = cast(
+        dict[str, object],
+        cast(dict[str, object], external_validate["data"])["world_definition_ref"],
+    )
+    logical_run = cast(dict[str, object], cast(dict[str, object], logical_create["data"])["run"])
+    external_run = cast(dict[str, object], cast(dict[str, object], external_create["data"])["run"])
+    assert logical_validate_ref["version"] == "1.0.0"
+    assert external_validate_ref["version"] == "9.0.0"
+    assert cast(dict[str, object], logical_run["world_definition_ref"])["version"] == "1.0.0"
+    assert cast(dict[str, object], external_run["world_definition_ref"])["version"] == "9.0.0"
 
 
 def test_template_cli_defaults_world_name_to_template_name(tmp_path: Path) -> None:
@@ -232,15 +315,20 @@ def test_template_cli_maps_template_integrity_error_without_application(
 def test_occurrence_template_runs_branches_reopens_and_verifies(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     destination = data_root / "worlds" / "demo"
-    init_code, _, _ = invoke(
+    init_code, initialized, _ = invoke(
         data_root,
         "template",
         "init",
         "occurrence-counter",
         "demo",
     )
-    validate_code, _, _ = invoke(data_root, "world", "validate", str(destination))
-    create_code, created, _ = invoke(data_root, "run", "create", str(destination))
+    initialized_ref = cast(
+        dict[str, object],
+        cast(dict[str, object], initialized["data"])["initialized_world_definition_ref"],
+    )
+    world_name = cast(str, initialized_ref["world_definition_id"])
+    validate_code, _, _ = invoke(data_root, "world", "validate", world_name)
+    create_code, created, _ = invoke(data_root, "run", "create", world_name)
     run_id = _run_id(created)
     branch_code, _, _ = invoke(
         data_root,
@@ -254,6 +342,7 @@ def test_occurrence_template_runs_branches_reopens_and_verifies(tmp_path: Path) 
     )
     shutil.rmtree(destination)
 
+    status_code, _, _ = invoke(data_root, "run", "status", run_id)
     root_advance_code, root_advanced, _ = invoke(data_root, "run", "advance", run_id)
     child_advance_code, child_advanced, _ = invoke(
         data_root,
@@ -282,13 +371,14 @@ def test_occurrence_template_runs_branches_reopens_and_verifies(tmp_path: Path) 
         validate_code,
         create_code,
         branch_code,
+        status_code,
         root_advance_code,
         child_advance_code,
         state_code,
         events_code,
         child_events_code,
         verify_code,
-    ) == (0,) * 10
+    ) == (0,) * 11
     root_result = cast(dict[str, object], cast(dict[str, object], root_advanced["data"])["result"])
     child_result = cast(
         dict[str, object], cast(dict[str, object], child_advanced["data"])["result"]

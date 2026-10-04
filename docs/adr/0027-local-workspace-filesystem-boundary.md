@@ -29,9 +29,16 @@ explicit external path. If both name and output are supplied, the output basenam
 equal the name because a format-1 WorldPackage directory basename equals its
 `world_definition_id`.
 
+Managed editable worlds are addressed through the same logical name after creation.
+`world validate WORLD` and `run create WORLD` resolve `WORLD` only to
+`<workspace-root>/worlds/<world-name>`. External WorldPackage inputs use the explicit
+`--path PATH` form. Bare names never fall back to CWD-relative paths, and no filesystem
+existence or path-shape heuristic chooses between managed and external sources.
+
 Explicit package inputs and output paths are not workspace-managed state and may refer
-outside the root. CWD is used only to select the default root, never as a separate implicit
-artifact destination.
+outside the root. `--path` retains normal relative or absolute filesystem semantics and is
+not rebased by `--data-dir`. CWD is used only to select the default root or resolve an
+explicit relative path, never as a separate implicit artifact destination.
 
 Bundled template and rewritten pre-publication material are validated from in-memory bytes
 through the same package parsing and production-composition rules used by directory
@@ -44,6 +51,7 @@ memory-backed temporary storage; database journals and other sidecars remain adj
 - all current implicit local CLI filesystem state is contained by one selected root;
 - template list/show perform no filesystem writes;
 - default template initialization creates only the workspace and editable-world roots;
+- managed editable worlds round-trip through logical names without exposing their paths;
 - explicit external authoring remains available but is syntactically visible;
 - Core, Event authority, replay, branching, and transport-neutral Application contracts
   remain unchanged;
@@ -57,3 +65,7 @@ indistinguishable from accidental CWD-relative output. Moving template scratch f
 the workspace was rejected because parsing trusted byte material directly removes the
 scratch write entirely. SQLite's deprecated process-global temporary-directory pragma was
 rejected in favor of per-connection memory-backed temporary storage.
+
+Inferring paths from `./`, `../`, absolute prefixes, existence, or lookup precedence was
+rejected because logical and external sources would compete through implicit heuristics.
+The explicit `--path` form keeps the source kind visible in the command contract.

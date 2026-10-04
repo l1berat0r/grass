@@ -12,8 +12,8 @@ template mechanics, actor behavior, provider configuration, or privileged Event 
 Typical workflow:
 
 ```text
-grass world validate .
-grass run create .
+grass world validate --path .
+grass run create --path .
 grass run advance RUN
 grass inspect state RUN
 grass inspect events RUN

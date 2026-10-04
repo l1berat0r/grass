@@ -65,10 +65,13 @@ def test_local_workspace_paths_derive_every_managed_location_from_one_root(
     assert paths.root == root
     assert paths.database == root / "grass.db"
     assert paths.worlds == root / "worlds"
+    assert paths.world("demo") == root / "worlds" / "demo"
     assert paths.world_snapshots == root / "world_snapshots"
     assert paths.runs == root / "runs"
     assert paths.templates == root / "templates"
     assert paths.world_templates == root / "templates" / "worlds"
+    with pytest.raises(ValueError, match="local world name"):
+        paths.world("../demo")
 
 
 def test_default_init_uses_dot_grass_under_current_directory(
@@ -95,7 +98,7 @@ def test_default_init_uses_dot_grass_under_current_directory(
 def test_init_preserves_modified_local_template_and_existing_runs(tmp_path: Path) -> None:
     author, _, _, _ = write_world_package(tmp_path)
     data_root = tmp_path / "data"
-    _, created, _ = invoke(data_root, "run", "create", str(author))
+    _, created, _ = invoke(data_root, "run", "create", "--path", str(author))
     run_id = cast(
         str,
         cast(dict[str, object], cast(dict[str, object], created["data"])["run"])["run_id"],
@@ -250,13 +253,53 @@ def test_run_create_template_rejects_symlinked_template_parent(tmp_path: Path) -
 
 def test_run_create_requires_exactly_one_world_source(tmp_path: Path) -> None:
     neither_code, neither, _ = invoke(tmp_path / "data", "run", "create")
-    both_code, both, _ = invoke(
+    world_template_code, world_template, _ = invoke(
         tmp_path / "data",
         "run",
         "create",
         "world",
         "--template",
         "occurrence-counter",
+    )
+    world_path_code, world_path, _ = invoke(
+        tmp_path / "data",
+        "run",
+        "create",
+        "world",
+        "--path",
+        "external",
+    )
+    path_template_code, path_template, _ = invoke(
+        tmp_path / "data",
+        "run",
+        "create",
+        "--path",
+        "external",
+        "--template",
+        "occurrence-counter",
+    )
+
+    assert (
+        neither_code,
+        world_template_code,
+        world_path_code,
+        path_template_code,
+    ) == (2, 2, 2, 2)
+    assert cast(dict[str, object], neither["error"])["code"] == "USAGE_ERROR"
+    assert cast(dict[str, object], world_template["error"])["code"] == "USAGE_ERROR"
+    assert cast(dict[str, object], world_path["error"])["code"] == "USAGE_ERROR"
+    assert cast(dict[str, object], path_template["error"])["code"] == "USAGE_ERROR"
+
+
+def test_world_validate_requires_exactly_one_world_source(tmp_path: Path) -> None:
+    neither_code, neither, _ = invoke(tmp_path / "data", "world", "validate")
+    both_code, both, _ = invoke(
+        tmp_path / "data",
+        "world",
+        "validate",
+        "world",
+        "--path",
+        "external",
     )
 
     assert neither_code == both_code == 2

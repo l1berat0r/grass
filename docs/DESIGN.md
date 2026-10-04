@@ -343,6 +343,12 @@ use no run database, EventStore, Application construction, hidden mechanics, or 
 Event path. The first starter, `occurrence-counter`, exercises only the accepted one-shot
 GEL StateVariable mechanic. Actor-capable templates remain deferred.
 
+The local CLI addresses a managed editable package by its logical world name and resolves
+that name to `worlds/<world-name>/` through its workspace path model. `world validate
+WORLD` and `run create WORLD` use this mapping; `--path PATH` is the unambiguous external
+WorldPackage form. There is no CWD or existence-based fallback. The resulting physical
+path is passed to the unchanged WorldPackage loader before validation or Application use.
+
 The local CLI may install mutable copies of currently bundled templates beneath its
 application data root at `templates/worlds/<template-name>/`. Installed copies remain
 ordinary WorldPackages: existing valid copies are preserved, invalid collisions are not
@@ -354,7 +360,7 @@ All filesystem paths selected implicitly by the local CLI, including SQLite, edi
 worlds, snapshots, run workspaces, and installed templates, derive from one selected local
 workspace root. SQLite temporary query storage is memory-backed; database sidecars remain
 adjacent to the database under that root. Explicit user-supplied input and output paths are
-not workspace-managed paths.
+not workspace-managed paths and require explicit `--path` or `--output` syntax.
 
 ## 6. Scenario events and stochastic time
 

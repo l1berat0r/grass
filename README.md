@@ -69,10 +69,11 @@ grass inspect events RUN
 grass run verify RUN
 ```
 
-Use `grass template init occurrence-counter demo` followed by
-`grass run create .grass/worlds/demo` when a separately editable authoring copy is
-preferred. Use `--output ./demo` only when the copy should live outside the selected
-workspace.
+Use `grass template init occurrence-counter demo`, `grass world validate demo`, and
+`grass run create demo` when a separately editable authoring copy is preferred. The name
+resolves beneath the selected workspace without exposing its physical layout. Use
+`--output ./demo` to initialize externally and `--path ./demo` to validate or run an
+explicit external package.
 
 Runs should survive process restarts through local persistence. Templates are ordinary valid WorldPackages and should exercise the same production runtime path as user-authored worlds.
 

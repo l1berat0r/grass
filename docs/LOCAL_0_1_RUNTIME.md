@@ -291,8 +291,11 @@ grass template show NAME
 grass template init TEMPLATE [WORLD_NAME] [--output PATH]
 
 grass world validate WORLD
+grass world validate --path PATH
 
 grass run create WORLD
+grass run create --path PATH
+grass run create --template TEMPLATE
 grass run list
 grass run status RUN [--branch BRANCH]
 grass run step RUN [--branch BRANCH] [--target-time-ns N]
@@ -345,7 +348,8 @@ The default data root is exactly `.grass` under the current working directory:
 ```
 
 `--data-dir` replaces that root. Every implicitly selected local CLI path is derived from
-the one root; explicit package inputs and `template init --output PATH` are the exceptions.
+the one root; explicit `--path PATH` package inputs and `template init --output PATH` are
+the exceptions.
 SQLite remains directly under the root and contains multiple runs; snapshots are not moved
 beneath `runs/`. RunIds are Application-generated UUIDs; Slice 16 has no friendly aliases.
 JSON schema v1 uses one success or failure envelope on stdout, explicit
@@ -453,6 +457,11 @@ The command creates no SQLite, EventStore, or Application infrastructure. Bundle
 pre-publication material validation is in memory rather than in a system temporary
 directory.
 
+The local CLI resolves that logical name through the selected workspace for `world
+validate WORLD` and `run create WORLD`. External packages use `--path PATH`; bare names
+never fall back to process-CWD directories. This addressing remains entirely outside Core,
+the Application API, and the WorldPackage loader.
+
 Any material edit to an initialized or installed local template must also change the
 semantic `WorldDefinition.version`. The document `schema_version` remains 1 unless the
 representation itself changes.
@@ -493,8 +502,9 @@ grass inspect events RUN
 grass run verify RUN
 ```
 
-The equivalent authoring workflow may initialize, edit, validate, and pass an explicit
-package directory to `run create` instead.
+The equivalent authoring workflow may initialize, edit, validate, and create by logical
+world name. Packages outside the workspace remain available through explicit `--path`
+inputs.
 
 The user may close the process and continue later. The run remains available through local persistence.
 
