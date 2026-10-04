@@ -78,6 +78,17 @@ def _store(tmp_path: Path, run: str = "run") -> tuple[SqlitePersistence, SqliteE
     return persistence, persistence.event_store(record.run_id)
 
 
+def test_all_persistence_connections_keep_sqlite_temporary_storage_in_memory(
+    tmp_path: Path,
+) -> None:
+    persistence, store = _store(tmp_path)
+
+    with persistence._connect() as connection:
+        assert connection.execute("PRAGMA temp_store").fetchone()[0] == 2
+    with store._connect() as connection:
+        assert connection.execute("PRAGMA temp_store").fetchone()[0] == 2
+
+
 def test_complete_event_envelope_matches_in_memory_and_survives_reopen(
     tmp_path: Path,
 ) -> None:

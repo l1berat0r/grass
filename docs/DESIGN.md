@@ -335,10 +335,13 @@ normal WorldPackage loader and occurrence-only production-composer validation.
 
 `template init` creates an ordinary editable WorldPackage directory without merge,
 overwrite, or force behavior. It rewrites only the copied `world_definition_id` to match
-the destination basename before normal validation. Template list/show/init use no run
-database, EventStore, Application construction, hidden mechanics, or privileged Event
-path. The first starter, `occurrence-counter`, exercises only the accepted one-shot GEL
-StateVariable mechanic. Actor-capable templates remain deferred.
+the destination basename before normal validation. A logical world name defaults beneath
+the selected local workspace at `worlds/<world-name>/`; only an explicit output path may
+publish elsewhere. Bundled and rewritten package bytes are validated in memory before any
+publication, then published material is loaded normally from disk. Template list/show/init
+use no run database, EventStore, Application construction, hidden mechanics, or privileged
+Event path. The first starter, `occurrence-counter`, exercises only the accepted one-shot
+GEL StateVariable mechanic. Actor-capable templates remain deferred.
 
 The local CLI may install mutable copies of currently bundled templates beneath its
 application data root at `templates/worlds/<template-name>/`. Installed copies remain
@@ -347,6 +350,11 @@ overwritten, and name-based run creation loads the local package before entering
 snapshot, registration, and genesis path. Bundled source resources, mutable installed
 copies, immutable per-run snapshots, and non-authoritative run workspaces are distinct.
 Neither Core nor the transport-neutral Application API knows the CLI filesystem layout.
+All filesystem paths selected implicitly by the local CLI, including SQLite, editable
+worlds, snapshots, run workspaces, and installed templates, derive from one selected local
+workspace root. SQLite temporary query storage is memory-backed; database sidecars remain
+adjacent to the database under that root. Explicit user-supplied input and output paths are
+not workspace-managed paths.
 
 ## 6. Scenario events and stochastic time
 

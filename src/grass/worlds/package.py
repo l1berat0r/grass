@@ -8,7 +8,7 @@ import json
 import os
 import re
 import stat
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path, PurePosixPath
@@ -229,6 +229,19 @@ def _read_regular_file(root: Path, relative_path: str) -> bytes:
             os.close(directory_fd)
 
 
+def _read_material_file(files: Mapping[str, bytes], relative_path: str) -> bytes:
+    canonical = _canonical_relative_path(relative_path, "package material path")
+    try:
+        content = files[canonical]
+    except KeyError as error:
+        raise WorldPackageMaterialError(
+            f"package material is missing or unreadable: {canonical}"
+        ) from error
+    if type(content) is not bytes:
+        raise WorldPackageMaterialError(f"package material is missing or unreadable: {canonical}")
+    return content
+
+
 def _manifest(content: bytes) -> WorldPackageManifest:
     document = _mapping(_load_json(content, "package.json"), "package.json")
     _exact_fields(
@@ -250,9 +263,9 @@ def _manifest(content: bytes) -> WorldPackageManifest:
 
 
 def _resolve_authored_gel(
-    root: Path,
     world_document: dict[str, object],
     files: dict[str, bytes],
+    read_file: Callable[[str], bytes],
 ) -> None:
     rules = _sequence(world_document.get("scenario_event_rules"), "scenario_event_rules")
     for raw_rule in rules:
@@ -272,7 +285,7 @@ def _resolve_authored_gel(
         source_file = _canonical_relative_path(program["source_file"], "GEL program source_file")
         content = files.get(source_file)
         if content is None:
-            content = _read_regular_file(root, source_file)
+            content = read_file(source_file)
             files[source_file] = content
         try:
             source = content.decode("utf-8", errors="strict")
@@ -299,17 +312,16 @@ def _reject_file_directory_collisions(files: Mapping[str, bytes]) -> None:
                 )
 
 
-def _load_world_package_directory(
-    directory: os.PathLike[str] | str, /, *, require_directory_slug: bool
+def _load_world_package(
+    read_file: Callable[[str], bytes],
+    directory_slug: str | None,
+    /,
 ) -> WorldPackage:
-    root = Path(directory)
-    _validate_package_directory(root)
-    if require_directory_slug:
-        _safe_slug(root.name, "WorldPackage directory basename")
-
-    manifest_bytes = _read_regular_file(root, WORLD_PACKAGE_MANIFEST)
+    if directory_slug is not None:
+        _safe_slug(directory_slug, "WorldPackage directory basename")
+    manifest_bytes = read_file(WORLD_PACKAGE_MANIFEST)
     manifest = _manifest(manifest_bytes)
-    world_bytes = _read_regular_file(root, manifest.world_definition)
+    world_bytes = read_file(manifest.world_definition)
     world_document = _mapping(
         _load_json(world_bytes, manifest.world_definition), "WorldDefinition document"
     )
@@ -324,14 +336,14 @@ def _load_world_package_directory(
         WORLD_PACKAGE_MANIFEST: manifest_bytes,
         manifest.world_definition: world_bytes,
     }
-    _resolve_authored_gel(root, world_document, files)
+    _resolve_authored_gel(world_document, files, read_file)
     try:
         definition = load_world_definition(world_document)
     except (RecursionError, TypeError, ValueError) as error:
         raise WorldPackageValidationError("WorldDefinition document is invalid") from error
 
     world_slug = _safe_slug(definition.world_definition_id.value, "world_definition_id")
-    if require_directory_slug and root.name != world_slug:
+    if directory_slug is not None and directory_slug != world_slug:
         raise WorldPackageFormatError(
             "WorldPackage directory basename must equal world_definition_id"
         )
@@ -343,6 +355,23 @@ def _load_world_package_directory(
             "WorldPackage scenario occurrences must have distinct logical times"
         )
     return WorldPackage(manifest, definition, files)
+
+
+def _load_world_package_files(files: Mapping[str, bytes], directory_slug: str, /) -> WorldPackage:
+    """Load package semantics from trusted in-memory material without filesystem staging."""
+
+    return _load_world_package(lambda path: _read_material_file(files, path), directory_slug)
+
+
+def _load_world_package_directory(
+    directory: os.PathLike[str] | str, /, *, require_directory_slug: bool
+) -> WorldPackage:
+    root = Path(directory)
+    _validate_package_directory(root)
+    return _load_world_package(
+        lambda path: _read_regular_file(root, path),
+        root.name if require_directory_slug else None,
+    )
 
 
 def load_world_package(directory: os.PathLike[str] | str, /) -> WorldPackage:

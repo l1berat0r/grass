@@ -247,9 +247,9 @@ After Slice 17, a new user can perform this workflow using the actual current CL
 ```text
 grass template list
 grass template show occurrence-counter
-grass template init occurrence-counter ./demo
-grass world validate ./demo
-grass run create ./demo
+grass template init occurrence-counter demo
+grass world validate .grass/worlds/demo
+grass run create .grass/worlds/demo
 # Retain the generated UUID as RUN.
 grass branch create RUN --from root --branch-id alternative
 grass run advance RUN

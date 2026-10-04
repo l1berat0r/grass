@@ -46,6 +46,7 @@ def test_template_cli_metadata_init_and_errors_are_application_free(tmp_path: Pa
         "template",
         "init",
         "occurrence-counter",
+        "--output",
         str(destination),
     )
     missing_code, missing, _ = invoke(data_root, "template", "show", "missing")
@@ -54,6 +55,7 @@ def test_template_cli_metadata_init_and_errors_are_application_free(tmp_path: Pa
         "template",
         "init",
         "occurrence-counter",
+        "--output",
         str(destination),
     )
 
@@ -86,6 +88,7 @@ def test_template_cli_maps_invalid_destination_without_application(tmp_path: Pat
         "template",
         "init",
         "occurrence-counter",
+        "--output",
         str(destination),
     )
 
@@ -93,6 +96,119 @@ def test_template_cli_maps_invalid_destination_without_application(tmp_path: Pat
     assert cast(dict[str, object], document["error"])["code"] == ("TEMPLATE_DESTINATION_INVALID")
     assert not destination.exists()
     assert not data_root.exists()
+
+
+def test_template_cli_logical_name_uses_selected_workspace_not_process_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_directory = tmp_path / "process"
+    process_directory.mkdir()
+    data_root = tmp_path / "workspace"
+    monkeypatch.chdir(process_directory)
+
+    code, initialized, _ = invoke(
+        data_root,
+        "template",
+        "init",
+        "occurrence-counter",
+        "test",
+    )
+
+    destination = data_root / "worlds" / "test"
+    assert code == 0
+    assert cast(dict[str, object], initialized["data"])["destination"] == str(destination)
+    assert destination.is_dir()
+    assert not (process_directory / "test").exists()
+    assert {path.name for path in data_root.iterdir()} == {"worlds"}
+
+
+def test_template_cli_logical_name_uses_default_dot_grass_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    stdout = StringIO()
+
+    code = run_cli(
+        ("--json", "template", "init", "occurrence-counter", "test"),
+        stdin=StringIO(),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    destination = tmp_path / ".grass" / "worlds" / "test"
+    assert code == 0
+    assert cast(dict[str, object], json.loads(stdout.getvalue())["data"])["destination"] == str(
+        destination
+    )
+    assert destination.is_dir()
+    assert not (tmp_path / "test").exists()
+
+
+def test_template_cli_defaults_world_name_to_template_name(tmp_path: Path) -> None:
+    data_root = tmp_path / "workspace"
+
+    code, initialized, _ = invoke(
+        data_root,
+        "template",
+        "init",
+        "occurrence-counter",
+    )
+
+    destination = data_root / "worlds" / "occurrence-counter"
+    assert code == 0
+    assert cast(dict[str, object], initialized["data"])["destination"] == str(destination)
+    assert destination.is_dir()
+
+
+def test_template_cli_accepts_matching_logical_name_and_explicit_output(tmp_path: Path) -> None:
+    data_root = tmp_path / "workspace"
+    destination = tmp_path / "external" / "test"
+    destination.parent.mkdir()
+
+    code, initialized, _ = invoke(
+        data_root,
+        "template",
+        "init",
+        "occurrence-counter",
+        "test",
+        "--output",
+        str(destination),
+    )
+
+    assert code == 0
+    assert cast(dict[str, object], initialized["data"])["destination"] == str(destination)
+    assert destination.is_dir()
+    assert not data_root.exists()
+
+
+def test_template_cli_rejects_invalid_name_and_name_output_mismatch(tmp_path: Path) -> None:
+    data_root = tmp_path / "workspace"
+    output = tmp_path / "other"
+
+    invalid_code, invalid, _ = invoke(
+        data_root,
+        "template",
+        "init",
+        "occurrence-counter",
+        "../test",
+    )
+    mismatch_code, mismatch, _ = invoke(
+        data_root,
+        "template",
+        "init",
+        "occurrence-counter",
+        "test",
+        "--output",
+        str(output),
+    )
+
+    assert invalid_code == mismatch_code == 2
+    assert cast(dict[str, object], invalid["error"])["code"] == "USAGE_ERROR"
+    assert cast(dict[str, object], mismatch["error"])["code"] == "USAGE_ERROR"
+    assert not data_root.exists()
+    assert not output.exists()
 
 
 def test_template_cli_maps_template_integrity_error_without_application(
@@ -115,13 +231,13 @@ def test_template_cli_maps_template_integrity_error_without_application(
 
 def test_occurrence_template_runs_branches_reopens_and_verifies(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
-    destination = tmp_path / "demo"
+    destination = data_root / "worlds" / "demo"
     init_code, _, _ = invoke(
         data_root,
         "template",
         "init",
         "occurrence-counter",
-        str(destination),
+        "demo",
     )
     validate_code, _, _ = invoke(data_root, "world", "validate", str(destination))
     create_code, created, _ = invoke(data_root, "run", "create", str(destination))

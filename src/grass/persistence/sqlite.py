@@ -193,6 +193,7 @@ class SqlitePersistence:
         connection = sqlite3.connect(self._path, timeout=30.0, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA temp_store = MEMORY")
         return connection
 
     def _initialize(self) -> None:
@@ -477,6 +478,7 @@ class SqliteEventStore:
             connection = sqlite3.connect(self._path, timeout=30.0, isolation_level=None)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA temp_store = MEMORY")
             return connection
         except sqlite3.Error as error:
             raise PersistenceError("could not open SQLite EventStore") from error

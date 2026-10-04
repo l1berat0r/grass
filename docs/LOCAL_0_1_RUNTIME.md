@@ -288,7 +288,7 @@ The implemented command families are:
 ```text
 grass template list
 grass template show NAME
-grass template init NAME DESTINATION
+grass template init TEMPLATE [WORLD_NAME] [--output PATH]
 
 grass world validate WORLD
 
@@ -333,6 +333,8 @@ The default data root is exactly `.grass` under the current working directory:
 ```text
 .grass/
     grass.db
+    worlds/
+        <world-name>/
     world_snapshots/
         <run-id>/
     runs/
@@ -342,9 +344,10 @@ The default data root is exactly `.grass` under the current working directory:
             <template-name>/
 ```
 
-`--data-dir` replaces that root. SQLite remains directly under the root and contains
-multiple runs; snapshots are not moved beneath `runs/`. RunIds are Application-generated
-UUIDs; Slice 16 has no friendly aliases.
+`--data-dir` replaces that root. Every implicitly selected local CLI path is derived from
+the one root; explicit package inputs and `template init --output PATH` are the exceptions.
+SQLite remains directly under the root and contains multiple runs; snapshots are not moved
+beneath `runs/`. RunIds are Application-generated UUIDs; Slice 16 has no friendly aliases.
 JSON schema v1 uses one success or failure envelope on stdout, explicit
 deterministic serializers, integer-nanosecond logical times, complete atomic
 transition groups, and full Event provenance. See `docs/CLI.md` for the exact
@@ -438,14 +441,17 @@ grass init
 grass template list
 grass template show occurrence-counter
 grass run create --template occurrence-counter
-grass template init occurrence-counter ./my-world
+grass template init occurrence-counter my-world
 ```
 
 Slice 17 uses a fixed trusted registry and file inventory and ships
 `occurrence-counter`, an occurrence-only GEL StateVariable example. `template init` copies
 an editable package, rewrites its WorldDefinition identity to the destination basename,
-and validates it through the normal package loader and production composer. That command
-does not construct `.grass`, SQLite, EventStore, or Application infrastructure.
+and validates it through the normal package loader and production composer. A logical world
+name defaults beneath `.grass/worlds/`; `--output` is required for an external destination.
+The command creates no SQLite, EventStore, or Application infrastructure. Bundled and
+pre-publication material validation is in memory rather than in a system temporary
+directory.
 
 Any material edit to an initialized or installed local template must also change the
 semantic `WorldDefinition.version`. The document `schema_version` remains 1 unless the

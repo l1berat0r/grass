@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -25,7 +26,9 @@ from grass.cli import output, presentation
 from grass.cli.output import JsonValue
 from grass.cli.workspace import (
     LocalWorkspaceInitializationError,
+    LocalWorkspacePaths,
     ensure_local_storage_paths,
+    ensure_local_world_root,
     initialize_local_workspace,
     installed_world_template_store,
 )
@@ -86,6 +89,9 @@ class CliFailure(RuntimeError):
         self.message = message
 
 
+_WORLD_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         raise CliUsageError(message)
@@ -94,6 +100,12 @@ class _Parser(argparse.ArgumentParser):
 def _non_empty(value: str) -> str:
     if value == "":
         raise argparse.ArgumentTypeError("value must not be empty")
+    return value
+
+
+def _world_name(value: str) -> str:
+    if _WORLD_NAME.fullmatch(value) is None:
+        raise argparse.ArgumentTypeError("value must match [a-z0-9]+(?:-[a-z0-9]+)*")
     return value
 
 
@@ -151,8 +163,9 @@ def _build_parser() -> _Parser:
     template_show.add_argument("name", type=_non_empty)
     template_show.set_defaults(command="template.show")
     template_init = template_commands.add_parser("init")
-    template_init.add_argument("name", type=_non_empty)
-    template_init.add_argument("destination", type=Path)
+    template_init.add_argument("name", metavar="TEMPLATE", type=_non_empty)
+    template_init.add_argument("world_name", nargs="?", metavar="WORLD_NAME", type=_world_name)
+    template_init.add_argument("--output", metavar="PATH", type=Path)
     template_init.set_defaults(command="template.init")
 
     world = families.add_parser("world")
@@ -261,12 +274,14 @@ def _target_time(arguments: argparse.Namespace) -> LogicalTime | None:
     return None if value is None else LogicalTime(cast("int", value))
 
 
-def _application(data_root: Path, composer: RuntimeComposer) -> LocalSimulationApplication:
-    ensure_local_storage_paths(data_root)
+def _application(
+    paths: LocalWorkspacePaths, composer: RuntimeComposer
+) -> LocalSimulationApplication:
+    ensure_local_storage_paths(paths)
     return LocalSimulationApplication(
-        SqlitePersistence(data_root / "grass.db"),
-        FilesystemWorldSnapshotStore(data_root / "world_snapshots"),
-        FilesystemRunWorkspaceManager(data_root / "runs"),
+        SqlitePersistence(paths.database),
+        FilesystemWorldSnapshotStore(paths.world_snapshots),
+        FilesystemRunWorkspaceManager(paths.runs),
         composer=composer,
     )
 
@@ -331,11 +346,11 @@ async def _dispatch(
     arguments: argparse.Namespace,
     application: LocalSimulationApplication | None,
     composer: RuntimeComposer,
-    data_root: Path,
+    paths: LocalWorkspacePaths,
 ) -> dict[str, JsonValue]:
     command = cast("str", arguments.command)
     if command == "init":
-        initialized = initialize_local_workspace(data_root)
+        initialized = initialize_local_workspace(paths)
         return {
             "data_root": str(initialized.data_root),
             "database": str(initialized.database),
@@ -354,10 +369,19 @@ async def _dispatch(
         return {"template": output.world_template_info(get_world_template(arguments.name))}
     if command == "template.init":
         template = get_world_template(arguments.name)
-        package = initialize_world_template(arguments.name, arguments.destination)
+        selected_name = cast("str | None", arguments.world_name)
+        explicit_output = cast("Path | None", arguments.output)
+        if explicit_output is None:
+            ensure_local_world_root(paths)
+            destination = paths.worlds / (
+                arguments.name if selected_name is None else selected_name
+            )
+        else:
+            destination = explicit_output
+        package = initialize_world_template(arguments.name, destination)
         return {
             "template": output.world_template_info(template),
-            "destination": str(arguments.destination),
+            "destination": str(destination),
             "initialized_world_definition_ref": output.world_definition_ref(
                 package.world_definition.ref
             ),
@@ -380,7 +404,7 @@ async def _dispatch(
         package = (
             load_world_package(cast("Path", arguments.world))
             if template_name is None
-            else installed_world_template_store(data_root).load_installed(template_name)
+            else installed_world_template_store(paths).load_installed(template_name)
         )
         opened = application.create_run(
             package,
@@ -638,6 +662,15 @@ def _output_format(arguments: argparse.Namespace, /) -> str:
     return "text" if selected is None else selected
 
 
+def _validate_arguments(arguments: argparse.Namespace, /) -> None:
+    if arguments.command != "template.init":
+        return
+    world_name = cast("str | None", arguments.world_name)
+    output_path = cast("Path | None", arguments.output)
+    if world_name is not None and output_path is not None and output_path.name != world_name:
+        raise CliUsageError("--output basename must equal WORLD_NAME")
+
+
 def _color_enabled(
     stream: TextIO,
     *,
@@ -675,6 +708,7 @@ def run_cli(
     try:
         arguments = parser.parse_args(raw)
         selected_format = _output_format(arguments)
+        _validate_arguments(arguments)
     except CliUsageError as error:
         if json_requested:
             output.write_json(
@@ -688,15 +722,15 @@ def run_cli(
 
     command = cast("str", arguments.command)
     selected_composer = OccurrenceRuntimeComposer() if composer is None else composer
-    data_root = Path.cwd() / ".grass" if arguments.data_dir is None else arguments.data_dir
+    paths = LocalWorkspacePaths(
+        Path.cwd() / ".grass" if arguments.data_dir is None else arguments.data_dir
+    )
     try:
         applicationless = frozenset(
             {"init", "template.list", "template.show", "template.init", "world.validate"}
         )
-        application = (
-            None if command in applicationless else _application(data_root, selected_composer)
-        )
-        data = asyncio.run(_dispatch(arguments, application, selected_composer, data_root))
+        application = None if command in applicationless else _application(paths, selected_composer)
+        data = asyncio.run(_dispatch(arguments, application, selected_composer, paths))
     except KeyboardInterrupt:
         failure = CliFailure("INTERRUPTED", "Command interrupted.")
         if selected_format == "json":

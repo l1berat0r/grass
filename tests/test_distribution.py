@@ -89,7 +89,15 @@ def test_built_distributions_include_and_run_template_resources(tmp_path: Path) 
         cwd=tmp_path,
     )
     validated = subprocess.run(
-        (str(python), "-m", "grass.cli", "--json", "world", "validate", "demo"),
+        (
+            str(python),
+            "-m",
+            "grass.cli",
+            "--json",
+            "world",
+            "validate",
+            ".grass/worlds/demo",
+        ),
         check=True,
         capture_output=True,
         text=True,

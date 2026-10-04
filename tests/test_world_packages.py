@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 
+import grass.worlds.package as world_packages
 from grass.core import WORLD_DEFINITION_SCHEMA_VERSION
 from grass.core.mechanics import GelSetStateVariableMechanic
 from grass.worlds.package import (
@@ -114,6 +115,30 @@ def test_load_captures_exact_material_and_resolves_authored_gel(tmp_path: Path) 
     assert mechanic.program.source == source_bytes.decode("utf-8")
     with pytest.raises(TypeError):
         cast(dict[str, bytes], package.material_files)["extra"] = b"change"
+
+
+def test_directory_and_in_memory_package_loading_have_identical_semantics(
+    tmp_path: Path,
+) -> None:
+    root, manifest_bytes, world_bytes, source_bytes = write_world_package(tmp_path)
+    files = {
+        "README.md": b"non-semantic author material",
+        "package.json": manifest_bytes,
+        "world.json": world_bytes,
+        "mechanics/increment.gel": source_bytes,
+    }
+
+    loaded = load_world_package(root)
+    in_memory = world_packages._load_world_package_files(files, "example-world")
+
+    assert in_memory == loaded
+    with pytest.raises(WorldPackageMaterialError, match="missing or unreadable"):
+        world_packages._load_world_package_files(
+            {key: value for key, value in files.items() if key != "mechanics/increment.gel"},
+            "example-world",
+        )
+    with pytest.raises(WorldPackageFormatError, match="basename"):
+        world_packages._load_world_package_files(files, "different-name")
 
 
 @pytest.mark.parametrize(

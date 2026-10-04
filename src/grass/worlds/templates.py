@@ -12,12 +12,16 @@ import stat
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
-from tempfile import TemporaryDirectory
 from types import MappingProxyType
 
 from grass.core import SimulationRunConfig, WorldDefinitionRef
 from grass.worlds.composition import OccurrenceRuntimeComposer, WorldCompositionError
-from grass.worlds.package import WorldPackage, WorldPackageError, load_world_package
+from grass.worlds.package import (
+    WorldPackage,
+    WorldPackageError,
+    _load_world_package_files,
+    load_world_package,
+)
 
 _SAFE_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _RESOURCE_DIRECTORY = "_template_data"
@@ -227,17 +231,13 @@ def _remove_created_directory(path: Path, guard: _DestinationGuard) -> None:
 
 def _validate_materialized(spec: _TemplateSpec, files: dict[str, bytes]) -> WorldPackage:
     try:
-        with TemporaryDirectory(prefix="grass-template-") as temporary:
-            root = Path(temporary) / spec.name
-            root.mkdir()
-            _write_files(root, files)
-            package = load_world_package(root)
-            OccurrenceRuntimeComposer().validate(
-                package.world_definition,
-                SimulationRunConfig(package.world_definition.ref),
-            )
-            return package
-    except (OSError, WorldPackageError, WorldCompositionError) as error:
+        package = _load_world_package_files(files, spec.name)
+        OccurrenceRuntimeComposer().validate(
+            package.world_definition,
+            SimulationRunConfig(package.world_definition.ref),
+        )
+        return package
+    except (WorldPackageError, WorldCompositionError) as error:
         raise WorldTemplateIntegrityError(
             f"bundled world template is invalid: {spec.name}"
         ) from error
@@ -341,15 +341,11 @@ def initialize_world_template(name: str, destination: Path, /) -> WorldPackage:
     destination_guard: _DestinationGuard | None = None
     succeeded = False
     try:
-        with TemporaryDirectory(prefix="grass-template-init-") as temporary:
-            staged = Path(temporary) / target.name
-            staged.mkdir()
-            _write_files(staged, initialized_files)
-            staged_package = load_world_package(staged)
-            OccurrenceRuntimeComposer().validate(
-                staged_package.world_definition,
-                SimulationRunConfig(staged_package.world_definition.ref),
-            )
+        staged_package = _load_world_package_files(initialized_files, target.name)
+        OccurrenceRuntimeComposer().validate(
+            staged_package.world_definition,
+            SimulationRunConfig(staged_package.world_definition.ref),
+        )
 
         destination_guard = _create_destination(target)
         _write_files(target, initialized_files)

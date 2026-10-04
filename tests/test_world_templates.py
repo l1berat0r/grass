@@ -49,6 +49,19 @@ def test_registry_metadata_comes_from_fixed_inventory_and_valid_package() -> Non
         get_world_template("missing")
 
 
+def test_template_metadata_validation_performs_no_filesystem_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_write(root: Path, files: dict[str, bytes]) -> None:
+        del root, files
+        raise AssertionError("template metadata validation wrote package material")
+
+    monkeypatch.setattr(templates, "_write_files", reject_write)
+
+    assert [item.name for item in list_world_templates()] == ["occurrence-counter"]
+    assert get_world_template("occurrence-counter").name == "occurrence-counter"
+
+
 def test_registry_specs_are_name_ordered_and_unique() -> None:
     first = templates._TemplateSpec("first", "First", ("package.json",))
     second = templates._TemplateSpec("second", "Second", ("package.json",))

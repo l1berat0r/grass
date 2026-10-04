@@ -16,6 +16,8 @@ The default data root is `.grass` under the current working directory:
 ```text
 .grass/
     grass.db
+    worlds/
+        <world-name>/
     world_snapshots/
         <run-id>/
     runs/
@@ -33,8 +35,9 @@ grass --data-dir ./experiment run list
 
 The CLI has no global/XDG configuration and stores no credentials. `grass init` creates
 the complete directory skeleton, initializes SQLite, and installs missing bundled world
-templates. Template list/show/init remain independent of the data root: they read trusted
-packaged resources or write only the explicitly selected authoring destination.
+templates. Every implicitly selected application path is beneath the data root. Explicit
+input paths and `template init --output PATH` may refer outside it. Template list/show
+validate trusted packaged resources in memory and perform no filesystem writes.
 
 `grass.db` is the one canonical SQLite database for all local runs. Package-backed runs
 retain immutable authored material under `world_snapshots/<run-id>/`. The empty workspace
@@ -76,7 +79,7 @@ grass init
 
 grass template list
 grass template show NAME
-grass template init NAME DESTINATION
+grass template init TEMPLATE [WORLD_NAME] [--output PATH]
 
 grass world validate WORLD
 
@@ -128,9 +131,9 @@ grass run create --template occurrence-counter
 For a separately editable authoring copy:
 
 ```text
-grass template init occurrence-counter ./my-world
-grass world validate ./my-world
-grass run create ./my-world
+grass template init occurrence-counter my-world
+grass world validate .grass/worlds/my-world
+grass run create .grass/worlds/my-world
 # Retain the reported UUID as RUN.
 grass run status RUN
 grass run advance RUN
@@ -281,9 +284,12 @@ through an injected trusted actor-capable composer and the normal
 
 `template list` and `template show` expose deterministic trusted registry metadata.
 `template init` copies one fixed trusted file inventory into a new ordinary editable
-WorldPackage directory. The destination must not exist, is never merged or overwritten,
-and its basename becomes the copied `world_definition_id` before normal package and
-production-composer validation.
+WorldPackage directory. `WORLD_NAME` is a logical package identity, not a path, and defaults
+to `TEMPLATE`; without `--output`, its destination is `<data-root>/worlds/<world-name>/`.
+An explicit output basename supplies the world name when `WORLD_NAME` is omitted and must
+match it when both are present. The destination must not exist, is never merged or
+overwritten, and its basename becomes the copied `world_definition_id` before normal
+package and production-composer validation.
 
 `grass init` installs each currently bundled template beneath
 `<data-root>/templates/worlds/<name>/`. A missing copy is reported as `INSTALLED`. An

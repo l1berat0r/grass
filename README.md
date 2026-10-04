@@ -69,8 +69,10 @@ grass inspect events RUN
 grass run verify RUN
 ```
 
-Use `grass template init occurrence-counter ./demo` followed by `grass run create ./demo`
-when a separately editable authoring copy is preferred.
+Use `grass template init occurrence-counter demo` followed by
+`grass run create .grass/worlds/demo` when a separately editable authoring copy is
+preferred. Use `--output ./demo` only when the copy should live outside the selected
+workspace.
 
 Runs should survive process restarts through local persistence. Templates are ordinary valid WorldPackages and should exercise the same production runtime path as user-authored worlds.
 
@@ -83,6 +85,8 @@ The default local application data root is:
 ```text
 .grass/
     grass.db
+    worlds/
+        <world-name>/
     world_snapshots/
         <run-id>/
     runs/
@@ -99,6 +103,9 @@ history, reopen, and verification do not depend on workspace contents.
 `templates/worlds/` contains editable local copies of bundled WorldPackage templates.
 Existing valid copies are preserved by repeated `grass init`; run creation snapshots the
 selected package normally and never depends on the installed copy afterward.
+
+All paths chosen implicitly by the local CLI are derived from this one root. `--data-dir`
+replaces the root; only explicit input or output path arguments may refer outside it.
 
 Preserved local template edits are the user's authored package material. A material edit
 must update semantic `WorldDefinition.version`, even though the document remains schema 1.

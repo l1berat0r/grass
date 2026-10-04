@@ -17,6 +17,41 @@ class LocalWorkspaceInitializationError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class LocalWorkspacePaths:
+    """All filesystem paths owned implicitly by one local CLI workspace."""
+
+    root: Path
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.root, Path):
+            raise TypeError("root must be a Path")
+
+    @property
+    def database(self) -> Path:
+        return self.root / "grass.db"
+
+    @property
+    def worlds(self) -> Path:
+        return self.root / "worlds"
+
+    @property
+    def world_snapshots(self) -> Path:
+        return self.root / "world_snapshots"
+
+    @property
+    def runs(self) -> Path:
+        return self.root / "runs"
+
+    @property
+    def templates(self) -> Path:
+        return self.root / "templates"
+
+    @property
+    def world_templates(self) -> Path:
+        return self.templates / "worlds"
+
+
+@dataclass(frozen=True, slots=True)
 class LocalWorkspaceInitialization:
     data_root: Path
     database: Path
@@ -55,24 +90,31 @@ def _validate_database_path(path: Path) -> None:
         )
 
 
-def ensure_local_storage_paths(data_root: Path, /) -> None:
+def ensure_local_storage_paths(paths: LocalWorkspacePaths, /) -> None:
     """Create the data root and reject unsafe existing storage paths."""
 
-    if not isinstance(data_root, Path):
-        raise TypeError("data_root must be a Path")
-    _ensure_directory(data_root, "data root")
-    _validate_database_path(data_root / "grass.db")
+    if type(paths) is not LocalWorkspacePaths:
+        raise TypeError("paths must be LocalWorkspacePaths")
+    _ensure_directory(paths.root, "data root")
+    _validate_database_path(paths.database)
 
 
-def installed_world_template_store(data_root: Path, /) -> FilesystemWorldTemplateStore:
+def ensure_local_world_root(paths: LocalWorkspacePaths, /) -> None:
+    """Create the root for implicit editable worlds without initializing other storage."""
+
+    if type(paths) is not LocalWorkspacePaths:
+        raise TypeError("paths must be LocalWorkspacePaths")
+    _ensure_directory(paths.root, "data root")
+    _ensure_directory(paths.worlds, "world root")
+
+
+def installed_world_template_store(paths: LocalWorkspacePaths, /) -> FilesystemWorldTemplateStore:
     """Return the local store after validating each existing managed directory."""
 
-    ensure_local_storage_paths(data_root)
-    template_root = data_root / "templates"
-    world_template_root = template_root / "worlds"
+    ensure_local_storage_paths(paths)
     for path, description in (
-        (template_root, "template root"),
-        (world_template_root, "world-template root"),
+        (paths.templates, "template root"),
+        (paths.world_templates, "world-template root"),
     ):
         try:
             path.lstat()
@@ -81,31 +123,27 @@ def installed_world_template_store(data_root: Path, /) -> FilesystemWorldTemplat
         except OSError as error:
             raise LocalWorkspaceInitializationError(f"could not inspect {description}") from error
         _ensure_directory(path, description)
-    return FilesystemWorldTemplateStore(world_template_root)
+    return FilesystemWorldTemplateStore(paths.world_templates)
 
 
-def initialize_local_workspace(data_root: Path, /) -> LocalWorkspaceInitialization:
+def initialize_local_workspace(paths: LocalWorkspacePaths, /) -> LocalWorkspaceInitialization:
     """Initialize local storage and install missing bundled world-template copies."""
 
-    ensure_local_storage_paths(data_root)
-    database = data_root / "grass.db"
-    SqlitePersistence(database)
+    ensure_local_storage_paths(paths)
+    SqlitePersistence(paths.database)
 
-    world_snapshot_root = data_root / "world_snapshots"
-    run_workspace_root = data_root / "runs"
-    template_root = data_root / "templates"
-    world_template_root = template_root / "worlds"
-    _ensure_directory(world_snapshot_root, "world snapshot root")
-    _ensure_directory(run_workspace_root, "run workspace root")
-    _ensure_directory(template_root, "template root")
-    _ensure_directory(world_template_root, "world-template root")
-    installations = FilesystemWorldTemplateStore(world_template_root).install_registered()
+    _ensure_directory(paths.worlds, "world root")
+    _ensure_directory(paths.world_snapshots, "world snapshot root")
+    _ensure_directory(paths.runs, "run workspace root")
+    _ensure_directory(paths.templates, "template root")
+    _ensure_directory(paths.world_templates, "world-template root")
+    installations = FilesystemWorldTemplateStore(paths.world_templates).install_registered()
     return LocalWorkspaceInitialization(
-        data_root,
-        database,
-        world_snapshot_root,
-        run_workspace_root,
-        template_root,
-        world_template_root,
+        paths.root,
+        paths.database,
+        paths.world_snapshots,
+        paths.runs,
+        paths.templates,
+        paths.world_templates,
         installations,
     )
