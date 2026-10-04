@@ -124,7 +124,7 @@ def scenario_document() -> dict[str, object]:
     return {
         "world_definition_id": "acceptance-world",
         "version": "slice-9",
-        "schema_version": 2,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": ["Person", "Organization", "Location", "Artifact"],
             "relation_types": ["employed_by"],
@@ -199,6 +199,16 @@ def scenario_document() -> dict[str, object]:
             {
                 "rule_id": "network-outage",
                 "trigger": {"kind": "AT_TIME", "logical_time": 72 * MINUTE},
+                "mechanic": {
+                    "kind": "BUILTIN",
+                    "usage": "SET_STATE_VARIABLE",
+                    "implementation": "CONSTANT",
+                    "target": {
+                        "scope": {"kind": "WORLD"},
+                        "state_variable_type": "network_available",
+                    },
+                    "value": False,
+                },
             }
         ],
     }

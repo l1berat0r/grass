@@ -205,6 +205,7 @@ def resolution_definition() -> WorldDefinition:
         1,
         WorldVocabulary(entity_types=frozenset({"Person"})),
         InitialConditions(LogicalTime(0)),
+        (),
     )
 
 

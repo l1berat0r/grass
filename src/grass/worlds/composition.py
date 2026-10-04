@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Occurrence-only composition for runnable schema-v3 worlds."""
+"""Occurrence-only composition for runnable WorldDefinition schema-v1 worlds."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
 from grass.core import (
+    WORLD_DEFINITION_SCHEMA_VERSION,
     CommittedTransition,
     DecisionInvoker,
     DecisionTriggerContext,
@@ -102,7 +103,7 @@ def _jobs_do_not_conflict(
 
 
 class OccurrenceRuntimeComposer:
-    """Trusted adapter for the schema-v3 occurrence-only runtime subset."""
+    """Trusted adapter for the schema-v1 occurrence-only runtime subset."""
 
     def validate(
         self,
@@ -114,8 +115,11 @@ class OccurrenceRuntimeComposer:
             raise TypeError("world_definition must be a WorldDefinition")
         if type(run_config) is not SimulationRunConfig:
             raise TypeError("run_config must be a SimulationRunConfig")
-        if world_definition.schema_version != 3:
-            raise WorldCompositionError("occurrence composition requires schema version 3")
+        if world_definition.schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
+            raise WorldCompositionError(
+                "occurrence composition requires WorldDefinition schema version "
+                f"{WORLD_DEFINITION_SCHEMA_VERSION}"
+            )
         if run_config.world_definition_ref != world_definition.ref:
             raise WorldCompositionError("run_config must reference world_definition")
         occurrence_times = tuple(
@@ -160,7 +164,7 @@ def compose_occurrence_engine(
     identity_source: RuntimeIdentitySource,
     decision_invokers: Mapping[ProviderBindingId, DecisionInvoker] | None = None,
 ) -> SimulationEngine:
-    """Compose the existing engine for schema-v3 occurrence-only execution."""
+    """Compose the existing engine for schema-v1 occurrence-only execution."""
 
     return OccurrenceRuntimeComposer().compose(
         event_store=event_store,

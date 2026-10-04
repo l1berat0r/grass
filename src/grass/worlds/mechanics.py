@@ -11,6 +11,7 @@ from typing import cast
 from grass.core import (
     GEL_V1_INTEGER_MAX,
     GEL_V1_INTEGER_MIN,
+    WORLD_DEFINITION_SCHEMA_VERSION,
     AtTimeScenarioEventRule,
     BuiltinSetStateVariableMechanic,
     GelError,
@@ -62,13 +63,16 @@ def _gel_input_value(value: StructuredValue, /) -> GelInputValue:
 
 
 class DataDefinedScenarioOccurrenceResolver:
-    """Resolve schema-v3 occurrences through their exact configured mechanic."""
+    """Resolve schema-v1 occurrences through their exact configured mechanic."""
 
     def __init__(self, world_definition: WorldDefinition, /) -> None:
         if type(world_definition) is not WorldDefinition:
             raise TypeError("world_definition must be a WorldDefinition")
-        if world_definition.schema_version != 3:
-            raise ValueError("data-defined occurrence resolution requires schema version 3")
+        if world_definition.schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
+            raise ValueError(
+                "data-defined occurrence resolution requires WorldDefinition schema version "
+                f"{WORLD_DEFINITION_SCHEMA_VERSION}"
+            )
 
         rules: dict[ScenarioOccurrenceRef, AtTimeScenarioEventRule] = {}
         prepared: dict[ScenarioOccurrenceRef, PreparedGelProgram] = {}
@@ -80,8 +84,8 @@ class DataDefinedScenarioOccurrenceResolver:
             elif type(mechanic) is GelSetStateVariableMechanic:
                 rules[occurrence_ref] = rule
                 prepared[occurrence_ref] = prepare_gel(mechanic.program)
-            else:  # pragma: no cover - WorldDefinition v3 enforces this invariant
-                raise ValueError("schema version 3 rule has no supported mechanic")
+            else:  # pragma: no cover - WorldDefinition enforces this invariant
+                raise ValueError("WorldDefinition rule has no supported mechanic")
 
         self._rules = MappingProxyType(rules)
         self._prepared_gel = MappingProxyType(prepared)

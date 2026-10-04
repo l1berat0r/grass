@@ -160,7 +160,12 @@ WorldDefinition.initial_conditions
     -> SimulationState
 ```
 
-Slice 4 defines `WorldDefinition` document schema version 1 as a strict already-parsed mapping. It contains an opaque `world_definition_id`, an opaque non-empty semantic version string, a positive `schema_version`, explicit vocabulary registries, initial conditions, and immutable structured metadata. The loader performs no file I/O.
+The current complete `WorldDefinition` document is the initial schema version 1. It is a
+strict already-parsed mapping containing an opaque `world_definition_id`, an opaque
+non-empty semantic `version`, `schema_version = 1`, explicit vocabulary registries,
+initial conditions, required `scenario_event_rules`, and immutable structured metadata.
+The rule collection may be empty. Every current `AT_TIME` rule requires one direct,
+usage-specific `mechanic`. The semantic loader performs no file I/O.
 
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
@@ -183,14 +188,18 @@ Every genesis transition begins with exactly one version-1 `SimulationInitialize
 
 The caller supplies the genesis `TransitionId` and every `EventId`. The pure genesis builder requires an exact, unique, sufficient Event-ID sequence, creates `ENGINE` provenance tied to the definition version, validates the complete candidate initial world, and returns a `TransitionToCommit` without committing it. The EventStore remains responsible only for generic structural history invariants.
 
-Slice 9 adds WorldDefinition document schema version 2 while preserving strict
-version-1 loading. Version 2 adds only required `scenario_event_rules`, an ordered
-collection that may be empty. Each rule has a unique opaque `rule_id` and one
-strict `AT_TIME` trigger containing an exact LogicalTime that cannot precede the
-initial logical time. Version 1 retains its exact original field set and projects
-an empty rule collection. Scenario rules remain declarations and add no genesis
-Events. RANDOM_TIME, AFTER_DURATION, recurrence, conditions, mechanic bindings,
-and sampling remain deferred.
+`scenario_event_rules` is an ordered required collection. Each rule has a unique opaque
+`rule_id` and one strict `AT_TIME` trigger containing an exact LogicalTime that cannot
+precede the initial logical time. Scenario rules remain declarations and add no genesis
+Events. RANDOM_TIME, AFTER_DURATION, recurrence, conditions, and sampling remain
+deferred.
+
+ADR-0026 resets the complete unreleased representation to schema version 1. Earlier
+internal partial shapes are unsupported and have no migration path. A material semantic
+edit creates a new `WorldDefinition.version`; it does not change `schema_version` while
+the representation remains schema 1. SQLite storage schema 1, WorldPackage format 1, GEL
+language version 1, Event payload versions, SimulationRunConfig version 1, and CLI JSON
+schema version 1 remain separate and unchanged.
 
 ## 5. Scenario mechanics and GEL
 
@@ -284,9 +293,8 @@ boundary. Ordinary replay never invokes GEL to reconstruct history.
 
 ### 5.3 Slice 14 runnable composition
 
-WorldDefinition document schema version 3 preserves the version-2 root shape and
-requires every AT_TIME scenario rule to contain one direct usage-specific mechanic
-binding. Versions 1 and 2 retain their exact field contracts. The first mechanic usage is
+WorldDefinition schema version 1 requires every AT_TIME scenario rule to contain one
+direct usage-specific mechanic binding. The first mechanic usage is
 `SET_STATE_VARIABLE`, with a BUILTIN constant variant and a GEL variant. There is no
 general mechanic registry or arbitrary effect output.
 

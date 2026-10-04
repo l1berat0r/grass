@@ -11,7 +11,7 @@ from typing import cast
 from grass.core._structured_data import StructuredValue
 from grass.core.events import Event
 from grass.core.identifiers import WorldDefinitionId
-from grass.core.world_definitions import WorldDefinitionRef
+from grass.core.world_definitions import WORLD_DEFINITION_SCHEMA_VERSION, WorldDefinitionRef
 
 SIMULATION_INITIALIZED = "SimulationInitialized"
 
@@ -30,9 +30,10 @@ class SimulationInitializedPayload:
             raise TypeError("world_definition_ref must be a WorldDefinitionRef")
         if type(self.world_definition_schema_version) is not int:
             raise TypeError("world_definition_schema_version must be an integer")
-        if self.world_definition_schema_version < 1:
+        if self.world_definition_schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
             raise InitializationEventPayloadError(
-                "world_definition_schema_version must be positive"
+                "world_definition_schema_version must equal the current WorldDefinition "
+                f"schema version {WORLD_DEFINITION_SCHEMA_VERSION}"
             )
 
 

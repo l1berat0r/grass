@@ -87,6 +87,7 @@ def _definition() -> WorldDefinition:
                 "state_variables": [],
             },
             "metadata": {},
+            "scenario_event_rules": [],
         }
     )
 

@@ -45,7 +45,7 @@ def definition() -> WorldDefinition:
         {
             "world_definition_id": "world",
             "version": "1.0",
-            "schema_version": 2,
+            "schema_version": 1,
             "vocabulary": {
                 "entity_types": [],
                 "relation_types": [],
@@ -70,6 +70,16 @@ def definition() -> WorldDefinition:
                 {
                     "rule_id": "outage",
                     "trigger": {"kind": "AT_TIME", "logical_time": 10},
+                    "mechanic": {
+                        "kind": "BUILTIN",
+                        "usage": "SET_STATE_VARIABLE",
+                        "implementation": "CONSTANT",
+                        "target": {
+                            "scope": {"kind": "WORLD"},
+                            "state_variable_type": "network_available",
+                        },
+                        "value": False,
+                    },
                 }
             ],
         }

@@ -148,6 +148,11 @@ SQLite retains the canonical semantic WorldDefinition, including resolved GEL so
 schema, and language version. Reopen validates that the filesystem snapshot reconstructs
 the same definition and never falls back to mutable author files.
 
+ADR-0026 resets the unreleased complete WorldDefinition representation to schema 1.
+Pre-reset local SQLite databases, run snapshots, and installed package/template copies
+using an earlier internal shape are unsupported and have no automatic migration; they
+must be recreated manually. SQLite storage itself remains schema version 1.
+
 The local application also creates an empty operational workspace at `runs/<run_id>/`
 before snapshot publication. It is not canonical persistence, package material, or a
 projection/checkpoint store. Existing runs may have no workspace, and open, replay,
@@ -406,7 +411,7 @@ my-world/
 
 Package format 1 uses a strict `package.json` that references `world.json`. Authored GEL
 uses contained relative `source_file` references. Loading resolves those files into the
-canonical `GelProgram` retained by WorldDefinition schema version 3. The important
+canonical `GelProgram` retained by WorldDefinition schema version 1. The important
 architectural distinction remains:
 
 ```text
@@ -441,6 +446,10 @@ Slice 17 uses a fixed trusted registry and file inventory and ships
 an editable package, rewrites its WorldDefinition identity to the destination basename,
 and validates it through the normal package loader and production composer. That command
 does not construct `.grass`, SQLite, EventStore, or Application infrastructure.
+
+Any material edit to an initialized or installed local template must also change the
+semantic `WorldDefinition.version`. The document `schema_version` remains 1 unless the
+representation itself changes.
 
 Initialization also supports mutable local copies under
 `.grass/templates/worlds/<template-name>/`. These copies are ordinary WorldPackages, are

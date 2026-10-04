@@ -6,6 +6,7 @@ from typing import cast
 import pytest
 
 from grass.core import (
+    WORLD_DEFINITION_SCHEMA_VERSION,
     EntityId,
     EntityScope,
     InitialConditions,
@@ -68,37 +69,33 @@ def valid_document() -> dict[str, object]:
             ],
         },
         "metadata": {"title": "Example", "tags": ["minimal"]},
+        "scenario_event_rules": [],
     }
 
 
-def valid_version_two_document() -> dict[str, object]:
-    document = valid_document()
-    document["schema_version"] = 2
-    document["scenario_event_rules"] = [
-        {
-            "rule_id": "network-outage",
-            "trigger": {"kind": "AT_TIME", "logical_time": 200},
-        }
-    ]
-    return document
+def valid_builtin_mechanic() -> dict[str, object]:
+    target = {
+        "scope": {"kind": "WORLD"},
+        "state_variable_type": "weather",
+    }
+    return {
+        "kind": "BUILTIN",
+        "usage": "SET_STATE_VARIABLE",
+        "implementation": "CONSTANT",
+        "target": target,
+        "value": "rain",
+    }
 
 
-def valid_version_three_document(*, kind: str = "GEL") -> dict[str, object]:
+def valid_mechanic_document(*, kind: str = "GEL") -> dict[str, object]:
     document = valid_document()
-    document["schema_version"] = 3
     mechanic: dict[str, object]
     target = {
         "scope": {"kind": "WORLD"},
         "state_variable_type": "weather",
     }
     if kind == "BUILTIN":
-        mechanic = {
-            "kind": "BUILTIN",
-            "usage": "SET_STATE_VARIABLE",
-            "implementation": "CONSTANT",
-            "target": target,
-            "value": "rain",
-        }
+        mechanic = valid_builtin_mechanic()
     else:
         value_schema = {"type": "STRING", "max_length": 20}
         mechanic = {
@@ -147,22 +144,22 @@ def test_loads_complete_schema_and_preserves_declaration_order() -> None:
     assert definition.scenario_event_rules == ()
 
 
-def test_version_two_loads_minimal_at_time_scenario_rule() -> None:
-    definition = load_world_definition(valid_version_two_document())
+def test_schema_one_loads_at_time_scenario_rule() -> None:
+    definition = load_world_definition(valid_mechanic_document(kind="BUILTIN"))
 
-    assert definition.schema_version == 2
+    assert definition.schema_version == 1
     assert len(definition.scenario_event_rules) == 1
     rule = definition.scenario_event_rules[0]
-    assert rule.rule_id == ScenarioEventRuleId("network-outage")
+    assert rule.rule_id == ScenarioEventRuleId("weather-change")
     assert rule.logical_time == LogicalTime(200)
     assert rule.ref(definition.ref).world_definition_ref == definition.ref
 
 
 @pytest.mark.parametrize("kind", ["BUILTIN", "GEL"])
-def test_version_three_loads_direct_scenario_mechanic(kind: str) -> None:
-    definition = load_world_definition(valid_version_three_document(kind=kind))
+def test_schema_one_loads_direct_scenario_mechanic(kind: str) -> None:
+    definition = load_world_definition(valid_mechanic_document(kind=kind))
 
-    assert definition.schema_version == 3
+    assert definition.schema_version == 1
     assert definition.scenario_event_rules[0].mechanic is not None
     assert definition.scenario_event_rules[0].mechanic.kind.value == kind
 
@@ -182,6 +179,7 @@ def test_empty_vocabulary_and_initial_world_are_valid() -> None:
         "resources": [],
         "state_variables": [],
     }
+    document["scenario_event_rules"] = []
 
     definition = load_world_definition(document)
 
@@ -205,7 +203,10 @@ def test_definition_data_is_deeply_immutable_and_copied() -> None:
         definition.version = "other"  # type: ignore[misc]
 
 
-@pytest.mark.parametrize("field_name", ["metadata", "vocabulary", "initial_conditions"])
+@pytest.mark.parametrize(
+    "field_name",
+    ["metadata", "vocabulary", "initial_conditions", "scenario_event_rules"],
+)
 def test_root_schema_rejects_missing_fields(field_name: str) -> None:
     document = valid_document()
     del document[field_name]
@@ -223,7 +224,7 @@ def test_schema_rejects_extra_fields_at_nested_levels() -> None:
         load_world_definition(document)
 
 
-@pytest.mark.parametrize("schema_version", [0, 4, True])
+@pytest.mark.parametrize("schema_version", [0, WORLD_DEFINITION_SCHEMA_VERSION + 1, True])
 def test_rejects_invalid_or_unsupported_schema_version(schema_version: object) -> None:
     document = valid_document()
     document["schema_version"] = schema_version
@@ -350,32 +351,21 @@ def test_rejects_opaque_structured_values() -> None:
         load_world_definition(document)
 
 
-def test_schema_versions_keep_exact_distinct_root_fields() -> None:
-    version_one = valid_document()
-    version_one["scenario_event_rules"] = []
-    with pytest.raises(WorldDefinitionError, match="extra=.*scenario_event_rules"):
-        load_world_definition(version_one)
-
-    version_two = valid_version_two_document()
-    del version_two["scenario_event_rules"]
+def test_schema_one_requires_complete_root_and_rule_fields() -> None:
+    missing_rules = valid_document()
+    del missing_rules["scenario_event_rules"]
     with pytest.raises(WorldDefinitionError, match="missing=.*scenario_event_rules"):
-        load_world_definition(version_two)
+        load_world_definition(missing_rules)
 
-    version_two = valid_version_two_document()
-    first_v2_rule = cast(list[dict[str, object]], version_two["scenario_event_rules"])[0]
-    first_v2_rule["mechanic"] = {}
-    with pytest.raises(WorldDefinitionError, match="extra=.*mechanic"):
-        load_world_definition(version_two)
-
-    version_three = valid_version_three_document()
-    first_v3_rule = cast(list[dict[str, object]], version_three["scenario_event_rules"])[0]
-    del first_v3_rule["mechanic"]
+    missing_mechanic = valid_mechanic_document()
+    rule = cast(list[dict[str, object]], missing_mechanic["scenario_event_rules"])[0]
+    del rule["mechanic"]
     with pytest.raises(WorldDefinitionError, match="missing=.*mechanic"):
-        load_world_definition(version_three)
+        load_world_definition(missing_mechanic)
 
 
-def test_version_three_rejects_invalid_gel_contract_and_randomness() -> None:
-    mismatched = valid_version_three_document()
+def test_schema_one_rejects_invalid_gel_contract_and_randomness() -> None:
+    mismatched = valid_mechanic_document()
     rule = cast(list[dict[str, object]], mismatched["scenario_event_rules"])[0]
     mechanic = cast(dict[str, object], rule["mechanic"])
     program = cast(dict[str, object], mechanic["program"])
@@ -386,12 +376,12 @@ def test_version_three_rejects_invalid_gel_contract_and_randomness() -> None:
     with pytest.raises(WorldDefinitionError, match="schemas must match"):
         load_world_definition(mismatched)
 
-    random = valid_version_three_document()
+    random = valid_mechanic_document()
     random_rule = cast(list[dict[str, object]], random["scenario_event_rules"])[0]
     random_mechanic = cast(dict[str, object], random_rule["mechanic"])
     random_program = cast(dict[str, object], random_mechanic["program"])
     random_program["source"] = 'return {new_value: "random_int(ignored)"};'
-    assert load_world_definition(random).schema_version == 3
+    assert load_world_definition(random).schema_version == 1
 
     integer_schema = {"type": "INTEGER", "minimum": 0, "maximum": 10}
     random_program["source"] = "return {new_value: random_int(0, 10)};"
@@ -412,23 +402,43 @@ def test_version_three_rejects_invalid_gel_contract_and_randomness() -> None:
     [
         (
             [
-                {"rule_id": "duplicate", "trigger": {"kind": "AT_TIME", "logical_time": 200}},
-                {"rule_id": "duplicate", "trigger": {"kind": "AT_TIME", "logical_time": 201}},
+                {
+                    "rule_id": "duplicate",
+                    "trigger": {"kind": "AT_TIME", "logical_time": 200},
+                    "mechanic": valid_builtin_mechanic(),
+                },
+                {
+                    "rule_id": "duplicate",
+                    "trigger": {"kind": "AT_TIME", "logical_time": 201},
+                    "mechanic": valid_builtin_mechanic(),
+                },
             ],
             "rule IDs must be unique",
         ),
         (
-            [{"rule_id": "past", "trigger": {"kind": "AT_TIME", "logical_time": 99}}],
+            [
+                {
+                    "rule_id": "past",
+                    "trigger": {"kind": "AT_TIME", "logical_time": 99},
+                    "mechanic": valid_builtin_mechanic(),
+                }
+            ],
             "cannot precede",
         ),
         (
-            [{"rule_id": "random", "trigger": {"kind": "RANDOM_TIME", "logical_time": 200}}],
+            [
+                {
+                    "rule_id": "random",
+                    "trigger": {"kind": "RANDOM_TIME", "logical_time": 200},
+                    "mechanic": valid_builtin_mechanic(),
+                }
+            ],
             "must be AT_TIME",
         ),
     ],
 )
-def test_version_two_rejects_invalid_scenario_rules(rules: list[object], message: str) -> None:
-    document = valid_version_two_document()
+def test_schema_one_rejects_invalid_scenario_rules(rules: list[object], message: str) -> None:
+    document = valid_document()
     document["scenario_event_rules"] = rules
 
     with pytest.raises(WorldDefinitionError, match=message):

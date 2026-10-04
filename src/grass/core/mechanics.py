@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Data-defined scenario mechanic contracts for WorldDefinition schema v3."""
+"""Data-defined scenario mechanic contracts for WorldDefinition schema v1."""
 
 from __future__ import annotations
 
@@ -256,7 +256,7 @@ def _target_document(value: StateVariableKey) -> Mapping[str, object]:
 
 
 def load_scenario_event_mechanic(value: object, /) -> ScenarioEventMechanic:
-    """Strictly load one canonical schema-v3 scenario mechanic."""
+    """Strictly load one canonical WorldDefinition schema-v1 scenario mechanic."""
 
     document = _mapping(value, "scenario mechanic")
     kind = document.get("kind")
@@ -318,7 +318,7 @@ def load_scenario_event_mechanic(value: object, /) -> ScenarioEventMechanic:
 
 
 def scenario_event_mechanic_document(value: ScenarioEventMechanic, /) -> Mapping[str, object]:
-    """Encode one schema-v3 scenario mechanic canonically."""
+    """Encode one WorldDefinition schema-v1 scenario mechanic canonically."""
 
     if type(value) is BuiltinSetStateVariableMechanic:
         return {

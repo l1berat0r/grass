@@ -96,6 +96,7 @@ def world_document(*, empty: bool = False) -> dict[str, object]:
         "vocabulary": vocabulary,
         "initial_conditions": initial_conditions,
         "metadata": {},
+        "scenario_event_rules": [],
     }
 
 
@@ -152,18 +153,30 @@ def test_initialization_payload_separates_definition_and_schema_identity() -> No
     }
 
 
-def test_version_two_rules_remain_declarations_outside_genesis_history() -> None:
+def test_schema_one_rules_remain_declarations_outside_genesis_history() -> None:
     document = world_document()
-    document["schema_version"] = 2
     document["scenario_event_rules"] = [
-        {"rule_id": "outage", "trigger": {"kind": "AT_TIME", "logical_time": 12}}
+        {
+            "rule_id": "outage",
+            "trigger": {"kind": "AT_TIME", "logical_time": 12},
+            "mechanic": {
+                "kind": "BUILTIN",
+                "usage": "SET_STATE_VARIABLE",
+                "implementation": "CONSTANT",
+                "target": {
+                    "scope": {"kind": "WORLD"},
+                    "state_variable_type": "weather",
+                },
+                "value": "rain",
+            },
+        }
     ]
     world_definition = load_world_definition(document)
 
     transition = build(world_definition, genesis_ids(7))
 
     assert len(transition.events) == 7
-    assert transition.events[0].payload["world_definition_schema_version"] == 2
+    assert transition.events[0].payload["world_definition_schema_version"] == 1
     assert all(event.event_type != "ScenarioOccurrenceResolved" for event in transition.events)
 
 

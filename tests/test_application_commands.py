@@ -396,7 +396,7 @@ def test_application_executes_server_managed_human_decision(tmp_path: Path) -> N
     document: dict[str, object] = {
         "world_definition_id": "decision-world",
         "version": "1.0",
-        "schema_version": 3,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": ["Person"],
             "relation_types": [],

@@ -107,6 +107,7 @@ def definition() -> WorldDefinition:
             state_variable_types=frozenset({"stress"}),
         ),
         InitialConditions(LogicalTime(0)),
+        (),
     )
 
 

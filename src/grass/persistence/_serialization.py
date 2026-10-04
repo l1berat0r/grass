@@ -179,28 +179,24 @@ def _scope_document(scope: WorldScope | EntityScope) -> Mapping[str, object]:
     raise TypeError("scope must be WorldScope or EntityScope")
 
 
-def _scenario_rule_document(rule: object, schema_version: int) -> Mapping[str, object]:
+def _scenario_rule_document(rule: object) -> Mapping[str, object]:
     from grass.core.world_definitions import AtTimeScenarioEventRule
 
     if type(rule) is not AtTimeScenarioEventRule:
         raise TypeError("rule must be an AtTimeScenarioEventRule")
-    document: dict[str, object] = {
+    return {
         "rule_id": rule.rule_id.value,
         "trigger": {
             "kind": "AT_TIME",
             "logical_time": rule.logical_time.nanoseconds_from_origin,
         },
-    }
-    if schema_version == 3:
-        if rule.mechanic is None:  # pragma: no cover - WorldDefinition validates this
-            raise TypeError("schema version 3 rule must contain a mechanic")
-        document["mechanic"] = _json_value(
+        "mechanic": _json_value(
             cast(
                 StructuredValue,
                 scenario_event_mechanic_document(rule.mechanic),
             )
-        )
-    return document
+        ),
+    }
 
 
 def world_definition_document(value: WorldDefinition) -> Mapping[str, object]:
@@ -258,12 +254,10 @@ def world_definition_document(value: WorldDefinition) -> Mapping[str, object]:
             ],
         },
         "metadata": _json_value(cast(StructuredValue, value.metadata)),
+        "scenario_event_rules": [
+            _scenario_rule_document(rule) for rule in value.scenario_event_rules
+        ],
     }
-    if value.schema_version in (2, 3):
-        document["scenario_event_rules"] = [
-            _scenario_rule_document(rule, value.schema_version)
-            for rule in value.scenario_event_rules
-        ]
     return document
 
 
@@ -278,7 +272,7 @@ def decode_world_definition(value: str) -> WorldDefinition:
     schema_version = document.get("schema_version")
     if type(schema_version) is not int:
         raise PersistenceIntegrityError("stored WorldDefinition schema_version must be an integer")
-    if schema_version > WORLD_DEFINITION_SCHEMA_VERSION:
+    if schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
         raise UnsupportedStorageVersionError(
             f"unsupported WorldDefinition document version: {schema_version}"
         )

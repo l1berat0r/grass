@@ -39,8 +39,7 @@ from grass.core.state import (
     WorldScope,
 )
 
-WORLD_DEFINITION_SCHEMA_VERSION = 3
-_SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+WORLD_DEFINITION_SCHEMA_VERSION = 1
 
 
 class WorldDefinitionError(ValueError):
@@ -137,18 +136,18 @@ class AtTimeScenarioEventRule:
 
     rule_id: ScenarioEventRuleId
     logical_time: LogicalTime
-    mechanic: ScenarioEventMechanic | None = None
+    mechanic: ScenarioEventMechanic
 
     def __post_init__(self) -> None:
         if type(self.rule_id) is not ScenarioEventRuleId:
             raise TypeError("rule_id must be a ScenarioEventRuleId")
         if type(self.logical_time) is not LogicalTime:
             raise TypeError("logical_time must be a LogicalTime")
-        if self.mechanic is not None and type(self.mechanic) not in (
+        if type(self.mechanic) not in (
             BuiltinSetStateVariableMechanic,
             GelSetStateVariableMechanic,
         ):
-            raise TypeError("mechanic must be a supported ScenarioEventMechanic or None")
+            raise TypeError("mechanic must be a supported ScenarioEventMechanic")
 
     def ref(self, world_definition_ref: WorldDefinitionRef) -> ScenarioEventRuleRef:
         return ScenarioEventRuleRef(world_definition_ref, self.rule_id)
@@ -297,8 +296,8 @@ class WorldDefinition:
     schema_version: int
     vocabulary: WorldVocabulary
     initial_conditions: InitialConditions
+    scenario_event_rules: Sequence[AtTimeScenarioEventRule]
     metadata: Mapping[str, StructuredValue] = field(default_factory=lambda: MappingProxyType({}))
-    scenario_event_rules: Sequence[AtTimeScenarioEventRule] = ()
 
     def __post_init__(self) -> None:
         if type(self.world_definition_id) is not WorldDefinitionId:
@@ -306,9 +305,7 @@ class WorldDefinition:
         _token(self.version, "version")
         if type(self.schema_version) is not int:
             raise TypeError("schema_version must be an integer")
-        if self.schema_version < 1:
-            raise WorldDefinitionError("schema_version must be positive")
-        if self.schema_version not in _SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS:
+        if self.schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
             raise WorldDefinitionError(
                 f"unsupported WorldDefinition schema_version: {self.schema_version}"
             )
@@ -326,16 +323,6 @@ class WorldDefinition:
         rules = tuple(self.scenario_event_rules)
         if not all(type(rule) is AtTimeScenarioEventRule for rule in rules):
             raise TypeError("scenario_event_rules must contain AtTimeScenarioEventRule values")
-        if self.schema_version == 1 and rules:
-            raise WorldDefinitionError(
-                "WorldDefinition schema version 1 cannot contain scenario rules"
-            )
-        if self.schema_version == 2 and any(rule.mechanic is not None for rule in rules):
-            raise WorldDefinitionError(
-                "WorldDefinition schema version 2 rules cannot contain mechanics"
-            )
-        if self.schema_version == 3 and any(rule.mechanic is None for rule in rules):
-            raise WorldDefinitionError("WorldDefinition schema version 3 rules require mechanics")
         _reject_duplicates(tuple(rule.rule_id for rule in rules), "scenario Event rule IDs")
         if any(rule.logical_time < self.initial_conditions.logical_time for rule in rules):
             raise WorldDefinitionError(
@@ -411,8 +398,6 @@ class WorldDefinition:
         initial_entities = frozenset(item.entity_id for item in self.initial_conditions.entities)
         for rule in self.scenario_event_rules:
             mechanic = rule.mechanic
-            if mechanic is None:
-                continue
             target = mechanic.target
             if target.state_variable_type not in self.vocabulary.state_variable_types:
                 raise WorldDefinitionError(
@@ -582,16 +567,15 @@ def _load_initial_conditions(value: object) -> InitialConditions:
     return InitialConditions(time, entities, relations, resources, state_variables)
 
 
-def _load_scenario_event_rules(
-    value: object, schema_version: int
-) -> tuple[AtTimeScenarioEventRule, ...]:
+def _load_scenario_event_rules(value: object) -> tuple[AtTimeScenarioEventRule, ...]:
     rules: list[AtTimeScenarioEventRule] = []
     for raw in _sequence(value, "scenario_event_rules"):
         item = _exact_mapping(raw, "scenario Event rule")
-        expected = {"rule_id", "trigger"}
-        if schema_version == 3:
-            expected.add("mechanic")
-        _fields(item, frozenset(expected), "scenario Event rule")
+        _fields(
+            item,
+            frozenset({"rule_id", "trigger", "mechanic"}),
+            "scenario Event rule",
+        )
         trigger = _exact_mapping(item["trigger"], "scenario Event trigger")
         _fields(trigger, frozenset({"kind", "logical_time"}), "scenario Event trigger")
         if trigger["kind"] != "AT_TIME":
@@ -607,7 +591,7 @@ def _load_scenario_event_rules(
             AtTimeScenarioEventRule(
                 ScenarioEventRuleId(_token(item["rule_id"], "rule_id")),
                 time,
-                (None if schema_version == 2 else load_scenario_event_mechanic(item["mechanic"])),
+                load_scenario_event_mechanic(item["mechanic"]),
             )
         )
     return tuple(rules)
@@ -620,21 +604,21 @@ def load_world_definition(document: Mapping[str, object]) -> WorldDefinition:
     schema_version = root.get("schema_version")
     if type(schema_version) is not int:
         raise WorldDefinitionError("schema_version must be an integer")
-    if schema_version not in _SUPPORTED_WORLD_DEFINITION_SCHEMA_VERSIONS:
+    if schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
         raise WorldDefinitionError(f"unsupported WorldDefinition schema_version: {schema_version}")
-    fields = {
-        "world_definition_id",
-        "version",
-        "schema_version",
-        "vocabulary",
-        "initial_conditions",
-        "metadata",
-    }
-    if schema_version in (2, 3):
-        fields.add("scenario_event_rules")
     _fields(
         root,
-        frozenset(fields),
+        frozenset(
+            {
+                "world_definition_id",
+                "version",
+                "schema_version",
+                "vocabulary",
+                "initial_conditions",
+                "metadata",
+                "scenario_event_rules",
+            }
+        ),
         "WorldDefinition",
     )
 
@@ -647,12 +631,8 @@ def load_world_definition(document: Mapping[str, object]) -> WorldDefinition:
             schema_version=schema_version,
             vocabulary=_load_vocabulary(root["vocabulary"]),
             initial_conditions=_load_initial_conditions(root["initial_conditions"]),
+            scenario_event_rules=_load_scenario_event_rules(root["scenario_event_rules"]),
             metadata=_structured_mapping(root["metadata"], "metadata"),
-            scenario_event_rules=(
-                ()
-                if schema_version == 1
-                else _load_scenario_event_rules(root["scenario_event_rules"], schema_version)
-            ),
         )
     except WorldDefinitionError:
         raise

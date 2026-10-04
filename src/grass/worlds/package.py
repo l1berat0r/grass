@@ -15,7 +15,11 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import ClassVar, cast
 
-from grass.core.world_definitions import WorldDefinition, load_world_definition
+from grass.core.world_definitions import (
+    WORLD_DEFINITION_SCHEMA_VERSION,
+    WorldDefinition,
+    load_world_definition,
+)
 
 WORLD_PACKAGE_VERSION = 1
 WORLD_PACKAGE_MANIFEST = "package.json"
@@ -310,9 +314,10 @@ def _load_world_package_directory(
         _load_json(world_bytes, manifest.world_definition), "WorldDefinition document"
     )
     schema_version = world_document.get("schema_version")
-    if type(schema_version) is not int or schema_version != 3:
+    if type(schema_version) is not int or schema_version != WORLD_DEFINITION_SCHEMA_VERSION:
         raise WorldPackageFormatError(
-            "WorldPackage format 1 requires WorldDefinition schema_version 3"
+            "WorldPackage format 1 requires WorldDefinition schema_version "
+            f"{WORLD_DEFINITION_SCHEMA_VERSION}"
         )
 
     files = {

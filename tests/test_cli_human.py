@@ -97,7 +97,7 @@ def test_cli_human_decision_uses_application_runtime_and_provenance(tmp_path: Pa
     document: dict[str, object] = {
         "world_definition_id": "decision-world",
         "version": "1.0",
-        "schema_version": 3,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": ["Person"],
             "relation_types": [],

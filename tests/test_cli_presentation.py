@@ -198,7 +198,7 @@ def test_run_catalog_is_a_table_and_status_is_a_detail_view() -> None:
                     "world_material_kind": "PACKAGE_SNAPSHOT",
                     "created_at": "2026-10-02T21:10:00",
                 },
-                "schema_version": 3,
+                "schema_version": 1,
                 "health": "OK",
                 "verification": None,
                 "error": None,

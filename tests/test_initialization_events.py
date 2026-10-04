@@ -3,6 +3,7 @@
 import pytest
 
 from grass.core import (
+    WORLD_DEFINITION_SCHEMA_VERSION,
     BranchId,
     Event,
     EventPayload,
@@ -87,6 +88,14 @@ def test_rejects_unsupported_initialization_event_version() -> None:
 
     with pytest.raises(InitializationEventPayloadError, match="unsupported"):
         decode_initialization_event(event)
+
+
+def test_rejects_unsupported_world_definition_schema_version() -> None:
+    payload = dict(initialization_payload())
+    payload["world_definition_schema_version"] = WORLD_DEFINITION_SCHEMA_VERSION + 1
+
+    with pytest.raises(InitializationEventPayloadError, match="WorldDefinition schema version 1"):
+        decode_initialization_event(committed_initialization_event(payload))
 
 
 def test_projection_recognizes_initialization_without_mutating_world() -> None:

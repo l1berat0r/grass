@@ -117,7 +117,7 @@ def test_world_validation_runs_package_and_composer_validation(tmp_path: Path) -
     )
 
     assert code == 0
-    assert cast(dict[str, object], success["data"])["schema_version"] == 3
+    assert cast(dict[str, object], success["data"])["schema_version"] == 1
     assert not (tmp_path / "data").exists()
     assert rejected_code == 1
     assert cast(dict[str, object], rejected["error"])["code"] == "WORLD_INVALID"

@@ -58,6 +58,7 @@ def _world() -> WorldDefinition:
                 "state_variables": [],
             },
             "metadata": {},
+            "scenario_event_rules": [],
         }
     )
 

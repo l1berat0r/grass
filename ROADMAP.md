@@ -16,6 +16,11 @@ After this baseline, material architecture changes should normally be introduced
 
 **Current status:** Slices 0–17 are implemented on `impl/v0.1-gpt`. The next activity is the post-Slice-17 Diagnostics Architecture checkpoint. Slice 18 actor-capable WorldPackage composition requires a new accepted architecture decision; backend/frontend and other later capabilities remain unsequenced.
 
+ADR-0026 approves a pre-stable WorldDefinition schema reset before further slices: the
+current complete WorldDefinition shape becomes initial schema 1, with no migration support
+for earlier internal local data. This maintenance decision does not advance or redefine
+Slice 18.
+
 ### Slice 0 — core value objects and package skeleton
 
 - Python package structure independent from FastAPI;
@@ -256,6 +261,12 @@ grass run verify RUN
 
 The process may terminate and restart between commands. The run continues from its durable
 package snapshot and canonical history without depending on the editable template copy.
+
+The pre-stable WorldDefinition reset keeps SQLite, WorldPackage, GEL, Event,
+SimulationRunConfig, and CLI version domains at 1. Earlier internal WorldDefinition local
+databases, snapshots, and installed packages are unsupported and must be recreated
+manually. Material changes to editable templates require a semantic
+`WorldDefinition.version` bump.
 
 ### Slice 17.1 — local CLI workspaces and presentation
 

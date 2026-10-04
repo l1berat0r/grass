@@ -38,13 +38,18 @@ After the baseline, material changes to core architectural contracts should norm
 - ADR-0022 — runtime frontier orchestration semantics;
 - ADR-0023 — runnable world composition v1;
 - ADR-0024 — Application and Query API v1;
-- ADR-0025 — local CLI and JSON presentation contract v1.
+- ADR-0025 — local CLI and JSON presentation contract v1;
+- ADR-0026 — pre-stable WorldDefinition schema reset.
 
 ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 
 ## Current implementation planning
 
 Slices 0–17 are implemented on the implementation branch. The next activity is the post-Slice-17 Diagnostics Architecture checkpoint. Slice 18 actor-capable WorldPackage composition requires a new accepted architecture decision; `ROADMAP.md` retains the current sequencing.
+
+ADR-0026 resets the unreleased complete WorldDefinition representation to its initial
+schema version 1 and supersedes the schema-number and compatibility statements in
+ADR-0016 and ADR-0023. It does not change their remaining accepted decisions.
 
 Earlier ADRs may mention future slice numbers in their deferred sections. Those references record what was deferred at the time of the ADR; `ROADMAP.md` is authoritative for current implementation sequencing and does not change the accepted semantic decisions of those ADRs.
 

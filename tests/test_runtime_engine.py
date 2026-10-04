@@ -293,18 +293,28 @@ def _definition(
             {
                 "rule_id": "occurrence",
                 "trigger": {"kind": "AT_TIME", "logical_time": occurrence_time},
+                "mechanic": {
+                    "kind": "BUILTIN",
+                    "usage": "SET_STATE_VARIABLE",
+                    "implementation": "CONSTANT",
+                    "target": {
+                        "scope": {"kind": "WORLD"},
+                        "state_variable_type": "occurrence_marker",
+                    },
+                    "value": True,
+                },
             }
         )
     return load_world_definition(
         {
             "world_definition_id": "runtime-world",
             "version": "1.0",
-            "schema_version": 2,
+            "schema_version": 1,
             "vocabulary": {
                 "entity_types": ["Person"],
                 "relation_types": [],
                 "resource_types": [],
-                "state_variable_types": [],
+                "state_variable_types": ["occurrence_marker"],
             },
             "initial_conditions": {
                 "logical_time": 0,

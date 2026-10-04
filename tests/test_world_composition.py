@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Focused tests for schema-v3 occurrence mechanics and runtime composition."""
+"""Focused tests for schema-v1 occurrence mechanics and runtime composition."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def _definition(rules: list[dict[str, object]], *, initial_value: object = 1) ->
     document: dict[str, object] = {
         "world_definition_id": "composed-world",
         "version": "1.0",
-        "schema_version": 3,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": [],
             "relation_types": [],
@@ -232,38 +232,6 @@ def test_occurrence_composer_implements_validation_and_composition_contract() ->
     )
 
     assert engine is not None
-
-
-def test_composition_rejects_pre_v3_world_definition() -> None:
-    document: dict[str, object] = {
-        "world_definition_id": "legacy-world",
-        "version": "1.0",
-        "schema_version": 2,
-        "vocabulary": {
-            "entity_types": [],
-            "relation_types": [],
-            "resource_types": [],
-            "state_variable_types": [],
-        },
-        "initial_conditions": {
-            "logical_time": 0,
-            "entities": [],
-            "relations": [],
-            "resources": [],
-            "state_variables": [],
-        },
-        "metadata": {},
-        "scenario_event_rules": [],
-    }
-    definition = load_world_definition(document)
-
-    with pytest.raises(WorldCompositionError, match="schema version 3"):
-        compose_occurrence_engine(
-            event_store=InMemoryEventStore(),
-            world_definition=definition,
-            run_config=SimulationRunConfig(definition.ref),
-            identity_source=UuidRuntimeIdentitySource(),
-        )
 
 
 def test_builtin_resolver_always_emits_one_set_effect() -> None:

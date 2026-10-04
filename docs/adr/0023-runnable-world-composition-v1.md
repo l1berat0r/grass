@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-09-19
 
+The WorldDefinition schema-number and compatibility statements in this ADR are
+superseded by ADR-0026. The runnable-composition contracts remain accepted.
+
 ## Context
 
 Slices 0-13 provide runtime orchestration, GEL, provider bindings, deterministic
@@ -25,11 +28,10 @@ Paths are canonical relative POSIX paths. Absolute paths, traversal, symlinked m
 non-regular files, arbitrary Python references, and unsupported versions are rejected.
 Only the manifest, world document, and referenced GEL files are material in format 1.
 
-### WorldDefinition schema version 3
+### WorldDefinition schema
 
-Schema version 3 preserves the version-2 root shape and requires every AT_TIME rule to
-contain one direct, usage-specific `mechanic`. There is no mechanic registry. Versions 1
-and 2 retain their exact existing fields and semantics.
+The current complete schema requires `scenario_event_rules` and requires every AT_TIME
+rule to contain one direct, usage-specific `mechanic`. There is no mechanic registry.
 
 The first usage is `SET_STATE_VARIABLE`, with exactly two variants:
 
@@ -65,8 +67,8 @@ the editable author directory.
 
 SQLite continues to store run metadata, semantic WorldDefinition, run configuration,
 branches, transitions, and Events. The unreleased local schema remains storage version 1;
-WorldDefinition v3 fits the existing versioned definition JSON column. Ordinary replay
-uses Events and does not load packages or execute GEL.
+WorldDefinition schema 1 fits the existing versioned definition JSON column. Ordinary
+replay uses Events and does not load packages or execute GEL.
 
 ### Runtime composition
 

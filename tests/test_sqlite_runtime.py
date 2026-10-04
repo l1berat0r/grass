@@ -105,12 +105,12 @@ def _world() -> WorldDefinition:
         {
             "world_definition_id": "runtime-world",
             "version": "1.0",
-            "schema_version": 2,
+            "schema_version": 1,
             "vocabulary": {
                 "entity_types": ["Person"],
                 "relation_types": [],
                 "resource_types": [],
-                "state_variable_types": [],
+                "state_variable_types": ["occurrence_marker"],
             },
             "initial_conditions": {
                 "logical_time": 0,
@@ -124,6 +124,16 @@ def _world() -> WorldDefinition:
                 {
                     "rule_id": "occurrence",
                     "trigger": {"kind": "AT_TIME", "logical_time": 5},
+                    "mechanic": {
+                        "kind": "BUILTIN",
+                        "usage": "SET_STATE_VARIABLE",
+                        "implementation": "CONSTANT",
+                        "target": {
+                            "scope": {"kind": "WORLD"},
+                            "state_variable_type": "occurrence_marker",
+                        },
+                        "value": True,
+                    },
                 }
             ],
         }

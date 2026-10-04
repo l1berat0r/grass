@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-09-11
 
+The WorldDefinition schema-number and compatibility statements in this ADR are
+superseded by ADR-0026. The scenario-occurrence contracts remain accepted.
+
 ## Context
 
 Slice 9 must exercise a genuine scenario event while preserving the accepted
@@ -33,9 +36,9 @@ runtime occurrence-ID allocation, process hierarchy, branch identity, or time to
 the occurrence reference. Rule and occurrence references are nominally distinct.
 The same occurrence may resolve independently on branches forked before it.
 
-## Decision 2: WorldDefinition schema version 2
+## Decision 2: Required scenario-event rules
 
-Schema version 2 adds exactly one required root field to version 1:
+The WorldDefinition root requires:
 
 ```text
 scenario_event_rules[]
@@ -47,13 +50,12 @@ scenario_event_rules[]
 
 The collection may be empty. Rule IDs are unique within the WorldDefinition
 version. Logical time is exact and cannot precede initial-conditions logical time.
-There is no enabled flag, metadata, mechanic binding, recurrence, condition,
-duration, probability distribution, or sampling configuration.
+At this slice, there is no enabled flag, metadata, mechanic binding, recurrence,
+condition, duration, probability distribution, or sampling configuration. Later
+runnable composition requires the rule's direct mechanic under the current complete
+schema defined by ADR-0026.
 
-Version-1 documents remain readable with their exact original field set and an
-empty runtime rule collection. Version-1 documents reject version-2 fields.
-Genesis records schema version 2 in `SimulationInitialized`, but rules remain
-declarations and do not become genesis Events.
+Rules remain declarations and do not become genesis Events.
 
 ## Decision 3: ScenarioOccurrenceResolved Event
 
@@ -131,7 +133,6 @@ the occurrence on scheduler rebuild.
 
 - Slice 9 has genuine scenario-event scheduling and resolution without making the
   scheduler authoritative.
-- Version-1 WorldDefinition history remains readable.
 - Scenario and Job resolution share WorldEffect materialization but not request
   subject semantics.
 - Full visible history is required when rebuilding scenario occurrence scheduling.

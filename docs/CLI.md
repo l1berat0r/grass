@@ -43,6 +43,12 @@ simulation state, and its contents are never used to reconstruct or verify histo
 `templates/worlds/` contains mutable local copies of bundled templates as ordinary
 WorldPackages. It is neither canonical history nor immutable run material.
 
+The current complete WorldDefinition document uses schema version 1 and requires
+`scenario_event_rules` plus each rule's mechanic. Pre-reset pre-release SQLite databases,
+run snapshots, and installed package/template copies using an earlier internal shape are
+unsupported and have no automatic migration; recreate them manually. This reset does not
+change WorldPackage format 1 or the CLI JSON v1 contract.
+
 ## Global output options
 
 Global options appear before the command family:
@@ -134,6 +140,10 @@ grass branch create RUN --from root --branch-id alternative
 grass run advance RUN --branch alternative
 grass run verify RUN
 ```
+
+When edits materially change the initialized world's semantics, update its semantic
+`WorldDefinition.version` before validation or run creation. Its document
+`schema_version` remains 1 while the representation is unchanged.
 
 The editable world directory is not needed after creation. Every
 package-backed run reopens from its immutable per-run snapshot.
@@ -281,7 +291,8 @@ existing valid ordinary WorldPackage is reported as `PRESERVED` and is not compa
 or replaced by bundled bytes, so user edits survive repeated initialization. A file,
 symlink, or invalid package at the managed path is an explicit conflict and is never
 modified. Newly added bundled names are installed on a later `grass init`; removed names
-are not deleted.
+are not deleted. Material edits to a preserved local copy require a corresponding semantic
+`WorldDefinition.version` bump.
 
 `run create --template NAME` loads only the installed local copy and then follows the same
 WorldPackage validation, immutable run snapshot, registration, and genesis path as

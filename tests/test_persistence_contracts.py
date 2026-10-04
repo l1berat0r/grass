@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from grass.core import (
+    WORLD_DEFINITION_SCHEMA_VERSION,
     BranchId,
     DecisionProviderBinding,
     DecisionProviderRouting,
@@ -40,11 +41,12 @@ from grass.persistence import (
 )
 
 
-def _world(*, schema_version: int = 2, metadata_value: str = "original") -> WorldDefinition:
+def _world(*, metadata_value: str = "original") -> WorldDefinition:
+    value_schema = {"type": "INTEGER", "minimum": 0, "maximum": 100}
     document: dict[str, object] = {
         "world_definition_id": "world",
         "version": "1.0",
-        "schema_version": schema_version,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": ["Location", "Person"],
             "relation_types": ["knows"],
@@ -82,17 +84,7 @@ def _world(*, schema_version: int = 2, metadata_value: str = "original") -> Worl
             ],
         },
         "metadata": {"value": metadata_value, "negative_zero": -0.0},
-    }
-    if schema_version == 2:
-        document["scenario_event_rules"] = [
-            {
-                "rule_id": "later",
-                "trigger": {"kind": "AT_TIME", "logical_time": 10**30 + 5},
-            }
-        ]
-    elif schema_version == 3:
-        value_schema = {"type": "INTEGER", "minimum": 0, "maximum": 100}
-        document["scenario_event_rules"] = [
+        "scenario_event_rules": [
             {
                 "rule_id": "later",
                 "trigger": {"kind": "AT_TIME", "logical_time": 10**30 + 5},
@@ -117,7 +109,8 @@ def _world(*, schema_version: int = 2, metadata_value: str = "original") -> Worl
                     },
                 },
             }
-        ]
+        ],
+    }
     return load_world_definition(document)
 
 
@@ -186,12 +179,9 @@ def test_run_value_objects_are_strict_and_wall_time_is_normalized() -> None:
         RunId("")
 
 
-@pytest.mark.parametrize("schema_version", [1, 2, 3])
-def test_run_definition_and_non_secret_config_survive_reopen(
-    tmp_path: Path, schema_version: int
-) -> None:
-    path = tmp_path / f"schema-{schema_version}.db"
-    world = _world(schema_version=schema_version)
+def test_schema_one_run_definition_and_non_secret_config_survive_reopen(tmp_path: Path) -> None:
+    path = tmp_path / "schema-1.db"
+    world = _world()
     config = _config(world)
     record = _record(world)
     persistence = SqlitePersistence(path)
@@ -208,6 +198,7 @@ def test_run_definition_and_non_secret_config_survive_reopen(
     assert definition_repository.read_world_definition(record.run_id) == world
     assert config_repository.read_run_config(record.run_id) == config
     assert reopened.read_world_definition(record.run_id) == world
+    assert reopened.read_world_definition(record.run_id).schema_version == 1
     assert reopened.read_run_config(record.run_id) == config
     root_branch = event_store_repository.event_store(record.run_id).read_branch(
         record.root_branch_id
@@ -251,13 +242,12 @@ def test_run_definition_and_non_secret_config_survive_reopen(
         "transitions",
         "events",
     }
-    if schema_version == 3:
-        with sqlite3.connect(path) as connection:
-            definition_json = connection.execute(
-                "SELECT document_json FROM world_definitions"
-            ).fetchone()[0]
-        assert '"source":"return {new_value: current_value};\\n"' in definition_json
-        assert "source_file" not in definition_json
+    with sqlite3.connect(path) as connection:
+        definition_json = connection.execute(
+            "SELECT document_json FROM world_definitions"
+        ).fetchone()[0]
+    assert '"source":"return {new_value: current_value};\\n"' in definition_json
+    assert "source_file" not in definition_json
 
 
 @pytest.mark.parametrize("kind", list(WorldMaterialKind))
@@ -392,6 +382,7 @@ def _world_document_for_distinct_ref() -> dict[str, object]:
             "state_variables": [],
         },
         "metadata": {},
+        "scenario_event_rules": [],
     }
 
 
@@ -432,14 +423,15 @@ def test_snapshot_identity_and_future_definition_version_corruption_fail(tmp_pat
 
     with sqlite3.connect(path) as connection:
         definition_document["world_definition_id"] = "world"
-        definition_document["schema_version"] = 99
+        future_version = WORLD_DEFINITION_SCHEMA_VERSION + 1
+        definition_document["schema_version"] = future_version
         connection.execute(
-            "UPDATE world_definitions SET schema_version = 99, document_json = ?",
-            (json.dumps(definition_document),),
+            "UPDATE world_definitions SET schema_version = ?, document_json = ?",
+            (future_version, json.dumps(definition_document)),
         )
     with pytest.raises(
         UnsupportedStorageVersionError,
-        match="WorldDefinition document version: 99",
+        match=f"WorldDefinition document version: {future_version}",
     ):
         persistence.read_world_definition(RunId("run"))
 

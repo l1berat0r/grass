@@ -14,6 +14,13 @@ LLMs, humans, scripts, deterministic providers, planners, and world resolvers ma
 
 The initial architecture is baselined as **`design-0.1`**. Slices 0–17 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, transport-neutral Application/Query APIs, the permanent local CLI, and reusable occurrence-only WorldPackage template infrastructure.
 
+ADR-0026 defines the pre-stable WorldDefinition reset: the current complete shape is
+initial schema 1, with required scenario-event rules and rule mechanics. Material edits to
+local templates must bump semantic `WorldDefinition.version`. Earlier pre-release local
+databases, snapshots, and installed package data are unsupported and require manual
+recreation. SQLite, WorldPackage, GEL, Event, run-configuration, and CLI version domains
+remain at version 1.
+
 The next architecture activity is the post-Slice-17 **Diagnostics Architecture** checkpoint. Actor-capable ordinary WorldPackage composition and actor templates are planned for Slice 18 only after their required architecture is accepted.
 
 Start here:
@@ -92,6 +99,9 @@ history, reopen, and verification do not depend on workspace contents.
 `templates/worlds/` contains editable local copies of bundled WorldPackage templates.
 Existing valid copies are preserved by repeated `grass init`; run creation snapshots the
 selected package normally and never depends on the installed copy afterward.
+
+Preserved local template edits are the user's authored package material. A material edit
+must update semantic `WorldDefinition.version`, even though the document remains schema 1.
 
 ## Development methodology
 

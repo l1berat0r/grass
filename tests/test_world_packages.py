@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 
+from grass.core import WORLD_DEFINITION_SCHEMA_VERSION
 from grass.core.mechanics import GelSetStateVariableMechanic
 from grass.worlds.package import (
     WorldPackageFormatError,
@@ -23,7 +24,7 @@ def world_document(world_id: str = "example-world") -> dict[str, object]:
     return {
         "world_definition_id": world_id,
         "version": "1.0",
-        "schema_version": 3,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": [],
             "relation_types": [],
@@ -131,16 +132,22 @@ def test_manifest_rejects_duplicate_and_unsafe_paths(tmp_path: Path, manifest: b
         load_world_package(root)
 
 
-def test_world_json_rejects_nonfinite_and_wrong_schema_version(tmp_path: Path) -> None:
+def test_world_json_rejects_nonfinite_and_future_schema_version(tmp_path: Path) -> None:
     root, _, _, _ = write_world_package(tmp_path)
     (root / "world.json").write_bytes(b'{"schema_version":1e10000}')
     with pytest.raises(WorldPackageFormatError, match="strict JSON"):
         load_world_package(root)
 
     (root / "world.json").write_text(
-        json.dumps({**world_document(), "schema_version": 2}), encoding="utf-8"
+        json.dumps(
+            {
+                **world_document(),
+                "schema_version": WORLD_DEFINITION_SCHEMA_VERSION + 1,
+            }
+        ),
+        encoding="utf-8",
     )
-    with pytest.raises(WorldPackageFormatError, match="schema_version 3"):
+    with pytest.raises(WorldPackageFormatError, match="schema_version 1"):
         load_world_package(root)
 
 

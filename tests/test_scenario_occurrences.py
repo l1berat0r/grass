@@ -30,12 +30,12 @@ def definition_document() -> dict[str, object]:
     return {
         "world_definition_id": "world",
         "version": "1.0",
-        "schema_version": 2,
+        "schema_version": 1,
         "vocabulary": {
             "entity_types": [],
             "relation_types": [],
             "resource_types": [],
-            "state_variable_types": [],
+            "state_variable_types": ["occurrence_marker"],
         },
         "initial_conditions": {
             "logical_time": 0,
@@ -46,7 +46,20 @@ def definition_document() -> dict[str, object]:
         },
         "metadata": {},
         "scenario_event_rules": [
-            {"rule_id": "outage", "trigger": {"kind": "AT_TIME", "logical_time": 10}}
+            {
+                "rule_id": "outage",
+                "trigger": {"kind": "AT_TIME", "logical_time": 10},
+                "mechanic": {
+                    "kind": "BUILTIN",
+                    "usage": "SET_STATE_VARIABLE",
+                    "implementation": "CONSTANT",
+                    "target": {
+                        "scope": {"kind": "WORLD"},
+                        "state_variable_type": "occurrence_marker",
+                    },
+                    "value": True,
+                },
+            }
         ],
     }
 

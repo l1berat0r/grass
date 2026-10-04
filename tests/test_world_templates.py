@@ -37,7 +37,7 @@ def test_registry_metadata_comes_from_fixed_inventory_and_valid_package() -> Non
     assert listed[0].world_definition_ref.world_definition_id == WorldDefinitionId(
         "occurrence-counter"
     )
-    assert listed[0].schema_version == 3
+    assert listed[0].schema_version == 1
     assert listed[0].files == (
         "README.md",
         "mechanics/increment.gel",
