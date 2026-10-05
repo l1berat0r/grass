@@ -12,7 +12,7 @@ LLMs, humans, scripts, deterministic providers, planners, and world resolvers ma
 
 ## Project status
 
-The initial architecture is baselined as **`design-0.1`**. Slices 0–17 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, transport-neutral Application/Query APIs, the permanent local CLI, and reusable occurrence-only WorldPackage template infrastructure.
+The initial architecture is baselined as **`design-0.1`**. Slices 0–17.1 are implemented on the current implementation branch, including the event-sourced/branchable core, scheduler, world resolution, perception/DecisionPoints, executable acceptance scenario, GEL, provider adapters, production runtime orchestration, durable SQLite persistence, data-defined WorldPackage composition with per-run snapshots, transport-neutral Application/Query APIs, the permanent local CLI, reusable occurrence-only WorldPackage template infrastructure, and local workspace/presentation support.
 
 ADR-0026 defines the pre-stable WorldDefinition reset: the current complete shape is
 initial schema 1, with required scenario-event rules and rule mechanics. Material edits to
@@ -21,7 +21,7 @@ databases, snapshots, and installed package data are unsupported and require man
 recreation. SQLite, WorldPackage, GEL, Event, run-configuration, and CLI version domains
 remain at version 1.
 
-The next architecture activity is the post-Slice-17 **Diagnostics Architecture** checkpoint. Actor-capable ordinary WorldPackage composition and actor templates are planned for Slice 18 only after their required architecture is accepted.
+The post-Slice-17.1 **Diagnostics Readiness** checkpoint is complete. Actor-capable ordinary WorldPackage composition and actor templates are next in Slice 18 after their required architecture is accepted; the evidence-driven **Diagnostics Architecture** checkpoint follows Slice 18.
 
 Start here:
 

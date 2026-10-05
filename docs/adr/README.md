@@ -46,7 +46,7 @@ ADR-0002 remains Draft and documents the current replaceable capability-evaluati
 
 ## Current implementation planning
 
-Slices 0–17 are implemented on the implementation branch. The next activity is the post-Slice-17 Diagnostics Architecture checkpoint. Slice 18 actor-capable WorldPackage composition requires a new accepted architecture decision; `ROADMAP.md` retains the current sequencing.
+Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on the implementation branch. Slice 18 actor-capable WorldPackage composition is next and requires a new accepted architecture decision. The evidence-driven Diagnostics Architecture checkpoint follows Slice 18; `ROADMAP.md` retains the current sequencing.
 
 ADR-0026 resets the unreleased complete WorldDefinition representation to its initial
 schema version 1 and supersedes the schema-number and compatibility statements in

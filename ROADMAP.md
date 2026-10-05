@@ -14,7 +14,7 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
-**Current status:** Slices 0–17 are implemented on `impl/v0.1-gpt`. The next activity is the post-Slice-17 Diagnostics Architecture checkpoint. Slice 18 actor-capable WorldPackage composition requires a new accepted architecture decision; backend/frontend and other later capabilities remain unsequenced.
+**Current status:** Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on `impl/v0.1-gpt`. The next implementation slice is Slice 18 actor-capable WorldPackage composition, which requires a new accepted architecture decision. The evidence-driven Diagnostics Architecture checkpoint follows Slice 18; backend/frontend and other later capabilities remain unsequenced.
 
 ADR-0026 approves a pre-stable WorldDefinition schema reset before further slices: the
 current complete WorldDefinition shape becomes initial schema 1, with no migration support
@@ -212,7 +212,7 @@ Initial command families should cover:
 - `grass inspect state/events/branches/jobs/job/decisions/decision ...`;
 - `grass inspect actors RUN` and `grass inspect actor RUN ACTOR`;
 - actor-focused observation/decision/Plan/Job/history inspection;
-- provider/configuration diagnostics where useful.
+- provider/configuration inspection where useful.
 
 CLI requirements:
 
@@ -289,10 +289,32 @@ or persistence semantics:
 - allow installed ordinary WorldPackages to enter the unchanged run-creation path through
   `run create --template NAME` without fallback to bundled source material.
 
-## Post-Slice-17 architecture checkpoint — Diagnostics Architecture
+## Post-Slice-17.1 architecture checkpoint — Diagnostics Readiness
 
-Stop before actor-capable WorldPackage implementation. The next architecture activity is
-Diagnostics Architecture, preserving this boundary:
+**Status: complete**
+
+Before actor-capable WorldPackage implementation, preserve enough semantic actor-domain
+history for later evidence-driven diagnostics without designing or implementing a
+Diagnostics API. This checkpoint clarifies existing accepted contracts and does not add a
+new authority, persistence model, CLI surface, or schema.
+
+Slice 18 must follow these readiness principles:
+
+- committed Event history remains canonical; diagnostics must not become a second source
+  of truth;
+- preserve naturally meaningful identities and semantic links across Perception/
+  Observation, DecisionPoint, Decision, Plan/PlanStep, Job, world resolution, and committed
+  Events;
+- keep provenance, explicit causation/correlation, actor identity, and provider-binding
+  references first-class where existing contracts make them material;
+- prefer typed domain references and explicit Event causation over opaque metadata when a
+  relationship has actor-domain meaning;
+- avoid both lossy removal of materially meaningful domain relationships and speculative
+  fields added only for a future diagnostics design;
+- do not retain private chain-of-thought, credentials, or transient implementation details
+  merely for possible future explanation.
+
+The conceptual ownership boundary is:
 
 ```text
 Query API
@@ -305,9 +327,11 @@ Debug tooling
     lower-level implementation inspection
 ```
 
-Slice 17 does not implement Diagnostics. The checkpoint should also inspect actual data
-shape, query patterns, run size, authoring ergonomics, and performance before actor-capable
-composition is designed.
+When actor communication is represented by semantic simulation history, its transcript or
+content, sender/recipient, logical time/order, and conversation history are Query facts.
+Why an actor communicated, which perception or DecisionPoint triggered it, and its
+provider/decision lineage are future Diagnostics concerns. This checkpoint does not freeze
+a `Message`, `Conversation`, transcript, or other communication schema.
 
 ### Slice 18 — actor-capable WorldPackage composition and actor templates
 
@@ -319,6 +343,12 @@ and DecisionPoints where needed, perception, DecisionPoint triggering, provider/
 ownership and authoring, Plan/Job participation, actor world effects, and the resource
 interaction/conflict semantics needed by conflict examples.
 
+The decision must also preserve the readiness principles above wherever the actor-domain
+model naturally provides semantic identities or relationships. It must make actor
+communication queryable as simulation history when communication is modeled, but must not
+invent diagnostics-only state or implement a Diagnostics API, CLI, persistence model, or
+provider trace format.
+
 The intended actor-oriented set includes minimal actor interaction, a small multi-actor
 team/social scenario, and a shared-resource conflict scenario. Shared-resource conflict may
 move to a later slice if its semantics should follow the initial actor-capable composition
@@ -327,6 +357,29 @@ rather than be frozen with it.
 Do not emulate these examples with Entity-property conventions, metadata conventions,
 opaque PlanStep parameters, narrated StateVariable changes, test-only composition, or hidden
 template mechanics.
+
+## Post-Slice-18 architecture checkpoint — Diagnostics Architecture
+
+**Status: planned after Slice 18**
+
+Use evidence from actor-capable runs rather than anticipated requirements to design the full
+Diagnostics Architecture. The checkpoint must decide:
+
+- exact ownership among Query facts, Diagnostics explanations, and low-level Debug data;
+- which semantic links and explanatory evidence are available, incomplete, or require new
+  accepted contracts;
+- provider-invocation detail, retention, redaction, credentials/security boundaries, and
+  reproducibility metadata;
+- replay and branch treatment without regenerating historical cognition, resolution, or
+  provider calls;
+- which diagnostics are computed ephemerally, stored as rebuildable projections/indexes,
+  or sufficiently material to require an explicit durable contract;
+- data-size, access-pattern, pagination, indexing, and performance implications;
+- effects on ordinary WorldPackage authoring and validation ergonomics.
+
+Only after this checkpoint should Diagnostics implementation be sequenced. It must continue
+to derive from canonical history and accepted runtime configuration rather than introduce a
+parallel account of simulation reality.
 
 ## Remaining actor-capable local 0.1 milestone
 

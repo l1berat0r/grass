@@ -4,9 +4,9 @@
 
 The local 0.1 work proves usable simulator capabilities without requiring the user to add Python code to GRASS itself.
 
-The work is intentionally local-first. Slices 12 through 17 prove runtime orchestration, persistence, occurrence-only world composition, branching, replay, inspection, and template authoring workflows before committing to a backend/frontend architecture or a final actor-memory model. Actor-capable ordinary worlds remain a separate milestone.
+The work is intentionally local-first. Slices 12 through 17.1 prove runtime orchestration, persistence, occurrence-only world composition, branching, replay, inspection, template authoring, and local workspace workflows before committing to a backend/frontend architecture or a final actor-memory model. Actor-capable ordinary worlds remain a separate milestone.
 
-Slices 0–17 are complete. The next activity is the Diagnostics Architecture checkpoint described in `ROADMAP.md`; actor-capable WorldPackage composition follows only after its Slice-18 architecture is accepted.
+Slices 0–17.1 and the Diagnostics Readiness checkpoint are complete. Slice 18 actor-capable WorldPackage composition is next after its required architecture is accepted. The evidence-driven Diagnostics Architecture checkpoint follows Slice 18 as described in `ROADMAP.md`.
 
 ## Architectural boundary
 
@@ -260,6 +260,21 @@ Observations, and DecisionPoints. Actor history is mechanically attributed throu
 cognition, Plans, Jobs, and Job resolution. A matching Event selects its complete atomic
 transition; Event sequence is not treated as causality.
 
+## Diagnostics readiness
+
+Query read models report state and history facts reconstructed from canonical Events.
+Future Diagnostics may explain those facts by following explicit actor-domain identities,
+references, provenance, causation, correlation, and non-secret provider-binding information.
+Debug tooling may expose lower-level implementation details, but neither surface may become
+an alternate source of simulation truth or a write path.
+
+Slice 18 must preserve meaningful links among Observations, DecisionPoints, Decisions,
+Plans/PlanSteps, Jobs, resolution, and Events when those links naturally exist. It must not
+add speculative diagnostics fields or persist private chain-of-thought, credentials, or
+transient traces. Modeled actor dialogue and conversation history are Query facts; later
+explanations of their triggering cognition and provider lineage belong to Diagnostics. No
+communication or Diagnostics API/storage schema is fixed here.
+
 ## Runtime status
 
 The implemented derived status set is:
@@ -510,17 +525,21 @@ The user may close the process and continue later. The run remains available thr
 
 Actor-capable ordinary package and provider authoring remains Slice 18 architecture work.
 
-## Deliberately deferred until after practical local runs
+## Post-Slice-18 Diagnostics Architecture
 
-The local milestone is intended to generate evidence before freezing the next architecture sequence.
-
-After several real runs, review:
+Actor-capable runs are intended to generate evidence before Diagnostics contracts are
+frozen. After Slice 18, review:
 
 - actual Event/run/database size and access patterns;
 - which actor-oriented queries are useful;
 - provider token/context/cost behavior;
+- which provider invocation details are explanatory, how they are redacted/retained, and
+  which existing provenance is sufficient;
+- how diagnostics behave under replay and branching without regenerating historical
+  cognition, resolution, or provider calls;
 - whether actor memory requires episodic/semantic/retrieval/compaction concepts and which parts are authoritative;
-- whether SQLite remains adequate and which derived indexes/read models are justified;
+- which diagnostics remain ephemeral, which rebuildable projections/indexes are justified,
+  and whether SQLite remains adequate;
 - world-authoring ergonomics and validation failures;
 - which inspection/observer capabilities are most useful;
 - whether HTTP/backend/frontend is the highest-value next step.

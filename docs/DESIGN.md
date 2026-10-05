@@ -502,6 +502,13 @@ Information/claims are first-class and provenance-aware. Received information is
 
 A useful model may include claim/content, source/provenance, sender/recipients, channel, logical time, credibility/confidence, retransmission ancestry, and transformations/summaries.
 
+When actor communication is represented by semantic Events, its content or transcript,
+sender/recipient, logical time/order, and conversation history are simulation facts available
+through Query read models. Explanations of why the communication occurred, including the
+triggering perception or DecisionPoint and provider/decision lineage, belong to future
+Diagnostics derived from explicit semantic links. This distinction does not define a
+`Message`, `Conversation`, transcript, or storage schema.
+
 ## 8. Actor-facing action model
 
 `ActionProposal` states what an actor intends to attempt. It does not contain resolver-calculated mechanics or authoritative outcome deltas.
@@ -1189,7 +1196,30 @@ A Simulation Analyst is external/read-only. Deterministic metric computation sho
 
 Metrics may later include resource concentration/Gini/quantiles, mobility, network centrality, formal authority, social influence, information centrality, trust capital, and information flow. Observer/analyst knowledge may exceed actor knowledge; this must not leak into actor cognition.
 
-### 18.1 Local Application and Query APIs
+### 18.1 Query, Diagnostics, and Debug
+
+Query reports what happened: canonical state/history facts and read models reconstructed at
+an exact history position. Diagnostics explains why a fact or runtime condition arose by
+following available semantic identities, references, provenance, causation, correlation,
+and accepted run configuration. Debug tooling exposes lower-level implementation details.
+Neither Diagnostics nor Debug is a second authority over simulation reality. Explanations
+remain bounded by recorded evidence and never infer causation from Event sequence alone.
+
+Actor-capable composition must preserve naturally meaningful links across Perception/
+Observation, DecisionPoint, Decision, Plan/PlanStep, Job, world resolution, and committed
+Events. When an actor-domain relationship already has a stable identity, typed reference,
+or explicit Event cause, it should not be replaced by opaque metadata. Actor identity and
+material provider-binding references remain explicit under their accepted contracts;
+credentials remain outside persisted provenance and read models.
+
+Readiness for future explanation does not justify diagnostics-only fields in actor-domain
+contracts. It requires avoiding loss of materially meaningful identities and relationships,
+not retaining private chain-of-thought, credentials, raw cognition-provider prompts or
+transcripts, or transient implementation traces. Exact Diagnostics APIs, persistence,
+derived indexes, retention, and presentation remain deferred until actor-capable runs
+provide evidence.
+
+### 18.2 Local Application and Query APIs
 
 The transport-neutral local Application API owns package-backed run creation, reopen and
 empty-root genesis recovery, step/advance, exact-position branch creation, and read-only
