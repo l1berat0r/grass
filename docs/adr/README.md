@@ -42,7 +42,14 @@ After the baseline, material changes to core architectural contracts should norm
 - ADR-0026 — pre-stable WorldDefinition schema reset;
 - ADR-0027 — local workspace filesystem boundary.
 
-ADR-0002 remains Draft and documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
+## Current draft architecture records
+
+- ADR-0002 — replaceable capability-evaluation direction;
+- ADR-0028 — actor-capable world composition, scenario reactions, and perception.
+
+ADR-0002 documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
+
+ADR-0028 records the accepted-in-discussion Slice-18 direction for actor declarations/templates, scenario reactions, ScheduledResolution integration, active/passive perception, Stimulus, and `ObservationContent`. It remains Draft until the remaining Slice-18 decisions are resolved.
 
 ## Current implementation planning
 
