@@ -382,6 +382,87 @@ Observation history must remain first-class, actor-relative, replayable, and pro
 
 Slice 18 must not prematurely freeze embedding retrieval, automatic summarization, forgetting, consolidation, short-term/long-term stores, or belief-update rules. Evidence from actor-capable runs and the post-Slice-18 Diagnostics Architecture checkpoint should inform the dedicated memory/cognition design.
 
+## Decision 12: Passive-perception fan-out uses one cognition transition per actor
+
+When one passive-perception source reaches multiple actors, GRASS does not commit all recipients as one large multi-actor cognition transition. Each recipient is materialized independently in one actor-scoped cognition transition.
+
+Conceptually:
+
+```text
+one settled passive-perception source
+    -> Alice Observation transition
+    -> Bob Observation transition
+    -> Carol Observation transition
+    -> ...
+```
+
+Each such transition may atomically contain:
+
+```text
+ObservationCreated(actor)
+optional DecisionPointCreated(actor)
+```
+
+All Observations caused by the same settled world/reaction frontier use the applicable common `LogicalTime`. Their branch Event `sequence` values exist for deterministic append/replay order only and do not mean that Alice perceived the occurrence before Bob merely because Alice's Event was appended first.
+
+Actor-relative perception remains independent. Different recipients may receive different ObservationContent or no Observation at all according to the scenario perception mechanic. Failure to derive or materialize one recipient's candidate therefore does not require rolling back already valid cognition transitions for unrelated actors; normal runtime failure/validation policy still applies to the failed work item.
+
+A passive-perception wave has a cognition barrier: resulting DecisionPoints may be created with their Observations, but no resulting actor decision/provider invocation is serviced until all outstanding passive perceptions at that current frontier have been drained.
+
+This preserves same-time semantics without requiring a large all-recipient database transaction:
+
+```text
+passive-perception source
+    -> all applicable actor Observation transitions
+    -> passive-perception frontier quiescent
+    -> pending decisions may run
+```
+
+No persisted fan-out cursor is introduced. Outstanding recipient work is rebuildable from canonical source/reaction history, immutable scenario mechanics, actor applicability, and existing `ObservationCreated` causation/provenance. If a process stops after Alice and Bob were recorded but before Carol, reopen/rebuild recognizes Alice and Bob as already consumed for that source and continues only the missing actor-relative perception work.
+
+Reconstruction of outstanding perception does not rerun an already consumed scenario reaction or repeat its state consequences. It only rederives the still-outstanding passive-perception candidates from canonical history plus the immutable run/world inputs.
+
+## Decision 13: Runtime frontier prioritizes world stabilization before perception and cognition
+
+ADR-0022's runtime-frontier principle is retained and refined for the new Slice-18 work classes.
+
+At one current `LogicalTime`, the runtime priority is:
+
+```text
+1. outstanding immediate scenario reactions
+2. outstanding passive perception
+3. pending DecisionPoints / decision acquisition
+4. ready PlanStep / Job starts
+5. scheduler work, including due Job/scenario resolution work and
+   future scenario-reaction ScheduledResolutions
+```
+
+After every committed transition, the engine restarts frontier evaluation from priority 1 rather than continuing blindly through a lower-priority queue.
+
+Immediate scenario reactions therefore stabilize the authoritative world frontier before downstream passive perception and cognition are allowed to react to it. For example:
+
+```text
+Bob enters camp
+    -> trap reacts
+    -> alarm becomes active
+    -> automatic lockdown reacts
+    -> immediate world frontier is stable
+    -> alarm/lockdown passive perception is drained
+    -> resulting actor decisions may run
+```
+
+This ordering does not mean actors can perceive only a collapsed final state. Individual scenario reactions may produce distinct perceptual consequences, and those consequences can become distinct actor-relative Observations. The rule only prevents actor cognition from acting in the middle of a zero-time immediate world-reaction cascade.
+
+If a scenario intentionally allows reaction time between two consequences, the later consequence must be temporal rather than immediate, for example through a future `ScheduledResolution`.
+
+A future `ScheduledResolution` does not preempt unresolved work at the current logical time. Logical time may advance to that future point only when the current frontier has no higher-priority immediate reactions, passive perception, pending decisions, or ready starts that must be serviced first under the accepted scheduler/runtime contracts.
+
+When scheduler work commits a due future scenario reaction, Job resolution, or scenario occurrence, the engine again restarts at priority 1 so any new immediate scenario reactions and passive perceptions settle before decisions or further lower-priority work.
+
+The same restart rule applies to active perception. An `OBSERVE` resolution may atomically create an Observation and DecisionPoint, but if that committed observation attempt or its accompanying world/execution history makes an immediate scenario reaction outstanding, that reaction is processed before the actor's new DecisionPoint is serviced.
+
+The existing runtime work/step budget remains the protection against pathological mechanics that continually create new reaction identities and never allow a frontier to quiesce. `ScenarioReactionRef` consumption prevents the same concrete reaction from being processed repeatedly, but it does not make arbitrary self-generating scenario logic impossible; exceeding the configured bounded-work policy is a runtime stop/failure condition rather than permission for an infinite loop.
+
 ## Consequences
 
 ### Positive
@@ -396,16 +477,20 @@ Slice 18 must not prematurely freeze embedding retrieval, automatic summarizatio
 - no-op scenario reactions remain reconstructable and are not accidentally re-executed after reopen;
 - `ObservationContent` keeps cognition output outside the WorldEffect algebra while reusing the existing canonical Observation contract;
 - an OBSERVE Job cannot complete historically without its accepted perceived result;
+- multi-actor passive perception preserves common logical-time semantics without requiring one large all-recipient transition;
+- actors cannot react before the same-frontier passive-perception wave has been drained;
+- immediate scenario mechanics stabilize the world before downstream actor cognition while still allowing explicitly delayed consequences through ScheduledResolution;
 - Diagnostics can later explain decisions from canonical Observation content and explicit semantic lineage without a duplicate diagnostics data model;
 - the eventual actor memory model remains free to evolve from real run evidence.
 
 ### Costs and constraints
 
-- runtime frontier orchestration must add scenario-reaction discovery/consumption and define its priority relative to existing automatic perception, decisions, ready work, and future scheduler work;
+- runtime frontier orchestration must discover and deterministically drain immediate scenario reactions and actor-relative passive-perception work before lower-priority cognition/execution work;
 - scenario-reaction identity and scheduling must be deterministic/rebuildable without hidden cursors or timer state;
+- passive-perception recipient consumption must be rebuildable without a persisted fan-out cursor;
 - world composition needs explicit scenario reaction and perception mechanic authoring contracts;
 - resolution materialization must atomically validate Events across ExecutionState and CognitionState;
-- passive-perception fan-out may produce significant Observation volume in large worlds and requires deliberate same-time/batching semantics;
+- passive-perception fan-out may produce significant Observation/Event volume in large worlds even though each actor transition stays small;
 - scenario authors who need rich physical perception must model that detail explicitly rather than receiving it automatically from core.
 
 ## Alternatives considered
@@ -438,13 +523,19 @@ Rejected because the perception mechanic supplies semantic perceived content, no
 
 Rejected because accepted content is already canonical as `Observation.content`. Diagnostics must derive explanations from domain history rather than create a second persistence authority.
 
+### Commit one multi-actor cognition transition for a passive-perception fan-out
+
+Rejected because actor-relative perception is independently derived, may legitimately differ by actor, may fail independently, and can fan out to large populations. Common `LogicalTime` plus a runtime perception barrier preserves semantic simultaneity without coupling every recipient to one atomic commit.
+
+### Allow decisions to run while same-frontier passive perception or immediate reactions remain outstanding
+
+Rejected because actor behavior would then depend on engine iteration order and could react to a partially settled world/perception wave. Immediate scenario reactions stabilize first, then passive perception drains, then pending cognition is serviced.
+
 ## Remaining open Slice-18 decisions
 
 This ADR remains Draft. The following topics still need explicit resolution before Slice 18 implementation begins:
 
-- exact passive-perception fan-out and same-time transition semantics when one reaction reaches multiple actors;
 - exact scenario-reaction and perception mechanic authoring schemas, including built-in versus GEL usage-specific contracts;
-- exact runtime frontier ordering for outstanding immediate scenario reactions, passive perception, decisions, ready PlanStep/Job work, and scheduled work;
 - initial actor cognition/bootstrap and `PLAN_REQUIRED` creation semantics;
 - provider/run-config ownership and authoring for actor-capable packages;
 - the remaining Decision -> Plan -> PlanStep -> Job materialization path where current bounded reactions become executable behavior;
