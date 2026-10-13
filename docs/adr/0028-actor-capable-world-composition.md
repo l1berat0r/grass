@@ -9,23 +9,21 @@ Slice 18 must make ordinary WorldPackages actor-capable without creating a secon
 
 The current architecture already fixes several relevant boundaries:
 
-- actors are entity-backed participants rather than a separate world-state identity system;
+- actors are Entity-backed participants rather than a separate world-state identity system;
 - `PlanStep` has exactly one primitive from the closed v0.1 set, including `OBSERVE` and `COMMUNICATE`;
 - Jobs are the executable form of started PlanSteps;
 - `WorldEffect` is a closed candidate algebra for authoritative world/execution consequences and is distinct from committed Events;
 - `Observation` is actor-relative persistent cognition with stable identity, content, provenance, and logical time;
 - `DecisionTriggerPolicy` decides whether one Observation creates a DecisionPoint;
 - `ScheduledResolution` is ephemeral and rebuildable from authoritative state/history and scenario mechanics;
-- ordinary replay must never regenerate historical perception, cognition, world resolution, randomness, or provider output;
+- ordinary replay never regenerates historical perception, cognition, world resolution, randomness, or provider output;
 - diagnostics must later explain accepted behavior from existing semantic identities, provenance, causation, correlation, and recorded domain facts rather than from a parallel diagnostics authority.
 
-Slice 18 also needs practical authoring rules for initial actors and reusable templates, runtime actor creation, active and passive perception, scenario-defined reactions to committed world changes, future scenario reactions, and the boundary between world resolution and actor cognition.
-
-This ADR records the decisions reached so far. It remains Draft until the remaining Slice-18 architecture topics listed at the end are resolved.
+This ADR records the Slice-18 architecture decisions reached so far. It remains Draft until the remaining topics listed at the end are resolved.
 
 ## Decision 1: Actor declarations and reusable templates
 
-An ordinary actor-capable WorldPackage may contain separate authored actor declarations and reusable actor templates, conceptually:
+An actor-capable WorldPackage may contain separate authored actor declarations and reusable actor templates, conceptually:
 
 ```text
 world-package/
@@ -41,21 +39,19 @@ world-package/
     └── ...
 ```
 
-`actors/*.json` declare concrete actors that exist at world bootstrap. They use stable authored actor/entity identities.
+`actors/*.json` declare concrete actors that exist at world bootstrap and use stable authored actor/entity identities.
 
-`actor_templates/*.json` declare reusable definitions. A template may be used during authoring to compose an initial actor and may also be used at runtime to instantiate a new actor when the scenario explicitly permits that operation.
+`actor_templates/*.json` declare reusable definitions. A template may be used while authoring an initial actor and may also be used at runtime to instantiate a new actor when scenario semantics explicitly authorize that operation.
 
-A template is a definition, not a runtime actor subtype. Template instantiation always creates an ordinary actor-capable Entity; no `TemplateActor` runtime type is introduced.
+A template is a definition, not a runtime actor subtype. Instantiation always creates an ordinary actor-capable Entity; no `TemplateActor` runtime type is introduced.
 
-Template existence alone does not authorize runtime actor creation. Scenario/world mechanics must explicitly define whether creation is allowed, from which templates, under what conditions, and by which authority. Exact spawn-policy schema remains open.
+Template existence does not itself authorize runtime actor creation. Scenario/world mechanics must explicitly govern whether creation is allowed, from which templates, and under what authority. Exact spawn-policy schema remains open.
 
 An authored actor should initially use at most zero or one template plus actor-local overrides. Template inheritance/chaining is not required for Slice 18.
 
-Initial actor declarations are scenario declarations, not runtime state. Run bootstrap materializes them through the normal validated initialization/Event path so actor existence is reconstructable from canonical history rather than hidden package-composer mutation.
+Initial actor declarations are scenario declarations, not runtime state. Run bootstrap materializes them through the normal validated initialization/Event path. Runtime actor creation likewise produces canonical Entity/actor history. Replay never reruns actor-creation decisions or randomization.
 
-Runtime actor creation likewise produces normal actor/entity state and must be recorded in canonical history with enough identity and provenance to reconstruct the same actor during replay. Replay never reruns the actor-creation decision or randomization.
-
-Runtime-created actor identities are engine-controlled canonical identities unless an accepted scenario mechanic explicitly supplies a stable identity under a future contract.
+Runtime-created identities are engine-controlled canonical identities unless an accepted future mechanic contract explicitly supplies a stable identity.
 
 ## Decision 2: Two perception origins and one active-perception primitive
 
@@ -71,9 +67,9 @@ Actor perception has two origins:
 
 ### Active perception
 
-`OBSERVE` remains the single actor-facing v0.1 primitive for intentional perception. Core does not add separate `LOOK`, `READ`, `LISTEN`, `INSPECT`, or similar primitives.
+`OBSERVE` remains the single actor-facing v0.1 primitive for intentional perception. Core does not add `LOOK`, `READ`, `LISTEN`, `INSPECT`, or similar primitives.
 
-Different observation behaviors are expressed through the `OBSERVE` PlanStep's bindings/parameters, optional Blueprint, and scenario perception mechanics, for example:
+Different observation behaviors are expressed through `OBSERVE` PlanStep bindings/parameters, optional Blueprints, and scenario perception mechanics, for example:
 
 ```text
 OBSERVE target=document-17 mode=read
@@ -81,27 +77,21 @@ OBSERVE target=room mode=look-around
 OBSERVE target=direction-east mode=listen
 ```
 
-An observation attempt may succeed, partially succeed, be blocked, or fail while still revealing actor-relative information. For example, a locked rack may produce a BLOCKED resolution while still yielding content equivalent to "rack is locked".
+An observation attempt may succeed, partially succeed, be blocked, or fail while still revealing actor-relative information. A locked rack may therefore yield a blocked Job outcome while still producing content equivalent to `rack is locked`.
 
 ### Passive perception
 
 Passive perception occurs only when scenario mechanics explicitly define a perceptual consequence. Core does not infer a physical simulation from arbitrary world changes.
 
-The baseline rule is:
-
 > If an actor action is not intended to produce perception by others and scenario mechanics do not explicitly define a perceptual consequence, the action produces no passive-perception stimulus.
 
-For example, `MOVE Bob office -> corridor` does not implicitly generate footsteps, door movement, sound, field-of-view changes, air movement, or other physical traces merely because they would exist in the real world.
+For example, `MOVE Bob office -> corridor` does not implicitly generate footsteps, door movement, sound, field-of-view changes, or similar physical traces.
 
-A deliberately modeled action such as slamming a door, activating an alarm, firing a weapon, or triggering a trap may explicitly produce a perceptual consequence.
+`COMMUNICATE` remains a separate primitive/path. Communication content/history is not redefined as a generic Stimulus merely to reuse passive-perception plumbing.
 
-`COMMUNICATE` remains a separate existing primitive/path. Communication content/history is not redefined as a generic Stimulus merely to reuse passive-perception plumbing.
+## Decision 3: Stimulus is transient scenario-mechanic output
 
-## Decision 3: Stimulus is transient scenario-mechanic output, not canonical state
-
-`Stimulus` is a narrow transient concept used by passive perception.
-
-Conceptually:
+`Stimulus` is a narrow transient concept used by passive perception:
 
 ```text
 committed world occurrence
@@ -111,19 +101,17 @@ committed world occurrence
     -> zero or more actor-relative Observations
 ```
 
-A Stimulus indicates that an accepted world occurrence has an explicitly modeled perceptual consequence for potential actors. It is not automatically inferred from arbitrary Events and is not authoritative simulation state.
+A Stimulus indicates that an accepted world occurrence has an explicitly modeled perceptual consequence. It is not automatically inferred from arbitrary Events and is not authoritative simulation state.
 
 Slice 18 does not introduce `StimulusId`, `StimulusCreated`, or `StimulusState` merely to support passive perception.
 
-The default perception behavior should be as simple as practical for ordinary scenarios, for example scope/recipient rules based on same versus different location. More detailed perception may be expressed through scenario mechanics, including GEL where the usage-specific contract supplies explicit typed inputs. GRASS core does not become a general physics, acoustics, visibility, or sensor simulator.
+Default perception behavior should remain simple for ordinary scenarios, for example location-based recipient rules. Richer perception may be modeled by scenario mechanics, including GEL where a usage-specific contract supplies explicit typed inputs. GRASS core does not become a general physics, acoustics, visibility, or sensor simulator.
 
 The authoritative actor-relative result is `Observation`, not Stimulus.
 
 ## Decision 4: Scenario reactions follow committed world changes
 
-Actor Job resolution commits only the direct accepted consequences of the attempted primitive. Scenario-defined reactions to those consequences are evaluated afterward rather than being silently folded into every primitive resolver.
-
-Conceptually:
+Actor Job resolution commits only the direct accepted consequences of the attempted primitive. Scenario-defined secondary consequences are evaluated afterward rather than being silently folded into primitive resolvers.
 
 ```text
 actor/world action
@@ -133,73 +121,63 @@ actor/world action
     -> zero or more additional authoritative reactions
 ```
 
-This allows generic primitives to remain domain-neutral. For example, `MOVE` knows how movement is attempted/resolved; a trap, alarm, institutional rule, environmental process, or other scenario mechanic separately decides whether the resulting committed state/history requires a reaction.
+Generic primitives therefore remain domain-neutral. `MOVE` resolves movement; traps, alarms, institutions, environmental rules, and similar scenario behavior react separately to committed state/history.
 
-Immediate scenario reactions normally execute at the same `LogicalTime` as their source occurrence but as separate authoritative transitions with explicit causation. Same-time Event/transition append order does not itself establish causality.
+Immediate scenario reactions normally execute at the same `LogicalTime` as their source occurrence but as separate authoritative transitions with explicit causation. Same-time append order is replay/storage order, not causality.
 
-Immediate scenario reactions stabilize before downstream passive perception and actor cognition that depend on their results. This permits chains such as:
+Immediate scenario reactions stabilize before downstream passive perception and actor cognition that depend on their results.
 
-```text
-Bob enters camp
-    -> committed MOVE consequence
-    -> trap mechanic evaluates
-    -> trap state changes / actor effects
-    -> optional trap-noise Stimulus
-    -> actor Observations
-    -> optional DecisionPoints
-```
-
-A scenario reaction may produce three conceptually distinct kinds of result:
+A scenario reaction may produce conceptually distinct result classes:
 
 ```text
 1. immediate authoritative state/execution consequences
 2. immediate perceptual consequences
-3. future temporal consequences
+3. future temporal continuations
 ```
-
-The exact usage-specific mechanic schemas remain open.
 
 ## Decision 5: Future scenario reactions use rebuildable ScheduledResolution semantics
 
 Scenario-reaction mechanics do not mutate a hidden scheduler queue and do not persist timers as scheduler state.
 
-Instead, accepted authoritative state/history plus scenario mechanics may imply a future material reaction point. The scheduler derives an ephemeral `ScheduledResolution` for that point using the existing rebuildable scheduler contract.
+Accepted reaction semantics may produce zero or more future `TemporalContinuation`s. Each continuation represents a future material reaction point. The scheduler derives an ephemeral `ScheduledResolution` from canonical reaction history plus the accepted continuation semantics.
 
-When the resolution becomes due, the relevant scenario-reaction mechanic is evaluated again against current authoritative state and history. It may then produce further immediate state consequences, perceptual consequences, and/or another future material reaction point.
+A continuation is not a precomputed future effect. When it becomes due, the target scenario reaction is evaluated again using current explicitly declared inputs and may produce ordinary consequences or a valid no-op.
 
-For example:
+Example:
 
 ```text
 10:00:00 unauthorized entry
-    -> alarm.state = ACTIVE
+    -> alarm becomes ACTIVE
+    -> accepted reaction result implies continuation +30s
 
 scheduler derives:
-    escalation due at 10:00:30
+    escalation reconsideration at 10:00:30
 
-10:00:30 scheduled resolution
-    -> alarm mechanic re-evaluates current state
-    -> if still ACTIVE: alert police
-    -> optional new Stimulus
-    -> optional later escalation resolution
+10:00:30
+    -> target reaction mechanic evaluates current declared inputs
+    -> may alert police
+    -> or may validly produce no-op
 ```
 
-If another accepted transition changes the state before 10:00:30, for example setting the alarm to INACTIVE, scheduler rebuild/reprojection may remove the future candidate. A ScheduledResolution is a prediction from authoritative inputs, not a persisted promise.
+Changing ordinary world state after the continuation was created does not implicitly issue a scheduler cancellation command. The future material point remains derived from its canonical anchor and continuation semantics; current state is considered when the due mechanic executes.
 
-Scenario state determines whether a mechanic may react again. An alarm may be modeled as a short retriggerable pulse, as a latched state that remains active until explicitly reset, or with another scenario-defined lifecycle. These behaviors are scenario semantics rather than core alarm behavior.
+If a deadline/time is itself meaningful modeled world state, that temporal fact may be persisted through ordinary world semantics. Otherwise due time remains derivable from canonical history and the continuation definition.
+
+A `ScheduledResolution` remains derived runtime data rather than authoritative timer state.
 
 ## Decision 6: Scenario reactions have canonical consumption identity
 
-Scenario reactions must remain replayable/rebuildable even when evaluating a source occurrence produces no world effect and no perceptual consequence.
+Scenario reactions must remain replayable/rebuildable even when evaluation produces no world effect and no perceptual consequence.
 
-Use the same architectural pattern already established for one-shot scenario occurrences: a concrete reaction has a stable reference and successful evaluation records canonical consumption.
+A concrete reaction has a stable reference and successful evaluation records canonical consumption.
 
 Conceptually:
 
 ```text
 ScenarioReactionRef
-    mechanic/rule identity
+    rule/mechanic identity
     source occurrence/Event identity
-    additional reaction key only where the mechanic requires it
+    additional reaction key only where required
 ```
 
 and:
@@ -209,25 +187,25 @@ ScenarioReactionResolved
     reaction_ref
 ```
 
-The exact v1 fields and identity vocabulary remain to be fixed during implementation design, but the semantic requirements are:
+Requirements:
 
 - one concrete source-triggered reaction can be recognized across runtime reconstruction;
-- an accepted evaluation records consumption even when it is a valid no-op;
-- a consumed reaction is not evaluated again on ordinary replay/reopen;
-- a fork before the reaction may evaluate it independently;
-- a fork after the reaction inherits the recorded consumption;
-- future scheduled evaluations are separate reaction occurrences/references rather than implicit reuse of a consumed source-triggered reaction;
-- replay never executes the mechanic to reconstruct historical reaction results.
+- accepted evaluation records consumption even for a valid no-op;
+- a consumed reaction is not reevaluated on ordinary replay/reopen;
+- a fork before the reaction may evaluate independently;
+- a fork after the reaction inherits consumption;
+- a future scheduled evaluation is a separate reaction occurrence/reference;
+- replay never executes a mechanic to reconstruct historical reaction results.
 
-`ScenarioReactionResolved` is a historical/semantic Event and need not mutate WorldState directly. It commits atomically with any state/execution Events produced by that reaction.
+`ScenarioReactionResolved` is a semantic historical Event and commits atomically with any authoritative Events produced by that reaction.
 
 ## Decision 7: OBSERVE resolution produces ObservationContent beside WorldEffects
 
-`OBSERVE` remains a normal executable `PlanStep -> Job` primitive and uses the normal scheduling/resolution path.
+`OBSERVE` remains a normal executable `PlanStep -> Job` primitive using the normal scheduling/resolution path.
 
-Its resolution may produce actor-relative `ObservationContent` in addition to the normal Job resolution outcome and any allowed world/execution candidate results.
+Its resolution may produce actor-relative `ObservationContent` in addition to the normal Job outcome and allowed world/execution candidate results.
 
-`ObservationContent` is not a `WorldEffect` and is not itself an authoritative `Observation`.
+`ObservationContent` is neither a `WorldEffect` nor an authoritative `Observation`.
 
 Conceptually:
 
@@ -235,12 +213,12 @@ Conceptually:
 ResolutionProposal
     outcomes
     world_effects
-    observation_content?   # only where permitted by the resolved OBSERVE Job
+    observation_content?   # permitted for resolved OBSERVE work
 ```
 
-The exact integration shape may use a dedicated OBSERVE resolution result rather than literally changing every existing `ResolutionProposal`; the architectural requirement is that cognition content exists beside, not inside, the closed WorldEffect algebra.
+The exact DTO may use a dedicated OBSERVE result rather than literally changing every `ResolutionProposal`. The architectural requirement is that cognition content exists beside, not inside, the closed WorldEffect algebra.
 
-`ObservationContent` is immutable structured actor-relative semantic data. It contains the perceived result only. It does not contain authoritative envelope fields such as:
+`ObservationContent` is immutable structured actor-relative semantic data and does not contain authoritative envelope fields such as:
 
 ```text
 ObservationId
@@ -251,47 +229,21 @@ logical_time
 provenance
 ```
 
-Those values are supplied or derived by trusted GRASS code.
+Trusted GRASS code supplies or derives those values.
 
-The actor identity is derived from the exact source Job -> PlanStepRef -> Plan actor relationship. Untrusted mechanic/provider output does not choose the Observation actor or allocate GRASS identities.
+The Observation actor is derived from the exact source Job -> PlanStepRef -> Plan actor relationship. Untrusted mechanics/providers do not choose the actor or allocate GRASS identities.
 
-A scenario perception mechanic determines the content visible to the actor from explicitly supplied authorized inputs. It does not receive unrestricted WorldState merely for convenience.
+A scenario perception mechanic receives explicit authorized inputs rather than unrestricted WorldState.
 
-Examples of structured content include:
+One OBSERVE attempt may produce structured content containing several related visible facts; Slice 18 does not require one Observation per fact.
 
-```text
-{
-  "kind": "document_content",
-  "target": "document-17",
-  "text": "..."
-}
-```
+ObservationContent on this active-perception path is valid only for a source Job whose exact PlanStep primitive is `OBSERVE`. Other primitives must not smuggle passive perception through hidden observation output.
 
-or:
-
-```text
-{
-  "kind": "access_state",
-  "target": "rack-1",
-  "state": "locked"
-}
-```
-
-One OBSERVE attempt may produce structured content containing several related visible facts. Slice 18 does not require splitting every perceived fact into a separate Observation.
-
-### OBSERVE validation
-
-ObservationContent produced through this active-perception resolution path is valid only for a source Job whose exact PlanStep primitive is `OBSERVE`.
-
-Ordinary primitives such as `MOVE` must not smuggle passive perception through hidden observation content in their resolver output. Passive perception from world consequences uses the separate scenario-reaction -> Stimulus -> perception path.
-
-By default, `OBSERVE` means acquiring actor-relative information rather than mutating the observed world. If observation requires a world-changing prerequisite such as opening a container, that prerequisite should normally be represented by the appropriate primitive (for example `MODIFY`) before `OBSERVE`. Scenario reactions may still respond to the fact that an observation attempt occurred when the scenario explicitly models such consequences.
+By default, OBSERVE acquires information rather than mutating the observed world. A physical prerequisite such as opening a container should normally use an appropriate world-changing primitive first.
 
 ## Decision 8: Trusted materialization persists ObservationContent inside Observation
 
-Before commit, `ObservationContent` is a transient candidate value. After trusted validation and materialization, the same accepted semantic value becomes `Observation.content` in the existing canonical Observation model.
-
-Conceptually:
+Before commit, `ObservationContent` is transient candidate data. After trusted validation/materialization, the same accepted semantic value becomes canonical `Observation.content`.
 
 ```text
 OBSERVE Job
@@ -306,17 +258,15 @@ OBSERVE Job
 
 No separate `ObservationContentId`, `ObservationContentCreated`, or independent ObservationContent persistence model is introduced.
 
-Persistence is required primarily because the Observation is part of the historical actor cognition on which later decisions may depend. Replay must restore what the actor actually observed rather than rerun the perception mechanic against a later or differently configured world. The same canonical content will also be useful to future Diagnostics.
+Persistence exists because Observation is historical actor cognition required for replay, branch continuation, and later decisions. Replay restores what the actor observed rather than rerunning perception.
 
-Diagnostics must consume the canonical Observation and its semantic links rather than duplicate the content into a diagnostics-only store. Existing Observation identity, DecisionPoint references, provenance, explicit causation, Job/Plan lineage, and relevant mechanic identity/version should be preserved where they naturally exist. Slice 18 does not persist raw GEL execution traces, intermediate calculations, private chain-of-thought, or other transient implementation details solely for possible future diagnostics.
+Diagnostics consumes canonical Observation content and semantic lineage rather than a duplicate diagnostics store. Raw GEL traces, intermediate calculations, private chain-of-thought, and similar transient details are not persisted solely for Diagnostics.
 
 ## Decision 9: OBSERVE resolution, Observation, and trigger evaluation are atomic
 
-An OBSERVE Job must not be committed as completed while the corresponding accepted Observation is left to a later transition that might never occur.
+An OBSERVE Job must not be historically committed as completed while its accepted Observation is left to a later transition that might never occur.
 
-Trusted resolution therefore validates/materializes the Job result and Observation together. It also applies the existing `DecisionTriggerPolicy` before publication so that the accepted cognition boundary remains coherent.
-
-Conceptually:
+Trusted resolution validates/materializes the Job result and Observation together and applies the existing `DecisionTriggerPolicy` before publication:
 
 ```text
 OBSERVE Job resolution
@@ -327,7 +277,7 @@ OBSERVE Job resolution
     -> one atomic authoritative transition
 ```
 
-A typical accepted transition may therefore contain:
+A typical transition may contain:
 
 ```text
 ResolutionOutcomeRecorded
@@ -336,13 +286,13 @@ ObservationCreated
 optional DecisionPointCreated
 ```
 
-The existing ADR-0015 rule remains: Observation and an optional DecisionPoint may be created in one cognition transition, while provider-generated Decision/Plan materialization happens later.
+Provider-generated Decision/Plan materialization still happens later.
 
-A failed or blocked OBSERVE attempt may still produce ObservationContent when the failure itself reveals actor-relative information. Job outcome and acquired information are orthogonal and must not be collapsed into `SUCCESS => Observation, otherwise none`.
+A failed or blocked OBSERVE attempt may still produce ObservationContent when failure itself reveals actor-relative information. Job outcome and acquired information remain orthogonal.
 
 ## Decision 10: Passive perception remains separate from active OBSERVE resolution
 
-The two perception origins converge at canonical Observation but have distinct upstream semantics:
+The two perception origins converge at canonical Observation but retain distinct upstream semantics:
 
 ```text
 ACTIVE
@@ -360,15 +310,13 @@ Committed occurrence
     -> ObservationCreated
 ```
 
-Both produce ordinary actor-relative Observations and then use the same DecisionTriggerPolicy/DecisionPoint contracts.
+Both then use the existing DecisionTriggerPolicy/DecisionPoint contracts.
 
-This distinction prevents normal world resolvers from silently exposing arbitrary world state to actors and prevents passive perception from becoming hidden side output of unrelated primitives.
+This prevents ordinary world resolvers from silently exposing arbitrary world state and prevents passive perception from becoming hidden side output of unrelated primitives.
 
 ## Decision 11: Full actor memory remains deferred
 
 Slice 18 fixes perception acquisition and canonical Observation persistence, not the final long-term actor memory architecture.
-
-The following distinction remains explicit:
 
 ```text
 world truth
@@ -378,15 +326,13 @@ world truth
 != memory
 ```
 
-Observation history must remain first-class, actor-relative, replayable, and provenance-aware so a later memory policy can build episodic/semantic/retrieval/compaction behavior without redesigning perception.
+Observation history remains first-class, actor-relative, replayable, and provenance-aware. Slice 18 does not prematurely freeze embeddings, retrieval, summarization, forgetting, consolidation, short-term/long-term stores, or belief-update rules.
 
-Slice 18 must not prematurely freeze embedding retrieval, automatic summarization, forgetting, consolidation, short-term/long-term stores, or belief-update rules. Evidence from actor-capable runs and the post-Slice-18 Diagnostics Architecture checkpoint should inform the dedicated memory/cognition design.
+Evidence from actor-capable runs and the post-Slice-18 Diagnostics Architecture checkpoint should inform the dedicated cognition/memory design.
 
 ## Decision 12: Passive-perception fan-out uses one cognition transition per actor
 
-When one passive-perception source reaches multiple actors, GRASS does not commit all recipients as one large multi-actor cognition transition. Each recipient is materialized independently in one actor-scoped cognition transition.
-
-Conceptually:
+When one passive-perception source reaches multiple actors, each recipient is materialized independently in one actor-scoped cognition transition rather than one large multi-actor transaction.
 
 ```text
 one settled passive-perception source
@@ -396,150 +342,401 @@ one settled passive-perception source
     -> ...
 ```
 
-Each such transition may atomically contain:
+Each transition may atomically contain:
 
 ```text
 ObservationCreated(actor)
 optional DecisionPointCreated(actor)
 ```
 
-All Observations caused by the same settled world/reaction frontier use the applicable common `LogicalTime`. Their branch Event `sequence` values exist for deterministic append/replay order only and do not mean that Alice perceived the occurrence before Bob merely because Alice's Event was appended first.
+All Observations caused by the same settled world/reaction frontier use the applicable common `LogicalTime`. Event sequence gives deterministic append/replay order only; it does not imply that Alice perceived the occurrence before Bob.
 
-Actor-relative perception remains independent. Different recipients may receive different ObservationContent or no Observation at all according to the scenario perception mechanic. Failure to derive or materialize one recipient's candidate therefore does not require rolling back already valid cognition transitions for unrelated actors; normal runtime failure/validation policy still applies to the failed work item.
+Actor-relative perception remains independent. Recipients may receive different content or no Observation according to scenario perception mechanics.
 
-A passive-perception wave has a cognition barrier: resulting DecisionPoints may be created with their Observations, but no resulting actor decision/provider invocation is serviced until all outstanding passive perceptions at that current frontier have been drained.
+A passive-perception wave has a cognition barrier: resulting DecisionPoints may be created with their Observations, but no resulting decision/provider invocation is serviced until all outstanding passive perceptions at that current frontier have been drained.
 
-This preserves same-time semantics without requiring a large all-recipient database transaction:
-
-```text
-passive-perception source
-    -> all applicable actor Observation transitions
-    -> passive-perception frontier quiescent
-    -> pending decisions may run
-```
-
-No persisted fan-out cursor is introduced. Outstanding recipient work is rebuildable from canonical source/reaction history, immutable scenario mechanics, actor applicability, and existing `ObservationCreated` causation/provenance. If a process stops after Alice and Bob were recorded but before Carol, reopen/rebuild recognizes Alice and Bob as already consumed for that source and continues only the missing actor-relative perception work.
-
-Reconstruction of outstanding perception does not rerun an already consumed scenario reaction or repeat its state consequences. It only rederives the still-outstanding passive-perception candidates from canonical history plus the immutable run/world inputs.
+No persisted fan-out cursor is introduced. Outstanding recipient work is rebuildable from canonical source/reaction history, immutable run/world inputs, and existing Observation causation/provenance. Reconstruction does not rerun an already consumed scenario reaction or repeat its state consequences.
 
 ## Decision 13: Runtime frontier prioritizes world stabilization before perception and cognition
 
-ADR-0022's runtime-frontier principle is retained and refined for the new Slice-18 work classes.
+ADR-0022's frontier principle is retained and refined.
 
-At one current `LogicalTime`, the runtime priority is:
+At one current `LogicalTime`, priority is:
 
 ```text
 1. outstanding immediate scenario reactions
 2. outstanding passive perception
-3. pending DecisionPoints / decision acquisition
+3. pending DecisionPoints / decision work
 4. ready PlanStep / Job starts
-5. scheduler work, including due Job/scenario resolution work and
+5. scheduler work, including due Job/scenario work and
    future scenario-reaction ScheduledResolutions
 ```
 
-After every committed transition, the engine restarts frontier evaluation from priority 1 rather than continuing blindly through a lower-priority queue.
+After every committed transition, the engine restarts frontier evaluation from priority 1.
 
-Immediate scenario reactions therefore stabilize the authoritative world frontier before downstream passive perception and cognition are allowed to react to it. For example:
+Immediate scenario reactions therefore stabilize the authoritative world frontier before downstream passive perception and cognition. Actors cannot act in the middle of a zero-time immediate reaction cascade.
+
+If a scenario intentionally allows reaction time between two consequences, the later consequence must be temporal rather than immediate.
+
+A future `ScheduledResolution` does not preempt unresolved current-time work. When scheduler work commits, the engine again restarts from priority 1.
+
+The same restart rule applies after active OBSERVE resolution: a newly created DecisionPoint is not serviced ahead of any immediate scenario reactions caused by the committed attempt/history.
+
+The existing runtime work/step budget protects against pathological mechanics that continually create new reaction identities and never allow the frontier to quiesce.
+
+## Decision 14: ActorFacet is canonical and PLAN_REQUIRED is runtime-derived
+
+Actor membership must not be inferred from incidental Plans, Observations, or DecisionPoints.
+
+Actor identity remains Entity-backed. An actor uses the same identifier as its world Entity, and explicit canonical `ActorFacet` state marks that the Entity participates in actor cognition/execution.
+
+Conceptually:
 
 ```text
-Bob enters camp
-    -> trap reacts
-    -> alarm becomes active
-    -> automatic lockdown reacts
-    -> immediate world frontier is stable
-    -> alarm/lockdown passive perception is drained
-    -> resulting actor decisions may run
+Entity
+    entity_id = alice
+
+ActorFacet
+    actor_id = alice
 ```
 
-This ordering does not mean actors can perceive only a collapsed final state. Individual scenario reactions may produce distinct perceptual consequences, and those consequences can become distinct actor-relative Observations. The rule only prevents actor cognition from acting in the middle of a zero-time immediate world-reaction cascade.
+Slice 18 does not introduce a separate Actor identity/aggregate.
 
-If a scenario intentionally allows reaction time between two consequences, the later consequence must be temporal rather than immediate, for example through a future `ScheduledResolution`.
+The minimal canonical Event is conceptually:
 
-A future `ScheduledResolution` does not preempt unresolved work at the current logical time. Logical time may advance to that future point only when the current frontier has no higher-priority immediate reactions, passive perception, pending decisions, or ready starts that must be serviced first under the accepted scheduler/runtime contracts.
+```text
+ActorFacetCreated
+    actor_id
+```
 
-When scheduler work commits a due future scenario reaction, Job resolution, or scenario occurrence, the engine again restarts at priority 1 so any new immediate scenario reactions and passive perceptions settle before decisions or further lower-priority work.
+Exact payload/projection placement is finalized with remaining Event/DTO work, but actor membership must be reconstructable from canonical history. Query surfaces should no longer infer actors from the union of Plan, Observation, and DecisionPoint references.
 
-The same restart rule applies to active perception. An `OBSERVE` resolution may atomically create an Observation and DecisionPoint, but if that committed observation attempt or its accompanying world/execution history makes an immediate scenario reaction outstanding, that reaction is processed before the actor's new DecisionPoint is serviced.
+### Authored and runtime-created actors
 
-The existing runtime work/step budget remains the protection against pathological mechanics that continually create new reaction identities and never allow a frontier to quiesce. `ScenarioReactionRef` consumption prevents the same concrete reaction from being processed repeatedly, but it does not make arbitrary self-generating scenario logic impossible; exceeding the configured bounded-work policy is a runtime stop/failure condition rather than permission for an infinite loop.
+For an authored actor, bootstrap atomically materializes the concrete Entity and ActorFacet in the same genesis transition:
+
+```text
+genesis
+    -> EntityCreated(alice)
+    -> ActorFacetCreated(alice)
+```
+
+There is no externally visible historical position where an authored actor's Entity exists but the declared ActorFacet does not.
+
+Runtime actor creation follows the same principle: accepted creation atomically materializes required world state plus ActorFacet. Replay restores the accepted actor rather than rerunning template instantiation.
+
+Authored profile/background/traits/drives/beliefs/future memory configuration are not encoded as historical `ObservationCreated` merely because they are initially available to the actor. Initial profile/cognition and Observation history remain distinct concepts.
+
+### PLAN_REQUIRED is produced by runtime readiness
+
+Genesis establishes actor existence and initial declarations. It does not preemptively record a cognition decision merely because an actor will need a Plan.
+
+`PLAN_REQUIRED` is a subjectless `FULL` DecisionPoint derived by normal runtime readiness. It is not limited to bootstrap. It is the fallback when an active actor requires planning, has no pending DecisionPoint, has no applicable Plan lineage governing further actor work, and no more specific accepted DecisionPoint reason applies.
+
+```text
+active Entity
+    + ActorFacet
+    + actor currently requires planning
+    + no pending DecisionPoint
+    + no applicable Plan lineage for further work
+    + no more specific reason applies
+        -> PLAN_REQUIRED / FULL / subject_plan_ref = null
+```
+
+This covers both a new actor starting without a Plan and an existing actor that later becomes planless for another reason.
+
+`PLAN_REQUIRED` must not erase more precise semantics. Where the runtime knows an exact Plan/Job reason, specific reasons such as `PLAN_EXHAUSTED`, `PLAN_BLOCKED`, `JOB_FAILED`, or `JOB_PAUSED` remain preferred.
+
+The runtime must not implement readiness by inventing an implicit global/current Plan. It derives need from explicit branch-visible execution/cognition relationships and accepted Plan semantics.
+
+When multiple actors at the same current `LogicalTime` require subjectless `PLAN_REQUIRED`, each receives its own cognition transition. All currently required points are materialized before provider acquisition for any newly created point begins.
+
+Conceptually, decision work has internal ordering:
+
+```text
+3a. materialize currently required DecisionPoints
+3b. service pending DecisionPoints / acquire decisions
+```
+
+After each committed DecisionPoint transition, full frontier evaluation still restarts at priority 1.
+
+## Decision 15: ScenarioReactionRule, ReactionContract, and mechanic bindings
+
+Scenario reaction authoring separates candidate discovery, semantic result definition, mechanic implementation, and trusted consequence materialization.
+
+Conceptually:
+
+```text
+ScenarioReactionRule
+    rule_id
+    trigger
+    input_bindings
+    reaction_contract_ref
+    mechanic_binding
+```
+
+The trigger is a typed declarative selector over committed semantic Events. It decides whether a rule is a candidate for evaluation; it does not implement full scenario condition/effect semantics.
+
+```text
+committed semantic Event
+    -> typed trigger selector
+    -> ScenarioReactionRef
+    -> declared input resolution
+    -> mechanic evaluation
+```
+
+Rules react to accepted canonical history, not transient pre-validation WorldEffects. Trigger selectors operate on semantic Event contracts rather than arbitrary JSON paths over serialized payloads.
+
+The mechanic receives only explicitly declared typed inputs. It does not receive unrestricted `WorldState`, `SimulationState`, `EventStore`, scheduler, engine, or commit handles. A matched rule may validly evaluate to a no-op; `ScenarioReactionResolved` still records accepted consumption.
+
+### ReactionContract defines result meaning
+
+The shape and meaning of `ReactionResult` are defined by a world-level `ReactionContract`, not by hard-coded domain classes in GRASS core.
+
+Conceptually:
+
+```text
+ReactionContract
+    contract_id
+    input_schema
+    result_schema
+    consequence_mapping
+    temporal_continuations?
+```
+
+The mechanic computes only a typed semantic result:
+
+```text
+ReactionInput
+    -> BUILTIN | GEL | IMPLEMENTATION
+    -> ReactionResult
+```
+
+Trusted GRASS adaptation interprets that result using the world-defined contract:
+
+```text
+ReactionResult
+    + ReactionContract
+    -> trusted generic adaptation
+    -> permitted candidate consequences
+    -> authoritative validation
+    -> canonical Events
+```
+
+The world defines what result fields mean and how they map to permitted state/execution/perceptual/temporal candidate consequences. GRASS core/run policy still defines the authority boundary: a contract cannot emit arbitrary Events, mutate arbitrary state, write to EventStore, or bypass the closed validated consequence model.
+
+```text
+WorldDefinition defines semantic consequence meaning.
+GRASS core/run policy defines which authoritative consequence classes are legal.
+```
+
+An actor/provider/LLM therefore proposes semantics within allowed contracts; it never receives direct arbitrary world-mutation authority.
+
+### BUILTIN, GEL, and IMPLEMENTATION use the same semantic contract
+
+`BUILTIN`, `GEL`, and `IMPLEMENTATION` are alternate ways to compute the same world-defined typed `ReactionResult`. A more expressive implementation does not gain more simulation authority.
+
+GEL remains sandboxed and side-effect-free under its accepted explicit-input contract.
+
+`IMPLEMENTATION` is the future trusted plugin extension point for mechanics impractical in GEL. A plugin may use normal host-language code and libraries internally, but its simulation-facing boundary remains:
+
+```text
+typed ReactionInput
+    -> installed implementation mechanic
+    -> typed ReactionResult
+```
+
+A plugin does not receive EventStore, mutable SimulationState, SimulationEngine, scheduler, or commit authority merely because it is installed/trusted.
+
+Continuation of a run may require the exact installed mechanic identity and a compatible version/content identity. Ordinary historical replay does not invoke the plugin to reconstruct accepted history.
+
+### Dynamic rules/contracts remain future capabilities
+
+Slice 18 may initially load reaction rules from immutable WorldDefinition material, but the architecture must not assume that the ruleset is permanently static.
+
+Future authorized runtime semantics may allow `ScenarioReactionRule`s to appear or cease to exist during a run. Exact lifecycle semantics are deliberately deferred; Slice 18 does not define a generic mutable `enabled` flag, in-place rule mutation, or rule replacement/versioning model.
+
+Future modes may allow actors/LLMs to propose new rules and actor-authored GEL, subject to explicit authorization, validation, and run/world policy. Accepted runtime changes must become canonical/replayable history rather than hidden process configuration.
+
+Dynamic `ReactionContract` creation is a separate and substantially more powerful future capability and must be independently authorizable/configurable. Even an actor-created contract may compose only consequence classes permitted by the GRASS authority model and applicable run/world policy.
+
+The exact policy representation is deferred; the architecture intentionally leaves room for separately controlled capabilities such as actor-defined rules, actor-defined GEL, and actor-defined ReactionContracts.
+
+## Decision 16: TemporalContinuation is semantic future reaction work, not scheduler control
+
+A reaction may derive zero or more `TemporalContinuation`s according to its world-defined `ReactionContract` and accepted `ReactionResult`.
+
+Conceptually:
+
+```text
+TemporalContinuation
+    continuation_id
+    due
+    target_rule_ref?   # absent => originating ScenarioReactionRule
+```
+
+The exact v1 DTO remains open, but the semantic rules are fixed.
+
+A continuation identifies a future material reaction point. By default it targets the same `ScenarioReactionRule` that produced it. A contract may explicitly target another rule where scenario semantics require a hand-off.
+
+Which continuations are created is itself part of world-defined result interpretation. A `ReactionContract` may define several possible continuation mappings and an accepted `ReactionResult` may select zero, one, or many of them.
+
+Example:
+
+```text
+ReactionResult
+    notify_security = true
+    notify_police = false
+
+ReactionContract mapping
+    notify_security -> continuation +30s using security-response
+    notify_police   -> continuation +5m using police-response
+
+accepted continuations
+    security-response only
+```
+
+No separate generic `applicability` or cancellation model is introduced.
+
+When a continuation becomes due, its target rule/mechanic is evaluated using current explicitly declared inputs:
+
+```text
+ScheduledResolution
+    -> target ScenarioReactionRule
+    -> current declared inputs
+    -> BUILTIN | GEL | IMPLEMENTATION
+    -> ReactionResult
+    -> normal trusted consequence adaptation
+```
+
+The due evaluation may produce normal consequences or a valid no-op. This allows current state to decide whether one due continuation has an effect while another does not, without adding a second applicability language or scheduler cancellation API.
+
+A mechanic never returns an imperative scheduler command such as `schedule()` or `cancel()`. The scheduler only derives `ScheduledResolution` values from canonical anchors plus accepted temporal-continuation semantics.
+
+Continuation due time may be fixed by the contract, derived deterministically from accepted typed result data, or use another future typed temporal calculation contract. GEL may participate in an explicitly typed calculation, but it never receives scheduler authority.
+
+If a time/deadline is itself modeled world semantics, that fact may be persisted as ordinary world state. Otherwise the future point remains derivable from canonical reaction history and continuation semantics.
+
+The exact behavior of an already-created continuation whose target rule later ceases to exist under a future dynamic-rules model is deliberately deferred. Slice 18 does not need that lifecycle decision.
 
 ## Consequences
 
 ### Positive
 
-- actor templates support both authored bootstrap and explicitly authorized runtime creation without creating a second Actor type;
-- actor identity and runtime actor creation remain replayable and branch-safe;
-- active perception reuses the existing `OBSERVE` primitive rather than expanding the core verb set;
-- passive perception is explicit and scenario-selected rather than an implicit physics engine;
-- `Stimulus` remains disposable mechanic output instead of creating another authoritative projection;
-- domain-neutral primitives stay small because traps, alarms, institutions, and similar reactions live in scenario mechanics;
-- immediate and delayed scenario reactions share the existing Event/scheduler authority boundaries;
-- no-op scenario reactions remain reconstructable and are not accidentally re-executed after reopen;
-- `ObservationContent` keeps cognition output outside the WorldEffect algebra while reusing the existing canonical Observation contract;
-- an OBSERVE Job cannot complete historically without its accepted perceived result;
-- multi-actor passive perception preserves common logical-time semantics without requiring one large all-recipient transition;
-- actors cannot react before the same-frontier passive-perception wave has been drained;
-- immediate scenario mechanics stabilize the world before downstream actor cognition while still allowing explicitly delayed consequences through ScheduledResolution;
-- Diagnostics can later explain decisions from canonical Observation content and explicit semantic lineage without a duplicate diagnostics data model;
-- the eventual actor memory model remains free to evolve from real run evidence.
+- actor templates support authored bootstrap and explicitly authorized runtime creation without a second Actor type;
+- ActorFacet makes actor membership explicit canonical history;
+- `PLAN_REQUIRED` naturally covers both initial and later planless actors;
+- active perception reuses `OBSERVE` rather than expanding the primitive set;
+- passive perception is explicit and scenario-selected rather than implicit physics;
+- Stimulus remains transient while Observation is canonical cognition;
+- primitive resolvers remain domain-neutral because secondary behavior lives in scenario reactions;
+- immediate reactions stabilize before passive perception and decisions;
+- passive-perception fan-out preserves common logical-time semantics without a large multi-actor transaction;
+- scenario-reaction no-ops remain canonically consumed and replay-safe;
+- ReactionContract keeps semantic result/consequence meaning in the world rather than hard-coding alarms/traps/etc. in core;
+- BUILTIN, GEL, and IMPLEMENTATION share one authority-preserving semantic boundary;
+- future actor/LLM-authored rules and contracts remain possible without granting direct world mutation;
+- temporal continuations support multiple selective future reaction points without authoritative scheduler timers;
+- current state can naturally cause a due mechanic to produce a no-op without a separate applicability/cancellation subsystem;
+- Diagnostics can later explain decisions from canonical Observation and semantic lineage;
+- the eventual memory model remains free to evolve from actor-capable run evidence.
 
 ### Costs and constraints
 
-- runtime frontier orchestration must discover and deterministically drain immediate scenario reactions and actor-relative passive-perception work before lower-priority cognition/execution work;
-- scenario-reaction identity and scheduling must be deterministic/rebuildable without hidden cursors or timer state;
+- runtime frontier orchestration must deterministically drain immediate reactions and passive-perception work;
+- scenario-reaction and continuation identities must be deterministic/rebuildable without hidden cursors or timers;
 - passive-perception recipient consumption must be rebuildable without a persisted fan-out cursor;
-- world composition needs explicit scenario reaction and perception mechanic authoring contracts;
-- resolution materialization must atomically validate Events across ExecutionState and CognitionState;
-- passive-perception fan-out may produce significant Observation/Event volume in large worlds even though each actor transition stays small;
-- scenario authors who need rich physical perception must model that detail explicitly rather than receiving it automatically from core.
+- runtime readiness must derive planning need without inventing an implicit current Plan;
+- bootstrap/runtime actor creation must atomically materialize ActorFacet with actor Entity state;
+- trusted reaction adaptation must validate world-defined consequence mappings against core/run-authorized consequence classes;
+- future dynamic rule/contract lifecycle requires canonical history and explicit authorization rather than process-local mutation;
+- plugin continuation may require exact implementation identity/version compatibility;
+- resolution materialization must atomically validate cross-projection Events;
+- passive-perception fan-out may create substantial Observation/Event volume;
+- scenario authors who require rich physical perception must model it explicitly.
 
 ## Alternatives considered
 
 ### Infer passive perception from every world Event
 
-Rejected because it would pressure GRASS toward a universal physics/visibility/acoustics model and would create large amounts of accidental perception from scenario details that were never intended to matter.
+Rejected because it would push GRASS toward a universal physics/visibility/acoustics model and create accidental perception from irrelevant scenario details.
 
-### Put traps, alarms, and other secondary consequences directly inside primitive resolvers
+### Put traps, alarms, and other secondary consequences inside primitive resolvers
 
-Rejected because generic primitives such as MOVE would accumulate scenario-specific behavior and direct action resolution would become inseparable from arbitrary downstream world rules.
+Rejected because generic primitives would accumulate scenario-specific behavior and direct action resolution would become inseparable from arbitrary downstream rules.
 
 ### Persist scheduler timers created by scenario mechanics
 
-Rejected because it would make scheduler state authoritative and violate the existing rebuild-equivalence contract. Future reaction points remain derived ScheduledResolutions.
+Rejected because scheduler state would become authoritative and violate rebuild equivalence. Future work remains derived through `TemporalContinuation` -> `ScheduledResolution`.
 
-### Treat Stimulus as a canonical Event/state object by default
+### Treat Stimulus as canonical Event/state by default
 
-Rejected because the actor-relative Observation is the material cognition fact. Persisting every intermediate stimulus would add history/state without current replay need.
+Rejected because actor-relative Observation is the material cognition fact. Canonicalizing every intermediate stimulus would add state/history without current need.
 
 ### Add CreateObservationEffect to WorldEffect
 
-Rejected because it would broaden WorldEffect from world/execution candidate consequences into a generic mutation algebra for all SimulationState projections. Observation belongs to cognition and already has its own canonical Event contract.
+Rejected because it would broaden WorldEffect into a generic mutation algebra for all SimulationState projections. Observation belongs to cognition and has its own canonical Event contract.
 
 ### Use ObservationProposal instead of ObservationContent
 
-Rejected because the perception mechanic supplies semantic perceived content, not authority to propose an Observation identity/actor/time/provenance object. Trusted GRASS code constructs the Observation.
+Rejected because perception mechanics supply semantic perceived content, not authority to propose Observation identity/actor/time/provenance.
 
 ### Persist ObservationContent separately for Diagnostics
 
-Rejected because accepted content is already canonical as `Observation.content`. Diagnostics must derive explanations from domain history rather than create a second persistence authority.
+Rejected because accepted content is already canonical as `Observation.content`.
 
-### Commit one multi-actor cognition transition for a passive-perception fan-out
+### Commit one multi-actor cognition transition for passive-perception fan-out
 
-Rejected because actor-relative perception is independently derived, may legitimately differ by actor, may fail independently, and can fan out to large populations. Common `LogicalTime` plus a runtime perception barrier preserves semantic simultaneity without coupling every recipient to one atomic commit.
+Rejected because actor-relative perception is independently derived, may differ by actor, may fail independently, and may fan out broadly. Common LogicalTime plus a perception barrier preserves semantic simultaneity.
 
-### Allow decisions to run while same-frontier passive perception or immediate reactions remain outstanding
+### Allow decisions while same-frontier immediate reactions or passive perception remain outstanding
 
-Rejected because actor behavior would then depend on engine iteration order and could react to a partially settled world/perception wave. Immediate scenario reactions stabilize first, then passive perception drains, then pending cognition is serviced.
+Rejected because actor behavior would depend on engine iteration order and could react to a partially settled world/perception wave.
+
+### Infer actor membership from Plans, Observations, or DecisionPoints
+
+Rejected because those are incidental runtime records. An actor remains an actor while Plans or DecisionPoints are absent.
+
+### Put initial PLAN_REQUIRED inside genesis
+
+Rejected because genesis establishes declared simulation state while `PLAN_REQUIRED` expresses a runtime cognition need. Runtime derivation also naturally handles later planless actors.
+
+### Restrict PLAN_REQUIRED to bootstrap
+
+Rejected because the same subjectless planning condition may legitimately arise later in a run. More specific exact Plan/Job reasons remain preferred where available.
+
+### Hard-code domain-specific ReactionResult/adapter classes in core
+
+Rejected because core would accumulate scenario vocabulary such as alarms, traps, fires, and institutions. `ReactionContract` keeps result meaning and consequence mapping in world semantics.
+
+### Let GEL or IMPLEMENTATION return arbitrary WorldEffects or Events
+
+Rejected because extensibility would become a mutation escape hatch. Mechanics return typed semantic results; trusted adaptation applies world-defined mappings within the authorized consequence vocabulary.
+
+### Treat reaction rules as permanently immutable run configuration
+
+Rejected as a long-term architectural invariant because future generative modes may authorize runtime appearance/removal of rules and actor-authored GEL. Exact lifecycle semantics remain deferred.
+
+### Add generic rule.enabled, in-place rule mutation, or replacement semantics now
+
+Rejected/deferred because those semantics were not required to express accepted Slice-18 behavior and would prematurely constrain future dynamic-rules design.
+
+### Add separate TemporalContinuation applicability/cancellation logic
+
+Rejected because the target mechanic can evaluate current declared inputs at due time and return an ordinary no-op. A second applicability language would duplicate mechanic semantics and complicate selective continuation behavior.
+
+### Let mechanics issue scheduler commands
+
+Rejected because `schedule()`/`cancel()` style APIs would make scheduler state authoritative. Temporal continuations describe scenario semantics; scheduler work remains derived.
 
 ## Remaining open Slice-18 decisions
 
 This ADR remains Draft. The following topics still need explicit resolution before Slice 18 implementation begins:
 
-- exact scenario-reaction and perception mechanic authoring schemas, including built-in versus GEL usage-specific contracts;
-- initial actor cognition/bootstrap and `PLAN_REQUIRED` creation semantics;
+- exact perception mechanic authoring schemas and contracts;
 - provider/run-config ownership and authoring for actor-capable packages;
-- the remaining Decision -> Plan -> PlanStep -> Job materialization path where current bounded reactions become executable behavior;
-- actor-to-actor communication semantics beyond the already accepted `COMMUNICATE` primitive and Query-versus-Diagnostics boundary;
+- remaining Decision -> Plan -> PlanStep -> Job materialization where bounded reactions become executable behavior;
+- actor-to-actor communication semantics beyond the accepted `COMMUNICATE` primitive and Query-versus-Diagnostics boundary;
 - resource interaction/conflict semantics required by actor-oriented acceptance worlds;
-- final WorldPackage schema/layout and validation for actors, templates, reaction mechanics, perception mechanics, and actor-capable starter templates;
-- exact Event payload/reference shapes for ScenarioReactionRef/ScenarioReactionResolved and any required changes to current resolution DTOs.
+- final WorldPackage schema/layout and validation for actors, templates, reaction contracts/rules, perception mechanics, and actor-capable starter templates;
+- exact Event payload/reference shapes for ActorFacet, ScenarioReactionRef/ScenarioReactionResolved, dynamic-rule-ready provenance, TemporalContinuation references, and required resolution DTO changes.
