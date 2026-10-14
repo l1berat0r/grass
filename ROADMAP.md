@@ -14,7 +14,7 @@ After this baseline, material architecture changes should normally be introduced
 
 ## Implementation track
 
-**Current status:** Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on `impl/v0.1-gpt`. The next implementation slice is Slice 18 actor-capable WorldPackage composition, which requires a new accepted architecture decision. The evidence-driven Diagnostics Architecture checkpoint follows Slice 18; backend/frontend and other later capabilities remain unsequenced.
+**Current status:** Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on `impl/v0.1-gpt`. Before Slice 18 actor-capable WorldPackage composition, Slice 17.2 stabilizes generic scenario-defined space/location semantics required by MOVE, passive perception, recipient selection, and actor interaction. The evidence-driven Diagnostics Architecture checkpoint still follows Slice 18; backend/frontend and other later capabilities remain unsequenced.
 
 ADR-0026 approves a pre-stable WorldDefinition schema reset before further slices: the
 current complete WorldDefinition shape becomes initial schema 1, with no migration support
@@ -332,6 +332,35 @@ content, sender/recipient, logical time/order, and conversation history are Quer
 Why an actor communicated, which perception or DecisionPoint triggered it, and its
 provider/decision lineage are future Diagnostics concerns. This checkpoint does not freeze
 a `Message`, `Conversation`, transcript, or other communication schema.
+
+### Slice 17.2 — scenario-defined space semantics
+
+**Status: architecture to define before implementation**
+
+Stabilize a small generic spatial model before actor-capable package composition. GRASS must support scenario-defined spaces without compiling domain concepts such as room, building, city, vehicle, grid cell, or zone into core.
+
+Accepted authoring direction:
+
+- simple worlds may declare spaces as a list of stable identifiers;
+- richer worlds may declare space objects with stable identifiers and scenario-defined structured properties;
+- package loading may normalize both forms to one semantic `SpaceDefinition` model;
+- core understands generic space identity/structure only; scenario mechanics decide what scenario-defined properties mean;
+- spatial state should converge on one canonical `located_in` semantic rather than parallel generic Relation and separate membership models; exact runtime representation remains to be decided.
+
+Architecture work for this slice must decide:
+
+- the canonical runtime representation of a subject's `located_in` state;
+- whether one subject may have one direct location or multiple spatial memberships and how this interacts with nested/overlapping spaces;
+- initial spatial declarations and genesis Events/projections;
+- how `MOVE` reads and changes spatial state through the normal candidate-effect/Event path;
+- whether new spatial WorldEffect/Event types are required or an existing generic authority primitive can represent the semantics without ambiguity;
+- lifecycle/reference validation when spaces or subjects are created/deactivated;
+- how space definitions/properties and subject location are exposed as explicit typed inputs to BUILTIN/GEL/IMPLEMENTATION mechanics;
+- the minimal query surface for current location/space inspection;
+- replay, branching, package snapshot, and schema/version consequences;
+- migration of acceptance examples that currently model `Office` informally as a normal `Location` Entity.
+
+Do not introduce a physics engine, mandatory geometry, coordinates, distance metric, adjacency, containment behavior beyond the accepted generic space semantics, or visibility model unless a concrete accepted scenario contract requires it. Richer behavior remains scenario-defined through properties and mechanics.
 
 ### Slice 18 — actor-capable WorldPackage composition and actor templates
 

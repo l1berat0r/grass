@@ -619,6 +619,123 @@ If a time/deadline is itself modeled world semantics, that fact may be persisted
 
 The exact behavior of an already-created continuation whose target rule later ceases to exist under a future dynamic-rules model is deliberately deferred. Slice 18 does not need that lifecycle decision.
 
+## Decision 17: Perception authoring is world-defined and actor-scoped
+
+Perception authoring must not hard-code scenario-domain target or stimulus types in GRASS core. Identifiers such as scenario entity types remain world vocabulary rather than core enums or classes.
+
+Conceptually:
+
+```text
+PerceptionRule
+    rule_id
+    origin
+        ACTIVE_OBSERVE | PASSIVE_STIMULUS
+    selector
+    recipient_selector_binding?   # passive only
+    input_bindings
+    perception_contract_ref
+    mechanic_binding
+
+PerceptionContract
+    contract_id
+    input_schema
+    observation_content_schema
+```
+
+The exact DTO/schema remains open, but the semantic boundary is fixed.
+
+### Active OBSERVE selection
+
+An `OBSERVE` PlanStep supplies its normal scenario-authored target reference and parameters/mode. A world-defined PerceptionRule selects the applicable perception contract/mechanic. Core does not contain target classes such as rack, document, room, sensor, or similar domain vocabulary.
+
+The trusted adapter resolves only explicitly declared typed inputs and invokes:
+
+```text
+PerceptionInput
+    -> BUILTIN | GEL | IMPLEMENTATION
+    -> ObservationContent | NO_OBSERVATION
+```
+
+The mechanic never receives unrestricted WorldState/SimulationState.
+
+### Stimulus semantics are world-defined
+
+Passive perception uses transient `Stimulus`, but core does not define a closed catalogue of stimulus kinds or universal domain fields such as `source_location`.
+
+Conceptually:
+
+```text
+Stimulus
+    stimulus_contract_ref
+    source_ref?
+    content
+
+StimulusContract
+    contract_id
+    content_schema
+```
+
+The scenario defines the meaning and typed content of a stimulus. Sound, flash, radiation, institutional notice, market update, and similar concepts belong to scenario vocabulary, not the GRASS core model.
+
+### Passive recipient selection is a replaceable mechanic
+
+Recipient discovery and actor-relative perception are separate operations.
+
+For every canonical candidate ActorFacet, trusted code builds an explicit typed recipient-selection input and evaluates:
+
+```text
+RecipientSelectorBinding
+    BUILTIN | GEL | IMPLEMENTATION
+
+RecipientSelectionInput(candidate_actor, stimulus, explicit scenario inputs)
+    -> SELECT | REJECT
+```
+
+The initial library may provide simple declarative BUILTIN selectors. Scenarios may use GEL for richer selection and trusted plugins may later use IMPLEMENTATION. A selector does not receive unrestricted WorldState and does not return or allocate arbitrary ActorIds; the runtime supplies one canonical candidate actor per evaluation.
+
+Spatially aware recipient selection must use the accepted scenario-space model rather than a hard-coded `located_in`, `same_location`, or `source_location` convention. That space model is a prerequisite architecture slice before actor-capable package implementation.
+
+Selection means only that the actor is a candidate for perception. The subsequent perception mechanic may still return `NO_OBSERVATION`.
+
+### Passive no-observation consumption is canonical
+
+Passive-perception work must be reconstructable even when a selected actor perceives nothing. A dedicated semantic consumption Event is therefore required conceptually:
+
+```text
+PassivePerceptionResolved
+    source_ref
+    actor_id
+    perception_rule_ref
+```
+
+If the mechanic returns `NO_OBSERVATION`, this consumption Event may be the only Event in the actor-scoped cognition transition.
+
+If it returns ObservationContent, one atomic cognition transition contains:
+
+```text
+PassivePerceptionResolved
+ObservationCreated
+optional DecisionPointCreated
+```
+
+This replaces the earlier assumption that `ObservationCreated` alone is always sufficient to prove source/actor passive-perception consumption.
+
+Active OBSERVE does not require this passive marker because the Job resolution/outcome already gives the perception attempt canonical execution identity.
+
+### One perception evaluation yields at most one Observation
+
+Slice 18 uses:
+
+```text
+one active OBSERVE evaluation
+    -> zero or one Observation
+
+one passive source + actor + perception rule evaluation
+    -> zero or one Observation
+```
+
+Several related perceived facts may be represented inside one structured ObservationContent. A future architecture decision may introduce multi-Observation output if concrete scenarios demonstrate the need.
+
 ## Consequences
 
 ### Positive
@@ -638,6 +755,9 @@ The exact behavior of an already-created continuation whose target rule later ce
 - future actor/LLM-authored rules and contracts remain possible without granting direct world mutation;
 - temporal continuations support multiple selective future reaction points without authoritative scheduler timers;
 - current state can naturally cause a due mechanic to produce a no-op without a separate applicability/cancellation subsystem;
+- perception target/stimulus vocabulary remains scenario-defined rather than compiled into core;
+- passive recipient selection can range from simple BUILTIN selectors to scenario GEL without exposing unrestricted world state;
+- passive no-observation work is exactly-once/rebuildable through explicit semantic consumption;
 - Diagnostics can later explain decisions from canonical Observation and semantic lineage;
 - the eventual memory model remains free to evolve from actor-capable run evidence.
 
@@ -653,7 +773,8 @@ The exact behavior of an already-created continuation whose target rule later ce
 - plugin continuation may require exact implementation identity/version compatibility;
 - resolution materialization must atomically validate cross-projection Events;
 - passive-perception fan-out may create substantial Observation/Event volume;
-- scenario authors who require rich physical perception must model it explicitly.
+- scenario authors who require rich physical perception must model it explicitly;
+- actor-capable perception depends on an accepted generic scenario-space model where spatial semantics are required.
 
 ## Alternatives considered
 
@@ -733,10 +854,11 @@ Rejected because `schedule()`/`cancel()` style APIs would make scheduler state a
 
 This ADR remains Draft. The following topics still need explicit resolution before Slice 18 implementation begins:
 
-- exact perception mechanic authoring schemas and contracts;
+- exact concrete PerceptionRule/PerceptionContract/StimulusContract DTO schemas after the prerequisite scenario-space slice;
 - provider/run-config ownership and authoring for actor-capable packages;
 - remaining Decision -> Plan -> PlanStep -> Job materialization where bounded reactions become executable behavior;
 - actor-to-actor communication semantics beyond the accepted `COMMUNICATE` primitive and Query-versus-Diagnostics boundary;
 - resource interaction/conflict semantics required by actor-oriented acceptance worlds;
 - final WorldPackage schema/layout and validation for actors, templates, reaction contracts/rules, perception mechanics, and actor-capable starter templates;
-- exact Event payload/reference shapes for ActorFacet, ScenarioReactionRef/ScenarioReactionResolved, dynamic-rule-ready provenance, TemporalContinuation references, and required resolution DTO changes.
+- exact Event payload/reference shapes for ActorFacet, ScenarioReactionRef/ScenarioReactionResolved, dynamic-rule-ready provenance, TemporalContinuation references, and required resolution DTO changes;
+- exact `PassivePerceptionResolved` payload/reference shape.
