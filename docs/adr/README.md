@@ -45,15 +45,18 @@ After the baseline, material changes to core architectural contracts should norm
 ## Current draft architecture records
 
 - ADR-0002 — replaceable capability-evaluation direction;
-- ADR-0028 — actor-capable world composition, scenario reactions, and perception.
+- ADR-0028 — actor-capable world composition, scenario reactions, and perception;
+- ADR-0029 — scenario-defined space and location semantics.
 
 ADR-0002 documents the current replaceable capability-evaluation direction; its exact default dimensions are intentionally not frozen by the baseline.
 
 ADR-0028 records the accepted-in-discussion Slice-18 direction for actor declarations/templates, scenario reactions, ScheduledResolution integration, active/passive perception, Stimulus, and `ObservationContent`. It remains Draft until the remaining Slice-18 decisions are resolved.
 
+ADR-0029 records the accepted-in-discussion Slice-17.2 direction for first-class scenario-defined Spaces, canonical `location_id`/`located_in` semantics, runtime-movable Spaces, and optional cyclic containment. It remains Draft until spatial mutation, Event/genesis, Query, and mechanic-integration contracts are resolved.
+
 ## Current implementation planning
 
-Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on the implementation branch. Slice 18 actor-capable WorldPackage composition is next and requires a new accepted architecture decision. The evidence-driven Diagnostics Architecture checkpoint follows Slice 18; `ROADMAP.md` retains the current sequencing.
+Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on the implementation branch. Slice 17.2 scenario-defined space semantics is the active prerequisite architecture/implementation slice before Slice 18 actor-capable WorldPackage composition. The evidence-driven Diagnostics Architecture checkpoint follows Slice 18; `ROADMAP.md` retains the current sequencing.
 
 ADR-0026 resets the unreleased complete WorldDefinition representation to its initial
 schema version 1 and supersedes the schema-number and compatibility statements in
