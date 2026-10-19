@@ -149,6 +149,219 @@ Because each Space has at most one direct `location_id`, enabling cycles does no
 
 Exact semantic answers for unusual self-reachability questions such as whether a cyclic Space should be considered transitively "inside itself" are deliberately not frozen yet. Direct location remains unambiguous.
 
+
+## Decision 5: Location mutation uses one closed candidate path for Entity and Space
+
+Changing direct spatial state uses one explicit closed world-mutation contract for both Entities and Spaces rather than separate mutation systems.
+
+Conceptually:
+
+```text
+SetLocationEffect
+    subject_ref
+    location_id_after
+```
+
+where the subject is a typed spatial subject reference:
+
+```text
+SpatialSubjectRef
+    kind
+        ENTITY | SPACE
+    id
+```
+
+The effect remains transient candidate data under the existing WorldEffect authority boundary. It does not mutate WorldState directly.
+
+Trusted validation/materialization converts an accepted location candidate into one semantic Event:
+
+```text
+LocationChanged
+    subject_ref
+    location_id_after
+```
+
+The common authority flow is:
+
+```text
+resolver / scenario mechanic
+    -> SetLocationEffect
+    -> candidate validation
+    -> LocationChanged
+    -> WorldState projection
+```
+
+Entity movement and Space movement share this same authoritative spatial consequence contract. GRASS does not introduce separate MoveEntityEffect and MoveSpaceEffect families merely because the producing mechanics differ.
+
+For an Entity subject, location_id_after is mandatory and must reference an accepted existing Space; Entity location may never become null.
+
+For a Space subject, location_id_after may reference another accepted Space or be null. Null makes the Space a root Space.
+
+Direct self-location is always invalid:
+
+```text
+A.location_id = A
+```
+
+even when SpatialPolicy.allow_cycles = true. Longer containment cycles are accepted only when the world spatial policy allows them.
+
+### MOVE is actor intent, not spatial write authority
+
+The actor-facing primitive MOVE does not directly set location_id.
+
+Conceptually:
+
+```text
+MOVE PlanStep / Job
+    -> movement resolution mechanic
+    -> typed movement result
+    -> trusted movement contract
+    -> existing Job outcome
+    -> optional SetLocationEffect
+```
+
+Therefore:
+
+```text
+MOVE
+    = actor-facing movement intent
+
+SetLocationEffect
+    = proposed authoritative spatial consequence
+```
+
+An actor cannot gain arbitrary spatial mutation authority merely by naming a target in a MOVE PlanStep.
+
+A scenario mechanic may relocate a Space by producing the same SetLocationEffect with a SPACE subject. No actor-facing MOVE_SPACE primitive is introduced.
+
+### LocationChanged records direct location only
+
+LocationChanged means that the subject's own canonical direct location_id changed.
+
+Moving a containing Space may alter the derived enclosing spatial context of nested subjects, but GRASS does not generate synthetic descendant LocationChanged Events for those derived changes.
+
+For example:
+
+```text
+Alice.location_id = vehicle-cabin
+vehicle-cabin.location_id = warsaw
+```
+
+followed by:
+
+```text
+LocationChanged(
+    subject_ref = SPACE(vehicle-cabin),
+    location_id_after = poznan
+)
+```
+
+changes Alice's derived enclosing chain to:
+
+```text
+Alice -> vehicle-cabin -> poznan
+```
+
+but Alice.location_id remains vehicle-cabin and no synthetic LocationChanged(Alice, poznan) is emitted.
+
+> LocationChanged records only a change of a subject's direct location_id. Changes to transitive/enclosing location caused by movement of an ancestor Space are derived and do not generate descendant location Events.
+
+## Decision 6: MOVE is resolved through a world-defined MovementContract
+
+MOVE remains a generic actor-facing primitive. Core does not hard-code walking, doors, vehicles, portals, teleportation, rooms, or other scenario movement vocabulary.
+
+A world-defined typed movement mechanic resolves the attempt:
+
+```text
+MovementInput
+    -> BUILTIN | GEL | IMPLEMENTATION
+    -> MovementResult
+```
+
+The mechanic receives only explicitly bound typed inputs. It does not receive unrestricted WorldState/SimulationState, mutate location_id, create Events, or bypass the normal candidate-validation boundary.
+
+The typed result is interpreted by a trusted world-defined MovementContract, conceptually:
+
+```text
+MovementContract
+    contract_id
+    input_schema
+    result_schema
+    outcome_mapping
+    consequence_mapping
+```
+
+Exact DTO fields remain open. The semantic boundary is fixed:
+
+- the contract may map accepted result values to existing Job outcomes;
+- the contract may map accepted result values to zero or one SetLocationEffect for the moving subject;
+- the requested MOVE target and the resolved authoritative destination are distinct concepts;
+- blocked, failed, partial, redirected, portal-like, or otherwise unusual movement remains scenario-defined rather than core movement behavior.
+
+A scenario may therefore resolve:
+
+```text
+requested target = server-room
+resolved destination = security-checkpoint
+```
+
+without changing the meaning of the core MOVE primitive.
+
+BUILTIN, GEL, and IMPLEMENTATION are alternate ways to compute the same typed MovementResult. More expressive mechanics do not gain additional simulation authority.
+
+## Decision 7: MovementRule selection is world-owned, deterministic, and non-priority-based
+
+A Plan/PlanStep expresses what the actor attempts, not which technical movement implementation should run. Actor/provider-authored MOVE steps therefore do not select implementation mechanics directly.
+
+WorldDefinition owns movement-mechanic selection through world-defined rules, conceptually:
+
+```text
+MovementRule
+    rule_id
+    selector
+    input_bindings
+    movement_contract_ref
+    mechanic_binding
+```
+
+The flow is:
+
+```text
+MOVE PlanStep / Job
+    -> trusted MovementRule selection
+    -> resolve explicit typed inputs
+    -> BUILTIN | GEL | IMPLEMENTATION
+    -> MovementResult
+    -> MovementContract
+    -> Job outcome + optional SetLocationEffect
+```
+
+Selectors may use only accepted generic/explicitly bound scenario information, such as the requested target, current direct location, PlanStep parameters, Blueprint references/parameters, or scenario-defined type/property values. Core does not compile in domain selector vocabulary such as walking, room, vehicle, portal, or door.
+
+Ordinary worlds may configure an explicit default movement binding for cases where no specific MovementRule matches.
+
+Selection semantics are:
+
+```text
+exactly one applicable MovementRule
+    -> use it
+
+no applicable MovementRule
+    + explicit default movement binding
+    -> use default
+
+no applicable MovementRule
+    + no default
+    -> movement cannot be resolved
+
+more than one applicable MovementRule
+    -> invalid ambiguity
+```
+
+Declaration order is not semantic priority. Slice 17.2 does not introduce numeric or implicit rule priorities.
+
+> MovementRule selection must resolve to at most one applicable rule. Ambiguous matching is invalid rather than resolved by declaration order or implicit priority. If no rule matches, an explicitly configured default movement binding may be used.
+
 ## Consequences
 
 ### Positive
@@ -158,7 +371,12 @@ Exact semantic answers for unusual self-reachability questions such as whether a
 - nested spaces model rooms/buildings/cities as well as moving containers such as vehicles without rewriting all contained Entities;
 - Entity location cannot silently diverge between magic properties, Relations, and a separate membership subsystem;
 - unusual cyclic/SF topologies remain possible without making them the default;
-- cycle-safe traversal prevents pathological spatial topology from hanging the runtime.
+- cycle-safe traversal prevents pathological spatial topology from hanging the runtime;
+- Entity and Space relocation share one closed validated spatial authority path;
+- actor MOVE intent remains distinct from authoritative location mutation;
+- movement behavior stays world-defined and replaceable through BUILTIN, GEL, or IMPLEMENTATION mechanics;
+- deterministic rule selection avoids hidden declaration-order semantics;
+- moving a container/vehicle Space updates nested effective context without Event fan-out over every contained subject.
 
 ### Costs and constraints
 
@@ -166,7 +384,10 @@ Exact semantic answers for unusual self-reachability questions such as whether a
 - every Entity must receive a valid initial location;
 - Space relocation requires normal authoritative runtime semantics rather than editing WorldDefinition;
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
-- query and mechanics code must distinguish direct `location_id` from derived enclosing context.
+- query and mechanics code must distinguish direct `location_id` from derived enclosing context;
+- the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
+- MovementRule authoring must avoid ambiguous overlapping selectors;
+- mechanics that move Spaces or Entities must preserve the same validation boundary.
 
 ## Alternatives considered
 
@@ -190,13 +411,34 @@ Rejected as unnecessarily restrictive for deliberately unusual worlds. Acyclic c
 
 Rejected because root Spaces would require an artificial universal container. Entity location is mandatory; Space location is optional for roots.
 
+### Let MOVE write Entity.location_id directly
+
+Rejected because an actor-facing primitive expresses intent, not authority to mutate WorldState. Scenario mechanics must resolve the attempt and produce an accepted candidate spatial consequence through the normal validation/commit boundary.
+
+### Use separate mutation/Event contracts for Entity movement and Space movement
+
+Rejected because both operations change the same canonical semantic fact: subject.location_id. Different producing mechanics do not justify parallel authority models.
+
+### Emit LocationChanged for every nested subject when an ancestor Space moves
+
+Rejected because descendant enclosing location is derived from direct canonical location_id links. Synthetic descendant Events would duplicate derived facts, create potentially large Event fan-out, and falsely imply that each descendant's direct location changed.
+
+### Permit direct self-location when cycles are enabled
+
+Rejected because A -> A adds no material expressiveness beyond supported longer cyclic topologies and makes direct containment semantics needlessly degenerate.
+
+### Put implementation mechanic bindings directly in actor-authored MOVE PlanSteps
+
+Rejected because Plans should express actor intent rather than technical world implementation choices. Movement selection belongs to world semantics.
+
+### Resolve overlapping MovementRules by list order or numeric priority
+
+Rejected for Slice 17.2 because hidden/stacked priority semantics would make movement behavior harder to reason about. Ambiguous matching is invalid; a separate explicit default handles the ordinary fallback case.
+
 ## Remaining Slice-17.2 decisions
 
 This ADR remains Draft. The next architecture work must resolve:
 
-- the closed candidate mutation and semantic Event contract for changing Entity/Space `location_id`;
-- how actor-facing `MOVE` maps onto spatial mutation and how scenario mechanics may block, redirect, or otherwise resolve movement;
-- the authoritative mechanic for moving a Space and whether it reuses the same candidate mutation path as Entity movement;
 - genesis Events/projections for initial Spaces and Entity/Space locations;
 - lifecycle/reference validation for inactive/deactivated Entities and Spaces;
 - exact WorldState projection placement and immutable DTO/value-object shapes;
