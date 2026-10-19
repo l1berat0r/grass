@@ -362,6 +362,62 @@ Declaration order is not semantic priority. Slice 17.2 does not introduce numeri
 
 > MovementRule selection must resolve to at most one applicable rule. Ambiguous matching is invalid rather than resolved by declaration order or implicit priority. If no rule matches, an explicitly configured default movement binding may be used.
 
+
+## Decision 8: Creation materializes complete initial spatial state
+
+Creation and initial direct placement are one semantic fact.
+
+Entity creation always materializes its mandatory direct location:
+
+```text
+EntityCreated
+    entity_id
+    entity_type
+    location_id
+    properties
+```
+
+Space creation always materializes the Space plus its initial direct container/root state:
+
+```text
+SpaceCreated
+    space_id
+    location_id?   # null = root Space
+    properties
+```
+
+For Entity, location_id is required and must resolve to an accepted Space in the final candidate state of the atomic transition.
+
+For Space, location_id may reference another accepted Space or be null for a root Space.
+
+LocationChanged is not used to initialize newly created subjects. It records only a later change of an already-existing subject's direct location_id.
+
+Therefore an authored genesis may conceptually materialize:
+
+```text
+SpaceCreated(earth, null)
+SpaceCreated(warsaw, earth)
+SpaceCreated(acme-building, warsaw)
+SpaceCreated(server-room, acme-building)
+
+EntityCreated(
+    alice,
+    Person,
+    location_id = server-room,
+    properties = ...
+)
+```
+
+inside one atomic genesis transition.
+
+All spatial cross-references in one atomic creation/genesis transition are validated against the final candidate state rather than Event append order. A newly created Entity or Space may therefore reference a Space created elsewhere in the same transition.
+
+The same rule applies to runtime creation. A newly created Entity never has an authoritative intermediate state with no location. A newly created Space always has an explicit initial location value, including null when it is a root.
+
+WorldDefinition/WorldPackage declarations are authoring input. Genesis materializes them into canonical Event history and WorldState. After creation, authoritative runtime location comes from canonical state/history rather than the original editable definition.
+
+Because GRASS is still pre-stable and ADR-0026 already permits the current WorldDefinition schema reset, Slice 17.2 does not preserve backward compatibility by making EntityCreated.location_id optional. Existing internal local data that predates this contract is recreated rather than silently interpreted under weaker semantics.
+
 ## Consequences
 
 ### Positive
@@ -376,7 +432,9 @@ Declaration order is not semantic priority. Slice 17.2 does not introduce numeri
 - actor MOVE intent remains distinct from authoritative location mutation;
 - movement behavior stays world-defined and replaceable through BUILTIN, GEL, or IMPLEMENTATION mechanics;
 - deterministic rule selection avoids hidden declaration-order semantics;
-- moving a container/vehicle Space updates nested effective context without Event fan-out over every contained subject.
+- moving a container/vehicle Space updates nested effective context without Event fan-out over every contained subject;
+- creation never exposes an Entity without its mandatory direct location;
+- genesis may create nested Spaces and located Entities atomically without relying on Event order.
 
 ### Costs and constraints
 
@@ -387,7 +445,9 @@ Declaration order is not semantic priority. Slice 17.2 does not introduce numeri
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
 - MovementRule authoring must avoid ambiguous overlapping selectors;
-- mechanics that move Spaces or Entities must preserve the same validation boundary.
+- mechanics that move Spaces or Entities must preserve the same validation boundary;
+- EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
+- pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields.
 
 ## Alternatives considered
 
@@ -435,11 +495,18 @@ Rejected because Plans should express actor intent rather than technical world i
 
 Rejected for Slice 17.2 because hidden/stacked priority semantics would make movement behavior harder to reason about. Ambiguous matching is invalid; a separate explicit default handles the ordinary fallback case.
 
+### Initialize location with a separate LocationChanged after creation
+
+Rejected because Entity location is mandatory canonical state. Splitting creation and placement would create an unnecessary intermediate semantic model and weaken the meaning of LocationChanged.
+
+### Make EntityCreated.location_id optional for backward compatibility
+
+Rejected because the project is pre-stable and the spatial contract intentionally requires every Entity to have a location. Compatibility with earlier internal local payloads is not worth weakening the invariant.
+
 ## Remaining Slice-17.2 decisions
 
 This ADR remains Draft. The next architecture work must resolve:
 
-- genesis Events/projections for initial Spaces and Entity/Space locations;
 - lifecycle/reference validation for inactive/deactivated Entities and Spaces;
 - exact WorldState projection placement and immutable DTO/value-object shapes;
 - how direct/enclosing location is exposed as explicit typed input to BUILTIN/GEL/IMPLEMENTATION mechanics;
