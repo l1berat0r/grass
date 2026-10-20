@@ -616,6 +616,194 @@ WorldDefinition-aware candidate validation
 
 A canonical WorldState must therefore be capable of representing a cyclic containment graph when the active WorldDefinition explicitly permits one.
 
+
+## Decision 11: Spatial mechanic access uses bounded query capabilities over an immutable invocation view
+
+Spatial mechanics do not receive unrestricted WorldState/SimulationState access.
+
+GRASS supports both resolved value bindings and bounded read-only spatial query bindings.
+
+Resolved value bindings are appropriate when all arguments are known before mechanic invocation.
+
+Bounded query bindings are appropriate when the mechanic must decide dynamically which spatial subject or Space to inspect during execution.
+
+Conceptually:
+
+```text
+SpatialQueryCapability
+    direct_location(subject_ref)
+    enclosing_spaces(subject_ref)
+    is_within(subject_ref, space_id)
+    space_property(space_id, property_name)
+```
+
+These are pure read-only capabilities. They do not expose Event history, cognition, scheduler state, arbitrary resources, unrestricted world traversal, mutation, Event creation, or commit authority.
+
+The mechanic binding declares its available spatial query surface statically. Query arguments such as subject_ref or space_id may be dynamic at runtime, but the available query operations and readable Space property names are declared before invocation.
+
+For example, a mechanic may be authorized for:
+
+```text
+SpatialQueryBinding
+    direct_location: enabled
+    enclosing_spaces: enabled
+    is_within: enabled
+    readable_space_properties:
+        - security_zone
+        - floor
+```
+
+A GEL mechanic may then dynamically inspect:
+
+```text
+spatial.space_property(target_space, "security_zone")
+```
+
+but may not read an undeclared property such as:
+
+```text
+spatial.space_property(target_space, "secret_code")
+```
+
+The invariant is:
+
+> Query arguments may be dynamic, but the mechanic's readable semantic surface is declared statically.
+
+The same capability declaration principle applies to BUILTIN, GEL, and IMPLEMENTATION mechanics.
+
+### Immutable invocation spatial view
+
+All spatial queries within one mechanic invocation read the same immutable authoritative base state captured for that invocation.
+
+Conceptually:
+
+```text
+InvocationSpatialView
+    = authoritative base state at invocation start
+```
+
+A mechanic does not observe candidate effects that it has proposed during the same invocation.
+
+For example, if movement resolution starts with:
+
+```text
+Alice.location_id = room
+```
+
+and the mechanic's eventual result maps to:
+
+```text
+SetLocationEffect(Alice, corridor)
+```
+
+then every spatial query made during that invocation still observes Alice in room.
+
+This preserves deterministic pure-function reasoning and prevents mechanic behavior from depending on partially materialized candidate state.
+
+## Decision 12: Core spatial query semantics are cycle-safe and preserve canonical topology
+
+Slice 17.2 keeps ENCLOSING_SPACES as a first-class spatial query operation.
+
+For an Entity:
+
+```text
+Alice -> server-room -> acme-building -> warsaw -> null
+```
+
+the enclosing sequence is:
+
+```text
+ENCLOSING_SPACES(Alice)
+    = [server-room, acme-building, warsaw]
+```
+
+For a Space, traversal begins from its direct parent and never includes the subject Space itself.
+
+When a cycle is encountered, each Space appears at most once and traversal stops before the first repeated Space.
+
+For example:
+
+```text
+A -> B -> C -> A
+```
+
+produces:
+
+```text
+ENCLOSING_SPACES(A)
+    = [B, C]
+```
+
+not:
+
+```text
+[B, C, A]
+```
+
+IS_WITHIN is defined by membership in ENCLOSING_SPACES:
+
+```text
+IS_WITHIN(subject, space)
+    = space in ENCLOSING_SPACES(subject)
+```
+
+Therefore:
+
+```text
+IS_WITHIN(A, A) = false
+```
+
+even when cyclic containment eventually reaches A again.
+
+DIRECT_LOCATION returns only the subject's canonical direct location_id.
+
+SPACE_PROPERTY reads one explicitly authorized property from one Space. Space properties do not inherit implicitly through enclosing Spaces.
+
+If a world wants inherited or aggregate property semantics, its mechanic may explicitly traverse ENCLOSING_SPACES and compute that scenario-defined meaning.
+
+## Decision 13: Spatial Query API exposes canonical topology without hiding inactive state
+
+The read-only Query API exposes spatial concepts directly rather than a generic graph API.
+
+The minimal semantic surface includes:
+
+```text
+get_spaces(...)
+get_space(space_id)
+
+get_direct_location(subject_ref)
+get_enclosing_spaces(subject_ref)
+is_within(subject_ref, space_id)
+```
+
+A Space query view exposes at least the canonical Space identity, direct location_id, properties, and active lifecycle state.
+
+Direct location and enclosing location remain distinct Query concepts.
+
+Inactive Entities and Spaces remain queryable.
+
+For example, after a cascading deactivation:
+
+```text
+Alice inactive
+    -> server-room inactive
+    -> building inactive
+```
+
+get_direct_location(Alice) still returns server-room, and get_enclosing_spaces(Alice) still returns the canonical enclosing chain.
+
+Spatial traversal does not silently filter inactive Spaces. Activity is returned as state rather than used to rewrite topology.
+
+Similarly:
+
+```text
+is_within(Alice, building)
+```
+
+may remain true for inactive canonical state.
+
+List-style queries such as get_spaces may support lifecycle filters, but topology queries such as get_enclosing_spaces do not use include_inactive switches that would change the meaning of the location graph.
+
 ## Consequences
 
 ### Positive
@@ -637,7 +825,12 @@ A canonical WorldState must therefore be capable of representing a cyclic contai
 - deactivation preserves historical spatial structure without synthetic relocation Events;
 - spatial identity and state integrate directly into the existing WorldState model rather than creating a second authority projection;
 - typed spatial references prevent Entity/Space identifier-kind mismatches;
-- projection stays independent from WorldDefinition-specific cycle policy.
+- projection stays independent from WorldDefinition-specific cycle policy;
+- mechanics can perform dynamic spatial inspection without receiving unrestricted WorldState;
+- readable spatial capabilities and property dependencies remain explicit in mechanic authoring;
+- all queries within one invocation observe one deterministic immutable spatial snapshot;
+- cycle-safe enclosing/containment semantics are defined once in core and reused by mechanics and Query API;
+- inactive spatial topology remains inspectable instead of being rewritten by presentation logic.
 
 ### Costs and constraints
 
@@ -655,7 +848,10 @@ A canonical WorldState must therefore be capable of representing a cyclic contai
 - generic Relation/Resource/StateVariable cleanup is not implied by spatial deactivation;
 - existing Entity/Event/projection DTOs must be updated to carry mandatory SpaceId location data;
 - WorldState gains a new spaces mapping and new cross-reference validation;
-- candidate validation must retain access to WorldDefinition spatial policy because cycle legality is intentionally not encoded into projection construction.
+- candidate validation must retain access to WorldDefinition spatial policy because cycle legality is intentionally not encoded into projection construction;
+- mechanic composition must validate declared spatial query capabilities and readable Space property names;
+- GEL/BUILTIN/IMPLEMENTATION adapters need an invocation-scoped immutable SpatialQuery view rather than direct WorldState access;
+- Query API/DTOs must expose Space inspection and direct/enclosing location semantics consistently with core traversal.
 
 ## Alternatives considered
 
@@ -743,10 +939,32 @@ Rejected because a generic identifier field would permit invalid type combinatio
 
 Rejected because allow_cycles is WorldDefinition policy, not a universal structural invariant. WorldState must be able to represent accepted cyclic worlds without depending on mutable/external WorldDefinition context during projection.
 
+### Precompute every possible spatial query before mechanic invocation
+
+Rejected because a mechanic may need to choose query arguments dynamically. Bounded read-only query capabilities preserve explicit authority without requiring impossible or wasteful precomputation of all argument combinations.
+
+### Give mechanics unrestricted WorldState access for spatial reads
+
+Rejected because it would erase declared dependency boundaries and allow spatial mechanics to inspect unrelated world state. Spatial access is provided through a narrow explicit capability surface.
+
+### Allow dynamic access to arbitrary Space property names
+
+Rejected because it would make Space properties effectively unrestricted data access. Space targets may be dynamic, but readable property names are declared statically by the mechanic binding.
+
+### Let a mechanic observe its own proposed spatial effects during the same invocation
+
+Rejected because partially visible candidate state complicates deterministic reasoning and creates order-sensitive behavior inside one resolution. All spatial queries use the invocation's immutable base state.
+
+### Treat graph reachability as self-containment in cyclic worlds
+
+Rejected because A -> B -> C -> A should not make A conceptually contained within itself. ENCLOSING_SPACES excludes the subject Space and IS_WITHIN follows that semantic.
+
+### Filter inactive Spaces from enclosing-space Query results
+
+Rejected because deactivation preserves canonical location topology. Activity is a lifecycle attribute, not a reason to rewrite the spatial chain returned by Query.
+
 ## Remaining Slice-17.2 decisions
 
 This ADR remains Draft. The next architecture work must resolve:
 
-- how direct/enclosing location is exposed as explicit typed input to BUILTIN/GEL/IMPLEMENTATION mechanics;
-- Query API semantics for direct location, enclosing spaces, cycle-safe reachability, and inspection;
 - package schema/version and acceptance-scenario migration consequences.
