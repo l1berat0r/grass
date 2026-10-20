@@ -501,6 +501,121 @@ SpaceDeactivated
 
 No generic SpaceUpdated contract is introduced by this slice.
 
+
+## Decision 10: Spatial state is first-class WorldState data
+
+Slice 17.2 extends the existing WorldState model rather than introducing a parallel spatial projection or separate EntityState hierarchy.
+
+A dedicated opaque SpaceId is introduced alongside existing identifiers such as EntityId and RelationId.
+
+Conceptually:
+
+```text
+SpaceId
+    opaque stable identifier of a persistent Space
+```
+
+SpaceId and EntityId remain distinct identifier types even if their underlying authored string values happen to be equal. A scenario may therefore deliberately model both:
+
+```text
+SpaceId("acme-building")
+EntityId("acme-building")
+```
+
+when the place and the domain Entity are separate concepts.
+
+The existing Entity value gains mandatory direct location state:
+
+```text
+Entity
+    entity_id: EntityId
+    entity_type: str
+    location_id: SpaceId
+    properties
+    active: bool
+```
+
+A new first-class immutable Space value is added:
+
+```text
+Space
+    space_id: SpaceId
+    location_id: SpaceId | None
+    properties
+    active: bool
+```
+
+Space properties are immutable structured scenario-defined data after creation. Spatial relocation is represented only through LocationChanged and therefore changes location_id rather than properties.
+
+WorldState gains one additional canonical mapping:
+
+```text
+WorldState
+    entities: Mapping[EntityId, Entity]
+    spaces: Mapping[SpaceId, Space]
+    relations: Mapping[RelationId, Relation]
+    resources: ...
+    state_variables: ...
+```
+
+Space belongs to WorldState because it is objective modeled world reality, not execution or cognition state.
+
+### SpatialSubjectRef is a typed closed union
+
+The conceptual generic kind/id shape is implemented as a closed typed union:
+
+```text
+EntitySpatialRef
+    entity_id: EntityId
+    kind = ENTITY
+
+SpaceSpatialRef
+    space_id: SpaceId
+    kind = SPACE
+
+SpatialSubjectRef =
+    EntitySpatialRef
+    | SpaceSpatialRef
+```
+
+SetLocationEffect and LocationChanged use SpatialSubjectRef.
+
+This avoids invalid combinations such as a SPACE kind paired with an EntityId and keeps spatial authority strongly typed.
+
+### WorldState owns structural invariants, not world policy
+
+WorldState/projection validates structural consistency that must hold for every accepted world:
+
+- every Entity.location_id references an existing Space;
+- every non-null Space.location_id references an existing Space;
+- a Space never directly references itself;
+- an active Entity references an active direct Space;
+- an active Space with a non-null parent references an active direct Space;
+- inactive Entities and Spaces may preserve location references to inactive Spaces;
+- referenced Spaces still exist even when inactive because deactivation is not deletion.
+
+WorldState does not decide whether longer Space-containment cycles are permitted.
+
+Cycle permission belongs to WorldDefinition spatial policy:
+
+```text
+candidate validation
+    + WorldDefinition.spatial_policy
+    -> accepted / rejected
+```
+
+This preserves the projection boundary:
+
+```text
+WorldState
+    structural invariants
+
+WorldDefinition-aware candidate validation
+    scenario/world policy invariants
+```
+
+A canonical WorldState must therefore be capable of representing a cyclic containment graph when the active WorldDefinition explicitly permits one.
+
 ## Consequences
 
 ### Positive
@@ -519,7 +634,10 @@ No generic SpaceUpdated contract is introduced by this slice.
 - creation never exposes an Entity without its mandatory direct location;
 - genesis may create nested Spaces and located Entities atomically without relying on Event order;
 - destructive scenario semantics may deactivate an entire nested spatial subtree/closure atomically;
-- deactivation preserves historical spatial structure without synthetic relocation Events.
+- deactivation preserves historical spatial structure without synthetic relocation Events;
+- spatial identity and state integrate directly into the existing WorldState model rather than creating a second authority projection;
+- typed spatial references prevent Entity/Space identifier-kind mismatches;
+- projection stays independent from WorldDefinition-specific cycle policy.
 
 ### Costs and constraints
 
@@ -534,7 +652,10 @@ No generic SpaceUpdated contract is introduced by this slice.
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
 - Space deactivation requires cycle-safe closure computation and atomic multi-subject lifecycle validation;
-- generic Relation/Resource/StateVariable cleanup is not implied by spatial deactivation.
+- generic Relation/Resource/StateVariable cleanup is not implied by spatial deactivation;
+- existing Entity/Event/projection DTOs must be updated to carry mandatory SpaceId location data;
+- WorldState gains a new spaces mapping and new cross-reference validation;
+- candidate validation must retain access to WorldDefinition spatial policy because cycle legality is intentionally not encoded into projection construction.
 
 ## Alternatives considered
 
@@ -606,11 +727,26 @@ Rejected because location_id is historical canonical state and Entity location i
 
 Rejected because those concepts have separate semantics and may remain historically meaningful. Spatial lifecycle does not imply generic deletion semantics.
 
+### Put Space into a separate spatial projection
+
+Rejected because Space is objective world reality and naturally belongs beside Entity, Relation, Resource, and StateVariable in WorldState. A separate spatial authority projection would duplicate world-state ownership.
+
+### Represent Space identifiers as plain strings
+
+Rejected because Space participates in canonical references, effects, Events, Query, and validation. A dedicated SpaceId preserves the same opaque-identifier discipline used elsewhere in core.
+
+### Use one generic kind/id SpatialSubjectRef
+
+Rejected because a generic identifier field would permit invalid type combinations. A closed EntitySpatialRef | SpaceSpatialRef union makes the reference structurally valid.
+
+### Validate allow_cycles inside WorldState construction
+
+Rejected because allow_cycles is WorldDefinition policy, not a universal structural invariant. WorldState must be able to represent accepted cyclic worlds without depending on mutable/external WorldDefinition context during projection.
+
 ## Remaining Slice-17.2 decisions
 
 This ADR remains Draft. The next architecture work must resolve:
 
-- exact WorldState projection placement and immutable DTO/value-object shapes;
 - how direct/enclosing location is exposed as explicit typed input to BUILTIN/GEL/IMPLEMENTATION mechanics;
 - Query API semantics for direct location, enclosing spaces, cycle-safe reachability, and inspection;
 - package schema/version and acceptance-scenario migration consequences.
