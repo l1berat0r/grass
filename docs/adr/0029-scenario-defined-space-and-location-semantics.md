@@ -418,6 +418,89 @@ WorldDefinition/WorldPackage declarations are authoring input. Genesis materiali
 
 Because GRASS is still pre-stable and ADR-0026 already permits the current WorldDefinition schema reset, Slice 17.2 does not preserve backward compatibility by making EntityCreated.location_id optional. Existing internal local data that predates this contract is recreated rather than silently interpreted under weaker semantics.
 
+
+## Decision 9: Space deactivation cascades over contained spatial subjects
+
+Deactivating an active Space is allowed even when active Entities or child Spaces are contained within it.
+
+The authoritative candidate consequence is conceptually:
+
+```text
+DeactivateSpaceEffect
+    space_id
+```
+
+Space deactivation is not an actor-facing primitive. It is an authoritative consequence available only through trusted world/scenario semantics, for example an explicitly authorized ScenarioReactionRule/ReactionContract consequence mapping.
+
+A mechanic still returns only its typed result. It does not call an imperative deactivate-space API or mutate WorldState directly.
+
+Before commit, trusted core computes the complete active spatial closure rooted at the target Space using direct location_id links.
+
+Conceptually:
+
+```text
+target Space
+    + every active Space directly/transitively located in it
+    + every active Entity directly/transitively located in it
+```
+
+The traversal is cycle-safe regardless of SpatialPolicy.allow_cycles.
+
+The complete cascade is validated and committed atomically. For example:
+
+```text
+building
+└── server-room
+    ├── Alice
+    └── rack-1
+```
+
+may materialize in one transition as:
+
+```text
+SpaceDeactivated(building)
+SpaceDeactivated(server-room)
+EntityDeactivated(Alice)
+EntityDeactivated(rack-1)
+```
+
+There is no committed intermediate state in which an active Entity or active Space points through location_id to a newly inactive Space.
+
+The invariant after every committed transition is:
+
+> No active Entity or active Space may have a direct location_id that references an inactive Space.
+
+Deactivation preserves the subject's last direct location_id as historical canonical state. Therefore inactive historical structures such as:
+
+```text
+Alice inactive -> server-room inactive -> building inactive
+```
+
+are valid and do not require synthetic LocationChanged Events.
+
+The cascade does not automatically deactivate generic Relations, delete Resources, or clear unrelated StateVariables. Existing lifecycle/history semantics for those concepts remain separate. A scenario reaction may explicitly produce additional accepted consequences when its world semantics require them.
+
+Active subjects may not be created in, moved into, or relocated under an inactive Space:
+
+```text
+MOVE Alice -> inactive-space
+CreateEntity(location_id = inactive-space)
+CreateSpace(location_id = inactive-space)
+SetLocationEffect(..., inactive-space)
+```
+
+must not produce an accepted active spatial state.
+
+Slice 17.2 keeps Space properties immutable after SpaceCreated. Runtime Space lifecycle is therefore conceptually:
+
+```text
+SpaceCreated
+LocationChanged*
+SpaceDeactivated
+```
+
+No generic SpaceUpdated contract is introduced by this slice.
+
 ## Consequences
 
 ### Positive
@@ -434,7 +517,9 @@ Because GRASS is still pre-stable and ADR-0026 already permits the current World
 - deterministic rule selection avoids hidden declaration-order semantics;
 - moving a container/vehicle Space updates nested effective context without Event fan-out over every contained subject;
 - creation never exposes an Entity without its mandatory direct location;
-- genesis may create nested Spaces and located Entities atomically without relying on Event order.
+- genesis may create nested Spaces and located Entities atomically without relying on Event order;
+- destructive scenario semantics may deactivate an entire nested spatial subtree/closure atomically;
+- deactivation preserves historical spatial structure without synthetic relocation Events.
 
 ### Costs and constraints
 
@@ -447,7 +532,9 @@ Because GRASS is still pre-stable and ADR-0026 already permits the current World
 - MovementRule authoring must avoid ambiguous overlapping selectors;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
-- pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields.
+- pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
+- Space deactivation requires cycle-safe closure computation and atomic multi-subject lifecycle validation;
+- generic Relation/Resource/StateVariable cleanup is not implied by spatial deactivation.
 
 ## Alternatives considered
 
@@ -503,11 +590,26 @@ Rejected because Entity location is mandatory canonical state. Splitting creatio
 
 Rejected because the project is pre-stable and the spatial contract intentionally requires every Entity to have a location. Compatibility with earlier internal local payloads is not worth weakening the invariant.
 
+### Reject Space deactivation whenever active contents exist
+
+Rejected because scenario mechanics need to represent destructive world changes such as collapse, explosion, removal, or destruction of a containing area. Atomic cascade semantics preserve the active-location invariant without forbidding those scenarios.
+
+### Expose Space deactivation as a normal actor primitive
+
+Rejected because Space destruction/removal is world/scenario authority, not a generic actor-facing action. Actor behavior may causally trigger scenario reactions, but the authoritative consequence is produced through trusted scenario-mechanic mapping.
+
+### Clear descendant location_id values during Space deactivation
+
+Rejected because location_id is historical canonical state and Entity location is otherwise mandatory. Inactive subjects may retain references to inactive Spaces without violating active-world invariants.
+
+### Cascade Space deactivation into generic Relation/Resource/StateVariable cleanup
+
+Rejected because those concepts have separate semantics and may remain historically meaningful. Spatial lifecycle does not imply generic deletion semantics.
+
 ## Remaining Slice-17.2 decisions
 
 This ADR remains Draft. The next architecture work must resolve:
 
-- lifecycle/reference validation for inactive/deactivated Entities and Spaces;
 - exact WorldState projection placement and immutable DTO/value-object shapes;
 - how direct/enclosing location is exposed as explicit typed input to BUILTIN/GEL/IMPLEMENTATION mechanics;
 - Query API semantics for direct location, enclosing spaces, cycle-safe reachability, and inspection;
