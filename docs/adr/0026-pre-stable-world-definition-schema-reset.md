@@ -2,45 +2,69 @@
 
 - Status: Accepted
 - Date: 2026-10-03
+- Amended: 2026-10-20
 
 ## Context
 
-The unreleased `WorldDefinition` document evolved incrementally while the local 0.1
-runtime was being built. No stable WorldDefinition representation or migration promise
-has been published, so carrying the intermediate internal schema numbers would create
-compatibility obligations without protecting released data.
+The unreleased `WorldDefinition` document evolves while the local 0.1 runtime and the
+first complete authoring model are still being designed. No stable WorldDefinition
+representation or migration promise has been published.
+
+Numbering every incompatible internal development shape would turn `schema_version`
+into development archaeology rather than a compatibility contract. At the same time,
+repository-maintained examples and documentation must describe one current shape rather
+than accumulate multiple incompatible meanings for schema 1.
 
 ## Decision
 
-Reset the current complete `WorldDefinition` document to the initial schema version 1.
-Its strict root shape requires `scenario_event_rules`, which may be empty. Every current
-`AT_TIME` rule requires its direct usage-specific `mechanic`; the supported BUILTIN and
-GEL `SET_STATE_VARIABLE` forms and all existing validation remain unchanged.
+The pre-stable `WorldDefinition` document keeps `schema_version = 1` until the first
+stable complete WorldDefinition representation is explicitly frozen.
 
-The superseded intermediate internal WorldDefinition shapes are unsupported. There is no
-loader compatibility or migration path for them. Pre-release local SQLite databases,
-run snapshots, and installed package/template copies containing those shapes must be
-recreated manually.
+Before that stabilization point, an incompatible architecture/implementation change may
+replace the current schema-1 representation in place. Earlier internal schema-1 shapes
+become unsupported immediately; the loader does not detect, migrate, or preserve them.
 
-This reset does not renumber or change SQLite storage schema 1, WorldPackage format 1,
+Whenever the pre-stable schema-1 shape changes, all WorldDefinition documents,
+WorldPackages, templates, examples, fixtures, and current architecture documentation
+maintained in the repository must be migrated to the new current shape as part of the
+corresponding implementation change. We keep one supported pre-stable schema-1 shape in
+the repository rather than parallel compatibility variants.
+
+Pre-release local SQLite databases, immutable run snapshots, installed package/template
+copies, or other material created under an earlier incompatible internal shape remain
+disposable development data and may require recreation. GRASS does not provide a
+compatibility loader or migration promise for those external/local pre-stable copies.
+
+At the first explicitly stable complete WorldDefinition release, the then-current
+representation becomes the definitive schema version 1 compatibility contract. After
+that point, incompatible representation changes must advance `schema_version` and define
+their compatibility/migration policy deliberately.
+
+This policy does not renumber or couple SQLite storage schema 1, WorldPackage format 1,
 GEL language version 1, Event payload versions, SimulationRunConfig version 1, or CLI
-JSON schema version 1. These are independent version domains.
+JSON schema version 1. These remain independent version domains.
 
-A used WorldDefinition remains immutable. Material edits to a local template or other
-WorldPackage must change the semantic `WorldDefinition.version`, even when
+A used WorldDefinition remains immutable. Material edits to a concrete world/template
+must still change the semantic `WorldDefinition.version`, even while the document
 `schema_version` remains 1.
 
 Engine authority, Event sourcing, replay, branching, package snapshots, GEL isolation,
-and runtime composition boundaries are unchanged. Slice 18 remains deferred.
+and runtime composition boundaries are unchanged.
 
-This ADR supersedes the WorldDefinition schema-number and backward-compatibility
-statements in ADR-0016 and ADR-0023. Their scenario-occurrence and runnable-composition
-rationale and all other decisions remain accepted.
+This ADR supersedes WorldDefinition schema-number and pre-stable compatibility statements
+in ADR-0011, ADR-0016, and ADR-0023 wherever they conflict. Their historical slice
+rationale and all unrelated decisions remain accepted. Later ADRs may replace the current
+schema-1 shape without changing the number while this pre-stable policy remains active.
 
 ## Consequences
 
-- the first supported WorldDefinition representation is the current complete schema 1;
-- implementations need no compatibility branches for unreleased internal shapes;
-- local pre-release data may require manual recreation rather than migration;
-- future incompatible WorldDefinition representation changes must deliberately advance
-  its schema version and define compatibility policy.
+- `schema_version = 1` means "the current pre-stable WorldDefinition representation"
+  until the first stable complete contract is frozen;
+- old internal shapes carrying the same number are intentionally unsupported;
+- repository-maintained documents/examples are migrated forward instead of supported
+  through compatibility branches;
+- local pre-release data may require recreation rather than migration;
+- the first stable complete WorldDefinition representation can still be published as
+  schema version 1;
+- after that stabilization point, `schema_version` resumes normal incompatible-format
+  versioning semantics.

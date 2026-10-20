@@ -23,10 +23,11 @@ The 10:00 fixture contains exactly one interacting Job conflict component.
 
 A minimal corporate scenario contains:
 
-- `Alice`, `Bob`: `Person` entities with ActorFacet;
-- `Acme`: `Organization`;
-- `Office`: `Location`;
-- `TestEnvironment`: scenario entity/resource context;
+- `CorporateWorld`: root Space;
+- `Office`: first-class Space located in `CorporateWorld`;
+- `Alice`, `Bob`: `Person` entities with ActorFacet and explicit initial `location_id`;
+- `Acme`: `Organization` Entity with explicit initial `location_id`;
+- `TestEnvironment`: scenario Entity/resource context with explicit initial `location_id`;
 - `Alice employed_by Acme` and `Bob employed_by Acme` Relations;
 - `TestEnvironment.capacity = 1` Resource;
 - actor stress StateVariables;
@@ -44,7 +45,7 @@ A minimal corporate scenario contains:
 Expected properties:
 
 - initial conditions are declarations, not historical Events;
-- genesis produces semantic generic Events such as EntityCreated, RelationCreated, ResourceChanged, and StateVariableChanged;
+- genesis produces semantic generic Events such as SpaceCreated, EntityCreated, RelationCreated, ResourceChanged, and StateVariableChanged;
 - all Events in one genesis transition share one `transition_id` and commit atomically;
 - the resulting `SimulationState` contains consistent WorldState/ExecutionState/CognitionState projections;
 - no provider call is required to replay genesis.
@@ -53,9 +54,9 @@ Expected properties:
 
 Alice has no sufficient Plan, so the engine creates a `PLAN_REQUIRED` DecisionPoint with `FULL` scope.
 
-A scripted DecisionProvider decides that Alice will move to the office and then modify/write a report. Planning materializes an immutable Plan version with two PlanSteps:
+Alice begins outside the `Office` while Bob is located in the `Office`. A scripted DecisionProvider decides that Alice will move to the office and then modify/write a report. Planning materializes an immutable Plan version with two PlanSteps:
 
-1. `MOVE Alice -> Office`;
+1. `MOVE Alice -> Office`, where `Office` is the requested target `SpaceId`;
 2. report work (`MODIFY` or `CREATE`, depending on the modeled report object), dependent on step 1 `SUCCESS`.
 
 Expected properties:

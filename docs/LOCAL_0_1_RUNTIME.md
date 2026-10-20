@@ -478,8 +478,7 @@ never fall back to process-CWD directories. This addressing remains entirely out
 the Application API, and the WorldPackage loader.
 
 Any material edit to an initialized or installed local template must also change the
-semantic `WorldDefinition.version`. The document `schema_version` remains 1 unless the
-representation itself changes.
+semantic `WorldDefinition.version`. The document `schema_version` remains 1 throughout pre-stable development even when an incompatible internal representation replaces the previous one. Repository-maintained templates/examples are migrated to the one current schema-1 shape; older local copies may need to be recreated. Normal schema-number advancement begins only after the first stable complete WorldDefinition contract is explicitly frozen.
 
 Initialization also supports mutable local copies under
 `.grass/templates/worlds/<template-name>/`. These copies are ordinary WorldPackages, are

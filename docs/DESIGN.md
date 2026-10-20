@@ -97,6 +97,8 @@ WorldDefinition
     world_definition_id
     version
     schema_version
+    spatial_policy
+        allow_cycles
 
     vocabulary
         entity_types
@@ -119,7 +121,9 @@ WorldDefinition
 
     initial_conditions
         logical_time
+        spaces
         entities
+            location_id
         actor_facets
         relations
         resources
@@ -160,18 +164,26 @@ WorldDefinition.initial_conditions
     -> SimulationState
 ```
 
-The current complete `WorldDefinition` document is the initial schema version 1. It is a
-strict already-parsed mapping containing an opaque `world_definition_id`, an opaque
-non-empty semantic `version`, `schema_version = 1`, explicit vocabulary registries,
-initial conditions, required `scenario_event_rules`, and immutable structured metadata.
-The rule collection may be empty. Every current `AT_TIME` rule requires one direct,
-usage-specific `mechanic`. The semantic loader performs no file I/O.
+The current complete `WorldDefinition` document uses pre-stable `schema_version = 1`.
+Under ADR-0026, that number identifies the single current internal representation until the
+first stable complete WorldDefinition contract is frozen; incompatible pre-stable shapes
+may replace schema 1 in place and earlier shapes become unsupported. The current strict
+mapping contains an opaque `world_definition_id`, an opaque non-empty semantic `version`,
+explicit `spatial_policy`, vocabulary registries, initial conditions, required
+`scenario_event_rules`, and immutable structured metadata. The rule collection may be
+empty. Every current `AT_TIME` rule requires one direct, usage-specific `mechanic`.
+The semantic loader performs no file I/O.
 
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
 The version-1 vocabulary registries contain unique non-empty legal names for Entity, Relation, Resource, and StateVariable types. Individual registries may be empty. They define names only: property schemas, relation role/arity constraints, Resource units/bounds, StateVariable schemas/defaults, mechanics, Blueprints, and schema-expression infrastructure remain deferred.
 
-Version-1 initial conditions contain one logical time and ordered Entity, Relation, Resource, and StateVariable declarations. Empty initial conditions are valid. Initial Resource declarations use `quantity`, and initial StateVariable declarations use `value`; genesis translates these declarations to the existing resulting-state Event payload fields.
+Current schema-1 initial conditions contain one logical time and ordered Space, Entity,
+Relation, Resource, and StateVariable declarations. Every initial Entity has a mandatory
+direct `location_id` referencing an initial Space. Space declarations normalize compact
+string and expanded object forms into one semantic model. Initial Resource declarations
+use `quantity`, and initial StateVariable declarations use `value`; genesis translates
+these declarations to the existing resulting-state Event payload fields.
 
 Slice 4 `SimulationRunConfig` contains only the exact `world_definition_ref`. Fields owned by future resolver, provider, randomness, execution, and reproducibility slices are not represented by opaque placeholders.
 
@@ -182,7 +194,13 @@ bindings. Precedence is actor-specific, then the actor's routing group, then the
 run default. Credentials are execution-environment inputs, never run
 configuration.
 
-Every genesis transition begins with exactly one version-1 `SimulationInitialized` Event, followed by Entity, Relation, Resource, and StateVariable Events in that category order. Declaration order is preserved within each category. Relation participants remain semantically unordered and use deterministic `(role, entity_id)` payload ordering. Event sequence remains replay/storage ordering rather than causality or intermediate-world semantics.
+Every genesis transition begins with exactly one version-1 `SimulationInitialized` Event
+and materializes the complete accepted initial spatial/world state through deterministic
+semantic Events including `SpaceCreated`, location-bearing `EntityCreated`, Relation,
+Resource, and StateVariable Events. Event ordering is deterministic encoding/replay order,
+not causality or an intermediate-world dependency: spatial cross-references are validated
+against the final atomic candidate state. Declaration order remains deterministic within
+each materialized category.
 
 `SimulationInitialized` records the nested `WorldDefinitionRef` and the document schema version separately. It is an explicitly recognized semantic historical Event that does not mutate `WorldState`, `ExecutionState`, or `CognitionState`; no `RunState` or WorldDefinition reference is added to `WorldState`.
 
@@ -194,12 +212,14 @@ precede the initial logical time. Scenario rules remain declarations and add no 
 Events. RANDOM_TIME, AFTER_DURATION, recurrence, conditions, and sampling remain
 deferred.
 
-ADR-0026 resets the complete unreleased representation to schema version 1. Earlier
-internal partial shapes are unsupported and have no migration path. A material semantic
-edit creates a new `WorldDefinition.version`; it does not change `schema_version` while
-the representation remains schema 1. SQLite storage schema 1, WorldPackage format 1, GEL
-language version 1, Event payload versions, SimulationRunConfig version 1, and CLI JSON
-schema version 1 remain separate and unchanged.
+ADR-0026 keeps the complete unreleased WorldDefinition representation at pre-stable
+schema version 1 until the first stable complete contract is explicitly frozen. Breaking
+internal representation changes replace that current schema-1 shape in place; maintained
+repository worlds/examples move forward with it, while earlier local pre-release material
+may be recreated rather than migrated. A material semantic edit to one concrete world
+still creates a new `WorldDefinition.version`. SQLite storage schema 1, WorldPackage
+format 1, GEL language version 1, Event payload versions, SimulationRunConfig version 1,
+and CLI JSON schema version 1 remain separate and unchanged.
 
 ## 5. Scenario mechanics and GEL
 
@@ -427,6 +447,7 @@ Conceptually:
 Entity
     entity_id
     entity_type
+    location_id
     active
     properties
     semantic_content?
@@ -445,7 +466,7 @@ Initial generic entity vocabulary includes:
 - `Artifact`;
 - `Commitment`.
 
-Scenarios may define domain-specific types without requiring new core classes.
+Scenarios may define domain-specific types without requiring new core classes. A scenario-defined Entity type named `Location` is not spatial authority: first-class `Space` and canonical `location_id` provide core spatial semantics. A scenario may use both when a place also needs ordinary Entity/domain semantics.
 
 ### 7.2 Actor
 

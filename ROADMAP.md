@@ -16,10 +16,11 @@ After this baseline, material architecture changes should normally be introduced
 
 **Current status:** Slices 0–17.1 and the post-Slice-17.1 Diagnostics Readiness checkpoint are complete on `impl/v0.1-gpt`. Before Slice 18 actor-capable WorldPackage composition, Slice 17.2 stabilizes generic scenario-defined space/location semantics required by MOVE, passive perception, recipient selection, and actor interaction. The evidence-driven Diagnostics Architecture checkpoint still follows Slice 18; backend/frontend and other later capabilities remain unsequenced.
 
-ADR-0026 approves a pre-stable WorldDefinition schema reset before further slices: the
-current complete WorldDefinition shape becomes initial schema 1, with no migration support
-for earlier internal local data. This maintenance decision does not advance or redefine
-Slice 18.
+ADR-0026 keeps WorldDefinition at pre-stable schema 1 until the first stable complete
+authoring contract is explicitly frozen. Breaking internal representation changes may
+replace schema 1 in place; repository-maintained examples move forward with the current
+shape, while earlier local pre-release data has no compatibility guarantee. This
+maintenance policy does not advance or redefine Slice 18.
 
 ### Slice 0 — core value objects and package skeleton
 
@@ -262,10 +263,12 @@ grass run verify RUN
 The process may terminate and restart between commands. The run continues from its durable
 package snapshot and canonical history without depending on the editable template copy.
 
-The pre-stable WorldDefinition reset keeps SQLite, WorldPackage, GEL, Event,
-SimulationRunConfig, and CLI version domains at 1. Earlier internal WorldDefinition local
-databases, snapshots, and installed packages are unsupported and must be recreated
-manually. Material changes to editable templates require a semantic
+The pre-stable WorldDefinition policy keeps the current internal document at
+`schema_version = 1` until the first stable complete contract is frozen, independently
+from SQLite, WorldPackage, GEL, Event, SimulationRunConfig, and CLI version domains.
+Repository-maintained worlds/templates move forward with incompatible internal shape
+changes; earlier local databases, snapshots, and installed packages may need recreation.
+Material changes to editable templates still require a semantic
 `WorldDefinition.version` bump.
 
 ### Slice 17.1 — local CLI workspaces and presentation
@@ -335,32 +338,30 @@ a `Message`, `Conversation`, transcript, or other communication schema.
 
 ### Slice 17.2 — scenario-defined space semantics
 
-**Status: architecture to define before implementation**
+**Status: architecture substantially defined; final consistency review before implementation**
 
-Stabilize a small generic spatial model before actor-capable package composition. GRASS must support scenario-defined spaces without compiling domain concepts such as room, building, city, vehicle, grid cell, or zone into core.
+Stabilize a small generic spatial model before actor-capable package composition. GRASS
+uses first-class scenario-defined Spaces without compiling domain concepts such as room,
+building, city, vehicle, grid cell, or zone into core.
 
-Accepted authoring direction:
+Accepted architecture direction includes:
 
-- simple worlds may declare spaces as a list of stable identifiers;
-- richer worlds may declare space objects with stable identifiers and scenario-defined structured properties;
-- package loading may normalize both forms to one semantic `SpaceDefinition` model;
-- core understands generic space identity/structure only; scenario mechanics decide what scenario-defined properties mean;
-- spatial state should converge on one canonical `located_in` semantic rather than parallel generic Relation and separate membership models; exact runtime representation remains to be decided.
+- dedicated `SpaceId`, first-class `Space` in `WorldState`, and mandatory `Entity.location_id`;
+- one direct canonical `location_id`; enclosing context is derived cycle-safely;
+- WorldDefinition `spatial_policy.allow_cycles`, with acyclic containment as the ordinary explicit policy;
+- one closed `SetLocationEffect -> LocationChanged` authority path for Entity and Space;
+- generic MOVE intent resolved by world-owned MovementRule/MovementContract mechanics;
+- creation carries initial location directly and genesis validates the final atomic candidate;
+- scenario-authorized Space deactivation cascades atomically through contained active Spaces and Entities while preserving historical location links;
+- bounded spatial query capabilities over one immutable invocation view, with statically declared readable Space properties;
+- Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
+- current pre-stable WorldDefinition remains `schema_version = 1`: `spatial_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; WorldPackage format remains 1;
+- acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities.
 
-Architecture work for this slice must decide:
-
-- the canonical runtime representation of a subject's `located_in` state;
-- whether one subject may have one direct location or multiple spatial memberships and how this interacts with nested/overlapping spaces;
-- initial spatial declarations and genesis Events/projections;
-- how `MOVE` reads and changes spatial state through the normal candidate-effect/Event path;
-- whether new spatial WorldEffect/Event types are required or an existing generic authority primitive can represent the semantics without ambiguity;
-- lifecycle/reference validation when spaces or subjects are created/deactivated;
-- how space definitions/properties and subject location are exposed as explicit typed inputs to BUILTIN/GEL/IMPLEMENTATION mechanics;
-- the minimal query surface for current location/space inspection;
-- replay, branching, package snapshot, and schema/version consequences;
-- migration of acceptance examples that currently model `Office` informally as a normal `Location` Entity.
-
-Do not introduce a physics engine, mandatory geometry, coordinates, distance metric, adjacency, containment behavior beyond the accepted generic space semantics, or visibility model unless a concrete accepted scenario contract requires it. Richer behavior remains scenario-defined through properties and mechanics.
+Before implementation, perform one final consistency review against existing Event,
+projection, WorldEffect, WorldDefinition/genesis, package, and Query contracts. Do not add
+a physics engine, mandatory geometry, coordinates, distance metric, adjacency, universal
+visibility, or property inheritance unless a separate concrete scenario contract requires it.
 
 ### Slice 18 — actor-capable WorldPackage composition and actor templates
 

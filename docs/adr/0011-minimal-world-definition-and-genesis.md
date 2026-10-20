@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-09-07
 
+> Supersession note: ADR-0026 supersedes the pre-stable WorldDefinition schema-number and
+> compatibility policy in this ADR. ADR-0029 supersedes the initial spatial/genesis shape
+> where it adds first-class Spaces and mandatory Entity location. The Slice-4 historical
+> rationale and unrelated contracts remain accepted.
+
 ## Context
 
 Slice 4 introduces the first executable `WorldDefinition`, the separation of one

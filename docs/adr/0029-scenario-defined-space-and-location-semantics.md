@@ -804,6 +804,118 @@ may remain true for inactive canonical state.
 
 List-style queries such as get_spaces may support lifecycle filters, but topology queries such as get_enclosing_spaces do not use include_inactive switches that would change the meaning of the location graph.
 
+
+## Decision 14: Pre-stable WorldDefinition schema remains version 1 while spatial authoring becomes explicit
+
+Slice 17.2 changes the current pre-stable WorldDefinition representation without advancing
+`schema_version`.
+
+Under ADR-0026, `schema_version = 1` remains the single current pre-stable shape until the
+first stable complete WorldDefinition representation is explicitly frozen. Earlier
+internal schema-1 documents are not compatibility targets.
+
+The current schema-1 WorldDefinition gains an explicit world-level spatial policy:
+
+```text
+spatial_policy
+    allow_cycles: bool
+```
+
+The field is mandatory in the current strict representation. Worlds that use ordinary
+acyclic containment author `allow_cycles = false` explicitly.
+
+Initial conditions gain Space declarations:
+
+```text
+initial_conditions
+    logical_time
+    spaces
+    entities
+    relations
+    resources
+    state_variables
+```
+
+Each initial Entity carries its mandatory direct location:
+
+```text
+InitialEntity
+    entity_id
+    entity_type
+    location_id: SpaceId
+    properties
+```
+
+Space authoring accepts the already-defined compact and expanded forms. A simple string
+such as `"world"` normalizes to:
+
+```json
+{
+  "space_id": "world",
+  "location_id": null,
+  "properties": {}
+}
+```
+
+The expanded form may declare a parent Space and scenario properties:
+
+```json
+{
+  "space_id": "office",
+  "location_id": "building",
+  "properties": {
+    "floor": 2
+  }
+}
+```
+
+All forms normalize to one InitialSpace/SpaceDefinition semantic model before genesis
+validation.
+
+Conceptually, a current world document may therefore contain:
+
+```json
+{
+  "schema_version": 1,
+  "spatial_policy": {
+    "allow_cycles": false
+  },
+  "initial_conditions": {
+    "logical_time": 0,
+    "spaces": [
+      "world",
+      {
+        "space_id": "office",
+        "location_id": "world",
+        "properties": {}
+      }
+    ],
+    "entities": [
+      {
+        "entity_id": "alice",
+        "entity_type": "Person",
+        "location_id": "world",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "resources": [],
+    "state_variables": []
+  }
+}
+```
+
+WorldPackage format remains version 1. Only the semantic `world.json` representation is
+changing; the package container boundary does not change.
+
+Repository-maintained WorldDefinition documents, templates, examples, and fixtures are
+migrated to the new current schema-1 shape together with the Slice-17.2 implementation.
+No compatibility loader is added for the previous internal shape.
+
+The design acceptance scenario also moves from an informal `Office: Location Entity`
+convention to first-class Space semantics. `Office` is a Space, MOVE targets its SpaceId,
+and every initial Entity receives an explicit `location_id`.
+
 ## Consequences
 
 ### Positive
@@ -851,7 +963,9 @@ List-style queries such as get_spaces may support lifecycle filters, but topolog
 - candidate validation must retain access to WorldDefinition spatial policy because cycle legality is intentionally not encoded into projection construction;
 - mechanic composition must validate declared spatial query capabilities and readable Space property names;
 - GEL/BUILTIN/IMPLEMENTATION adapters need an invocation-scoped immutable SpatialQuery view rather than direct WorldState access;
-- Query API/DTOs must expose Space inspection and direct/enclosing location semantics consistently with core traversal.
+- Query API/DTOs must expose Space inspection and direct/enclosing location semantics consistently with core traversal;
+- the current strict WorldDefinition schema-1 document gains mandatory spatial_policy and initial Spaces/Entity location fields;
+- repository-maintained worlds/examples must migrate atomically with the Slice-17.2 implementation instead of relying on compatibility parsing.
 
 ## Alternatives considered
 
@@ -965,6 +1079,7 @@ Rejected because deactivation preserves canonical location topology. Activity is
 
 ## Remaining Slice-17.2 decisions
 
-This ADR remains Draft. The next architecture work must resolve:
-
-- package schema/version and acceptance-scenario migration consequences.
+The material Slice-17.2 semantic decisions are now recorded. Before changing this ADR from
+Draft to Accepted, perform one final consistency review against the existing core/Event/
+WorldDefinition contracts and identify any implementation-blocking gaps rather than adding
+new spatial semantics by default.
