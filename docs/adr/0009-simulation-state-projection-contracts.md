@@ -131,7 +131,7 @@ All fields are required for version 1. Missing or extra fields are invalid. Payl
 
 Projection consumes complete `CommittedTransition` values. It validates and applies each transition to private candidate data and returns one new immutable `SimulationState` only after the complete transition succeeds.
 
-Within one transition, more than one write to the same `EntityId`, `RelationId`, Resource key, or StateVariable key is invalid. Event sequence cannot choose between conflicting writes.
+As extended by ADR-0029, atomic conflict detection is defined at the authoritative semantic-field level rather than by EntityId alone. For Entity, explicitly composable lifecycle, location, and complete-properties writes may coexist in one transition when the complete final state is order-independent. More than one write to the same semantic field remains invalid, and Entity creation is a full-state write that cannot be combined with same-transition lifecycle/location/property rewrites. Relation, Resource, and StateVariable retain their existing per-identity/key conflict semantics unless a later ADR explicitly decomposes them. Event sequence never chooses between conflicting writes.
 
 Structural cross-references are validated against the final candidate state, not intermediate Event order. A Relation, Resource, or Entity-scoped StateVariable may therefore reference an Entity created elsewhere in the same transition.
 

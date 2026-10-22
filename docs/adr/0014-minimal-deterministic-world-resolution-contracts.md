@@ -114,9 +114,11 @@ commits history.
 ## Decision 5: Validation and deterministic integrity failure
 
 Resolution validates the complete proposal before it becomes commit-eligible.
-Validation includes proposal completeness, the closed effect set, duplicate
-target writes, references, currently expressible WorldDefinition vocabulary,
-existing Event payload contracts, and Job lifecycle/progress rules.
+Validation includes proposal completeness, the closed effect set, conflicting
+authoritative writes, references, currently expressible WorldDefinition vocabulary,
+existing Event payload contracts, and Job lifecycle/progress rules. Later composite
+objects such as Entity/Space use ADR-defined semantic-field conflict dimensions rather
+than a blanket same-identity duplicate rule.
 
 Normal infeasibility is an outcome and is not an exception. Malformed or invalid
 deterministic resolver output is surfaced as

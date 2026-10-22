@@ -354,6 +354,7 @@ Accepted architecture direction includes:
 - creation carries initial location directly and genesis validates the final atomic candidate; runtime Space creation occurs through normal Job/world or scenario mechanics, not an imperative mutation API;
 - scenario-authorized Space deactivation cascades atomically through contained active Spaces and Entities while preserving historical location links;
 - WorldDefinition LifecyclePolicy may independently permit explicit non-cascading Entity/Space reactivation; reactivation preserves `location_id` unless the same atomic candidate explicitly relocates the subject;
+- atomic Entity/Space conflict detection is per semantic field (lifecycle/location/properties), permitting explicitly composable order-independent writes while rejecting duplicate writes to the same field; creation remains a full-state write;
 - bounded spatial query capabilities over one immutable invocation view, with statically declared readable Space properties;
 - Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
 - current pre-stable WorldDefinition remains `schema_version = 1`: `spatial_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; WorldPackage format remains 1;

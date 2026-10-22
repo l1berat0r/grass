@@ -1103,6 +1103,111 @@ Space
 A later deactivation/reactivation cycle may repeat whenever the relevant world policy
 permits and each transition satisfies normal lifecycle validation.
 
+
+## Decision 17: Atomic write conflicts are defined per authoritative semantic field
+
+The projection/candidate model does not treat every write touching the same EntityId or
+SpaceId as an automatic conflict.
+
+For composite world objects, authoritative state is divided into explicit semantic write
+dimensions.
+
+For Entity:
+
+```text
+Entity
+    identity / entity_type     # fixed by creation
+    lifecycle                  # active
+    location                   # location_id
+    properties                 # complete properties value
+```
+
+For Space:
+
+```text
+Space
+    identity                   # fixed by creation
+    lifecycle                  # active
+    location                   # location_id
+    properties                 # fixed by creation in Slice 17.2
+```
+
+Within one atomic transition, more than one write to the same authoritative semantic field
+of the same projected identity/key is invalid.
+
+Writes to distinct semantic fields of the same identity may coexist only when their
+combination is explicitly supported and their final meaning is independent of Event/effect
+ordering.
+
+Accepted examples include:
+
+```text
+ReactivateEntityEffect(Alice)
+SetLocationEffect(Alice, office)
+```
+
+because lifecycle and location are separate dimensions, and:
+
+```text
+UpdateEntityEffect(Alice, properties_after=...)
+ReactivateEntityEffect(Alice)
+```
+
+because the complete final candidate may restore lifecycle and replace properties
+atomically.
+
+Likewise:
+
+```text
+ReactivateSpaceEffect(room)
+SetLocationEffect(room, building)
+```
+
+may restore and relocate the Space in one atomic candidate.
+
+Conflicting examples remain invalid:
+
+```text
+SetLocationEffect(Alice, A)
+SetLocationEffect(Alice, B)
+
+ReactivateEntityEffect(Alice)
+DeactivateEntityEffect(Alice)
+
+UpdateEntityEffect(Alice, properties_after=X)
+UpdateEntityEffect(Alice, properties_after=Y)
+```
+
+Creation is a special full-state write. CreateEntityEffect and CreateSpaceEffect establish
+the complete initial canonical object, including active lifecycle and initial location.
+Therefore creation may not be combined with another write to that newly created object's
+lifecycle, location, or properties in the same transition.
+
+For example:
+
+```text
+CreateSpaceEffect(A, location_id=X, ...)
+SetLocationEffect(A, Y)
+```
+
+is invalid even though location is otherwise an independently writable dimension.
+
+The same final-candidate principle applies to lifecycle preconditions. An operation that
+would be invalid against the base state alone may be valid when another explicitly
+composable effect in the same atomic candidate establishes the required final lifecycle
+state. Event ordering never supplies semantic precedence.
+
+Relation, Resource, StateVariable, Job, and other projected types keep their existing
+conflict semantics unless a later accepted contract explicitly decomposes them into
+independently composable semantic write dimensions.
+
+The general invariant is:
+
+> Within one atomic transition, more than one write to the same authoritative semantic
+> field of the same projected identity/key is invalid. Multiple writes to distinct fields
+> are allowed only when their combination is explicitly defined as composable and the
+> complete final state is order-independent.
+
 ## Consequences
 
 ### Positive
@@ -1155,7 +1260,8 @@ permits and each transition satisfies normal lifecycle validation.
 - repository-maintained worlds/examples must migrate atomically with the Slice-17.2 implementation instead of relying on compatibility parsing;
 - runtime Space creation uses a first-class CreateSpaceEffect and GRASS-controlled identity allocation;
 - Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
-- reactivation preserves canonical location_id and never implies automatic descendant reactivation.
+- reactivation preserves canonical location_id and never implies automatic descendant reactivation;
+- atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics.
 
 ## Alternatives considered
 
@@ -1295,6 +1401,23 @@ one atomic candidate.
 Rejected because deactivation preserves canonical location history. Reactivation restores
 activity at that same direct location unless an explicit SetLocationEffect changes it in
 the same atomic transition.
+
+### Reject every same-identity multi-write
+
+Rejected because Entity and Space have independently meaningful lifecycle, location, and
+property dimensions. A blanket same-ID rule would forbid useful atomic compositions such as
+reactivate-and-relocate and would force artificial compound effects.
+
+### Let Event order resolve multiple writes to one semantic field
+
+Rejected because replay/storage order must not become hidden state-transition precedence.
+Two writes to the same semantic field are invalid rather than resolved by ordering.
+
+### Treat creation as merely another independent field write
+
+Rejected because creation establishes the complete initial canonical object. Combining
+creation with same-transition lifecycle/location/property rewrites would weaken the
+complete-initial-state invariant and reintroduce order-sensitive semantics.
 
 ## Remaining Slice-17.2 decisions
 

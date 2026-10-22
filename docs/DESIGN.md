@@ -1168,7 +1168,16 @@ by occurrence preparation and complete visible-history scheduling validation.
 
 The exact complete v0.1 catalog is implementation-driven and versioned.
 
-Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid. Multiple writes to the same projected identity/key within one transition are invalid.
+Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid.
+
+Current atomic conflict semantics are per authoritative semantic field for composite
+Entity/Space state. Lifecycle, direct location, and complete Entity properties may be
+written together when the combination is explicitly composable and final-state
+order-independent; duplicate writes to the same dimension are invalid. Creation establishes
+the complete initial object and conflicts with same-transition lifecycle/location/property
+rewrites of that new identity. Relation, Resource, StateVariable, Job, and other projected
+types retain their existing conflict granularity unless explicitly extended. Event order
+never resolves conflicting writes.
 
 Strict routing occurs at the `SimulationState` boundary. A known Event routed to another projection is not unknown merely because `WorldState` does not consume it; Events unknown to every current projection still fail explicitly.
 
