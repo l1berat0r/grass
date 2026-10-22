@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-06
 
+> Supersession note: ADR-0029 supersedes the Slice-2 no-reactivation statement for Entity lifecycle by allowing explicit WorldDefinition-controlled Entity reactivation, and adds first-class Space lifecycle semantics. The historical Slice-2 projection rules remain accepted where not superseded.
+
 ## Context
 
 Slice 2 introduces the first authoritative state reconstructed from committed Event history. The design baseline already separates `WorldState`, `ExecutionState`, and `CognitionState`, but implementation requires precise initial lifecycle, identity, payload, and projection rules.

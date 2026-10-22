@@ -916,6 +916,193 @@ The design acceptance scenario also moves from an informal `Office: Location Ent
 convention to first-class Space semantics. `Office` is a Space, MOVE targets its SpaceId,
 and every initial Entity receives an explicit `location_id`.
 
+
+## Decision 15: Runtime Space creation is a normal world consequence with GRASS-controlled identity
+
+Space creation is part of the closed authoritative world-effect model.
+
+The candidate effect is:
+
+```text
+CreateSpaceEffect
+    space_id: SpaceId
+    location_id: SpaceId | None
+    properties
+```
+
+and trusted materialization is:
+
+```text
+CreateSpaceEffect
+    -> candidate validation
+    -> SpaceCreated
+    -> WorldState.spaces
+```
+
+Runtime Space creation is not a privileged imperative API and does not introduce a
+Space-specific actor primitive.
+
+Ordinary creation flows through the existing execution/world-semantics boundaries:
+
+```text
+Job
+    -> world mechanic
+    -> typed result
+    -> trusted contract mapping
+    -> GRASS allocates SpaceId
+    -> CreateSpaceEffect
+```
+
+or:
+
+```text
+ScenarioOccurrence / ScenarioReaction
+    -> scenario mechanic
+    -> typed result
+    -> trusted contract mapping
+    -> GRASS allocates SpaceId
+    -> CreateSpaceEffect
+```
+
+A mechanic/provider does not choose canonical runtime Space identity. Runtime Space IDs are
+allocated by GRASS under the same engine-controlled identity principle used for other
+runtime-created canonical simulation objects.
+
+The mechanic result may describe the requested semantic creation data, for example initial
+location and properties. The trusted layer allocates SpaceId before constructing the closed
+CreateSpaceEffect candidate.
+
+Genesis-authored Space IDs remain scenario-authored stable identifiers because they are
+part of immutable WorldDefinition authoring rather than runtime identity generation.
+
+Runtime creation obeys the same final-candidate spatial validation as genesis:
+
+- the allocated SpaceId must be new;
+- null location creates a root Space;
+- a non-null location must reference an accepted active Space in the final candidate;
+- direct self-location is invalid;
+- longer cycles are validated against SpatialPolicy.allow_cycles;
+- Spaces created in one atomic transition may reference other Spaces created in that same
+  transition because cross-references are validated against the complete final candidate,
+  not effect/Event ordering.
+
+The generic actor primitive CREATE may causally lead to Space creation only when the
+world-defined Job mechanic/contract maps that attempt to CreateSpaceEffect. CREATE itself
+does not grant direct Space mutation authority.
+
+## Decision 16: Entity and Space reactivation are optional explicit world lifecycle semantics
+
+WorldDefinition owns whether inactive Entities and Spaces may be reactivated.
+
+Conceptually:
+
+```text
+LifecyclePolicy
+    allow_entity_reactivation: bool = false
+    allow_space_reactivation: bool = false
+```
+
+LifecyclePolicy is separate from SpatialPolicy because Entity reactivation is not itself a
+spatial rule.
+
+When enabled, the closed world-effect/Event model includes:
+
+```text
+ReactivateEntityEffect
+    entity_id
+
+EntityReactivated
+    entity_id
+```
+
+and:
+
+```text
+ReactivateSpaceEffect
+    space_id
+
+SpaceReactivated
+    space_id
+```
+
+Reactivation is explicit and non-cascading.
+
+For example:
+
+```text
+building inactive
+└── room inactive
+    └── Alice inactive
+```
+
+followed by:
+
+```text
+ReactivateSpaceEffect(building)
+```
+
+reactivates only building. room and Alice remain inactive.
+
+A scenario may reactivate a larger structure by proposing multiple explicit reactivation
+effects in one atomic candidate. Validation considers the complete final candidate rather
+than effect/Event order.
+
+ReactivateEntityEffect is valid only when:
+
+- LifecyclePolicy.allow_entity_reactivation is true;
+- the Entity exists and is inactive;
+- its direct location is an active Space in the final candidate state.
+
+ReactivateSpaceEffect is valid only when:
+
+- LifecyclePolicy.allow_space_reactivation is true;
+- the Space exists and is inactive;
+- its preserved non-null parent is active in the final candidate state, or its location is
+  null;
+- the resulting topology satisfies SpatialPolicy.
+
+Attempting to reactivate an already-active subject is invalid.
+
+Deactivation preserves the last canonical location_id and reactivation restores activity
+without changing that location_id. Therefore:
+
+```text
+deactivate
+    -> location_id preserved
+
+reactivate
+    -> same location_id becomes active again
+```
+
+If scenario semantics require restoration at another location, the same atomic transition
+may combine explicit reactivation with SetLocationEffect, provided the complete final
+candidate is valid.
+
+Space properties remain unchanged by reactivation. Reactivation restores lifecycle state;
+it is not recreation, property replacement, or identity replacement.
+
+The lifecycle models are therefore:
+
+```text
+Entity
+    create -> active
+    deactivate -> inactive
+    reactivate -> active       # only when world policy permits
+```
+
+and:
+
+```text
+Space
+    create -> active
+    LocationChanged*
+    deactivate -> inactive
+    reactivate -> active       # only when world policy permits
+```
+
+A later deactivation/reactivation cycle may repeat whenever the relevant world policy
+permits and each transition satisfies normal lifecycle validation.
+
 ## Consequences
 
 ### Positive
@@ -965,7 +1152,10 @@ and every initial Entity receives an explicit `location_id`.
 - GEL/BUILTIN/IMPLEMENTATION adapters need an invocation-scoped immutable SpatialQuery view rather than direct WorldState access;
 - Query API/DTOs must expose Space inspection and direct/enclosing location semantics consistently with core traversal;
 - the current strict WorldDefinition schema-1 document gains mandatory spatial_policy and initial Spaces/Entity location fields;
-- repository-maintained worlds/examples must migrate atomically with the Slice-17.2 implementation instead of relying on compatibility parsing.
+- repository-maintained worlds/examples must migrate atomically with the Slice-17.2 implementation instead of relying on compatibility parsing;
+- runtime Space creation uses a first-class CreateSpaceEffect and GRASS-controlled identity allocation;
+- Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
+- reactivation preserves canonical location_id and never implies automatic descendant reactivation.
 
 ## Alternatives considered
 
@@ -1076,6 +1266,35 @@ Rejected because A -> B -> C -> A should not make A conceptually contained withi
 ### Filter inactive Spaces from enclosing-space Query results
 
 Rejected because deactivation preserves canonical location topology. Activity is a lifecycle attribute, not a reason to rewrite the spatial chain returned by Query.
+
+### Let runtime mechanics choose canonical SpaceId
+
+Rejected because canonical simulation identity belongs to GRASS. Mechanics describe semantic
+creation results; the trusted layer allocates the runtime SpaceId before constructing
+CreateSpaceEffect.
+
+### Expose runtime Space creation as an imperative API
+
+Rejected because creation must use the same Job/scenario-mechanic -> typed result -> trusted
+effect -> validation -> Event authority path as other world changes.
+
+### Always permit reactivation
+
+Rejected because reactivation changes world lifecycle semantics and some scenarios require
+deactivation to be terminal. WorldDefinition controls Entity and Space reactivation
+independently.
+
+### Cascade reactivation automatically
+
+Rejected because restoring a containing Space does not imply restoring every previously
+deactivated child Space or Entity. Larger restoration is represented by explicit effects in
+one atomic candidate.
+
+### Clear or recompute location_id on reactivation
+
+Rejected because deactivation preserves canonical location history. Reactivation restores
+activity at that same direct location unless an explicit SetLocationEffect changes it in
+the same atomic transition.
 
 ## Remaining Slice-17.2 decisions
 

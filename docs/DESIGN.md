@@ -99,6 +99,9 @@ WorldDefinition
     schema_version
     spatial_policy
         allow_cycles
+    lifecycle_policy
+        allow_entity_reactivation
+        allow_space_reactivation
 
     vocabulary
         entity_types
@@ -453,9 +456,9 @@ Entity
     semantic_content?
 ```
 
-`active` is authoritative. Deactivation preserves identity/history.
+`active` is authoritative. Deactivation preserves identity/history and the Entity's canonical `location_id`.
 
-Initial projection semantics create Entities active, keep `entity_type` immutable, and replace complete properties on update. Updating or repeatedly deactivating an inactive Entity is invalid. Deactivation never cascades implicitly.
+Initial projection semantics create Entities active, keep `entity_type` immutable, and replace complete properties on update. Updating or repeatedly deactivating an inactive Entity is invalid. Deactivation never cascades implicitly. Under the current lifecycle architecture, WorldDefinition may independently permit explicit Entity reactivation; reactivation preserves the existing `location_id` and is non-cascading.
 
 Initial generic entity vocabulary includes:
 
@@ -978,12 +981,20 @@ Resolvers never return an authoritative replacement SimulationState/WorldState. 
 
 ### 14.1 Closed core WorldEffect algebra
 
-Initial generic candidate mutation operations include:
+Initial generic candidate mutation operations were introduced incrementally. The current
+closed model additionally includes spatial/lifecycle operations accepted by ADR-0029:
 
 ```text
 CREATE_ENTITY
 UPDATE_ENTITY
 DEACTIVATE_ENTITY
+REACTIVATE_ENTITY
+
+CREATE_SPACE
+SET_LOCATION
+DEACTIVATE_SPACE
+REACTIVATE_SPACE
+
 CREATE_RELATION
 UPDATE_RELATION
 DEACTIVATE_RELATION
@@ -992,6 +1003,11 @@ SET_STATE_VARIABLE
 UPDATE_JOB
 CREATE_INFORMATION
 ```
+
+Runtime Space creation is reached through normal Job/world-mechanic or scenario-mechanic
+resolution. The mechanic describes the semantic creation result; GRASS allocates canonical
+runtime SpaceId before constructing CreateSpaceEffect. Reactivation operations are valid
+only when enabled by WorldDefinition LifecyclePolicy.
 
 No arbitrary `ScenarioCustomEffect` escape hatch exists. If a generic effect is missing, core may be deliberately extended through architecture/versioning rather than allowing opaque scenario mutation opcodes.
 
@@ -1021,9 +1037,10 @@ Each subject receives exactly one `SUCCESS`, `PARTIAL`, `BLOCKED`, `FAILED`, or
 outcome; it must cover every request subject exactly once and no others. Outcome
 does not imply a Job lifecycle transition.
 
-The closed transient Slice 7 WorldEffect union contains Create/Update/Deactivate
-Entity, Create/Update/Deactivate Relation, ChangeResource, SetStateVariable,
-and UpdateJob effects. Effects use resulting-state semantics and are not Events
+The historical Slice 7 WorldEffect union contained Create/Update/Deactivate Entity,
+Create/Update/Deactivate Relation, ChangeResource, SetStateVariable, and UpdateJob effects.
+Later accepted ADRs deliberately extend the same closed algebra rather than introducing an
+opaque custom-effect escape hatch. Effects use resulting-state semantics and are not Events
 or persisted data. ChangeResource carries `quantity_after`. UpdateJob carries a
 Job ID plus optional `status_after` and/or `progress_after`, requires at least one
 resulting field, cannot target PENDING status, and may materialize both progress
