@@ -1208,6 +1208,91 @@ The general invariant is:
 > are allowed only when their combination is explicitly defined as composable and the
 > complete final state is order-independent.
 
+
+## Decision 18: Space-deactivation cascade is derived from the composed candidate topology
+
+Space-deactivation cascade membership is not computed from the untouched base state and is
+not determined by effect/Event ordering.
+
+For one atomic candidate, trusted validation conceptually performs these semantic phases:
+
+```text
+authoritative base state
+    + explicit topology-changing candidate writes
+        CreateEntityEffect / CreateSpaceEffect
+        SetLocationEffect
+    -> candidate spatial topology
+
+candidate spatial topology
+    + DeactivateSpaceEffect roots
+    -> cycle-safe contained active closure
+    -> derived lifecycle deactivation writes
+
+explicit + derived writes
+    -> semantic-field conflict validation
+    -> complete final-candidate validation
+```
+
+These are validation semantics, not a persisted execution order. Events remain deterministic
+history encoding and do not acquire mutation precedence.
+
+Therefore an explicit relocation can remove a subject from a Space's deactivation closure
+within the same atomic transition.
+
+For example:
+
+```text
+building
+└── Alice
+
+SetLocationEffect(Alice, outside)
+DeactivateSpaceEffect(building)
+```
+
+composes a candidate topology in which Alice is no longer contained by building. The
+deactivation closure therefore does not derive an Entity-deactivation write for Alice, and
+Alice may remain active if the complete final candidate is otherwise valid.
+
+The same applies to nested Spaces:
+
+```text
+building
+└── room
+
+SetLocationEffect(room, other-building)
+DeactivateSpaceEffect(building)
+```
+
+may preserve room as active under other-building because room is outside the closure in the
+composed candidate topology.
+
+Conversely, lifecycle effects do not remove subjects from spatial closure. For example:
+
+```text
+DeactivateSpaceEffect(building)
+ReactivateEntityEffect(Alice)
+```
+
+with Alice still spatially contained in building derives a cascade write setting
+Alice.lifecycle inactive. The explicit reactivation writes the same semantic lifecycle
+field to active, so the candidate is invalid under Decision 17.
+
+Likewise, creating a new active Entity or Space under a Space that is deactivated in the
+same transition causes that new subject to enter the candidate closure. Because creation is
+a full-state write including active lifecycle, the derived deactivation would conflict with
+creation, making that candidate invalid rather than creating an immediately inactive
+subject.
+
+The invariant is:
+
+> Explicit topology-changing writes are composed first into the candidate spatial topology.
+> Space-deactivation closure is derived from that topology. Derived cascade lifecycle writes
+> then participate in the same semantic-field conflict validation as explicit lifecycle
+> writes.
+
+This preserves one order-independent atomic meaning for combinations such as
+relocate-and-destroy without introducing effect priorities.
+
 ## Consequences
 
 ### Positive
@@ -1261,7 +1346,8 @@ The general invariant is:
 - runtime Space creation uses a first-class CreateSpaceEffect and GRASS-controlled identity allocation;
 - Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
 - reactivation preserves canonical location_id and never implies automatic descendant reactivation;
-- atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics.
+- atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics;
+- Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit.
 
 ## Alternatives considered
 
@@ -1418,6 +1504,23 @@ Two writes to the same semantic field are invalid rather than resolved by orderi
 Rejected because creation establishes the complete initial canonical object. Combining
 creation with same-transition lifecycle/location/property rewrites would weaken the
 complete-initial-state invariant and reintroduce order-sensitive semantics.
+
+### Compute deactivation closure only from base state
+
+Rejected because it would make an atomic relocate-and-destroy candidate behave as though
+the relocation had not happened, forcing arbitrary effect ordering or unnecessary separate
+transitions.
+
+### Let lifecycle writes remove subjects from deactivation closure
+
+Rejected because containment is spatial topology, not lifecycle intent. Only topology-
+changing writes affect cascade membership; conflicting lifecycle writes are detected
+normally after closure expansion.
+
+### Let Event/effect order decide whether relocation happens before cascade
+
+Rejected because sequence is deterministic encoding, not semantic precedence. Candidate
+topology and derived closure give one order-independent result.
 
 ## Remaining Slice-17.2 decisions
 

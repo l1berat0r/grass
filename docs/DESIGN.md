@@ -1179,6 +1179,14 @@ rewrites of that new identity. Relation, Resource, StateVariable, Job, and other
 types retain their existing conflict granularity unless explicitly extended. Event order
 never resolves conflicting writes.
 
+Space-deactivation cascades use the same order-independent candidate model. Trusted
+validation first composes explicit topology writes (creation and direct relocation) into a
+candidate spatial topology, then derives the cycle-safe contained active closure for each
+DeactivateSpaceEffect, then treats the resulting lifecycle deactivations as normal
+semantic-field writes. A subject explicitly relocated outside the target closure may
+survive the cascade; a conflicting explicit lifecycle write makes the candidate invalid.
+This semantic staging is validation logic, not Event ordering or priority.
+
 Strict routing occurs at the `SimulationState` boundary. A known Event routed to another projection is not unknown merely because `WorldState` does not consume it; Events unknown to every current projection still fail explicitly.
 
 Historically meaningful non-mutating Events may include ActionProposed/Attempted/Rejected/Failed/Succeeded, ActorRefused, ProviderChanged, ScenarioOccurrenceTriggered, and OperatorIntervention where useful.

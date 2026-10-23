@@ -355,6 +355,7 @@ Accepted architecture direction includes:
 - scenario-authorized Space deactivation cascades atomically through contained active Spaces and Entities while preserving historical location links;
 - WorldDefinition LifecyclePolicy may independently permit explicit non-cascading Entity/Space reactivation; reactivation preserves `location_id` unless the same atomic candidate explicitly relocates the subject;
 - atomic Entity/Space conflict detection is per semantic field (lifecycle/location/properties), permitting explicitly composable order-independent writes while rejecting duplicate writes to the same field; creation remains a full-state write;
+- Space-deactivation closure is derived after composing explicit creation/relocation into candidate topology; derived cascade lifecycle writes then use normal field-level conflict validation, so same-transition relocation can move a subject out of the closure without relying on Event order;
 - bounded spatial query capabilities over one immutable invocation view, with statically declared readable Space properties;
 - Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
 - current pre-stable WorldDefinition remains `schema_version = 1`: `spatial_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; WorldPackage format remains 1;
