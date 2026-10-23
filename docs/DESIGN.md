@@ -235,7 +235,9 @@ repository worlds/examples move forward with it, while earlier local pre-release
 may be recreated rather than migrated. A material semantic edit to one concrete world
 still creates a new `WorldDefinition.version`. SQLite storage schema 1, WorldPackage
 format 1, GEL language version 1, Event payload versions, SimulationRunConfig version 1,
-and CLI JSON schema version 1 remain separate and unchanged.
+and CLI JSON schema version 1 remain separate version domains. Event payloads currently
+remain provisional version 1 under ADR-0005 until the first stable Event-history contract
+is frozen; that policy is independent from WorldDefinition schema numbering.
 
 ## 5. Scenario mechanics and GEL
 
@@ -1212,6 +1214,13 @@ sequence causality or priority. Cross-transition duplicate consumption is reject
 by occurrence preparation and complete visible-history scheduling validation.
 
 The exact complete v0.1 catalog is implementation-driven and versioned.
+
+Before the first stable complete Event-history contract is explicitly frozen, all supported
+Event payloads remain provisional `event_version = 1`. Incompatible internal payload
+changes replace the current v1 shape in place and earlier pre-release histories may be
+recreated rather than upcast. Slice 17.2 therefore keeps location-bearing `EntityCreated`
+and the new spatial/lifecycle Events at version 1. After stabilization, Event types resume
+independent incompatible-version advancement exactly as defined by ADR-0005.
 
 Slice 2 defines version 1 payloads for Entity/Relation create-update-deactivate, `ResourceChanged`, and `StateVariableChanged`. Update payloads contain complete `properties_after`/`participants_after` values; Resource and StateVariable payloads contain complete `quantity_after`/`value_after` values. All fields are required and extra fields are invalid.
 

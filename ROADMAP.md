@@ -265,7 +265,9 @@ package snapshot and canonical history without depending on the editable templat
 
 The pre-stable WorldDefinition policy keeps the current internal document at
 `schema_version = 1` until the first stable complete contract is frozen, independently
-from SQLite, WorldPackage, GEL, Event, SimulationRunConfig, and CLI version domains.
+from SQLite, WorldPackage, GEL, Event, SimulationRunConfig, and CLI version domains. Event
+payloads follow their own analogous pre-stable policy: current internal payload shapes stay
+at `event_version = 1` until the first stable complete Event-history contract is frozen.
 Repository-maintained worlds/templates move forward with incompatible internal shape
 changes; earlier local databases, snapshots, and installed packages may need recreation.
 Material changes to editable templates still require a semantic
@@ -362,7 +364,8 @@ Accepted architecture direction includes:
 - current pre-stable WorldDefinition remains `schema_version = 1`: mandatory explicit `spatial_policy`, mandatory explicit `lifecycle_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; policy fields have no implicit loader defaults; WorldPackage format remains 1;
 - acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities;
 - runtime identity allocation is deterministic for the same authoritative preparation context; rejected/stale candidates reserve no authoritative IDs and replay never reallocates committed identities;
-- projection applies each CommittedTransition as one semantic batch: composite Entity/Space fields are derived from base state plus the complete write-set, Event order has no mutation precedence, and replay validates universal structural invariants without requiring WorldDefinition policy.
+- projection applies each CommittedTransition as one semantic batch: composite Entity/Space fields are derived from base state plus the complete write-set, Event order has no mutation precedence, and replay validates universal structural invariants without requiring WorldDefinition policy;
+- all current Event payloads remain provisional `event_version = 1` before the first stable Event-history contract; incompatible internal payload changes replace v1 in place, while post-stabilization versioning remains independent per Event type.
 
 Before implementation, perform one final consistency review against existing Event,
 projection, WorldEffect, WorldDefinition/genesis, package, and Query contracts. Do not add

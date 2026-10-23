@@ -42,7 +42,9 @@ their compatibility/migration policy deliberately.
 
 This policy does not renumber or couple SQLite storage schema 1, WorldPackage format 1,
 GEL language version 1, Event payload versions, SimulationRunConfig version 1, or CLI
-JSON schema version 1. These remain independent version domains.
+JSON schema version 1. These remain independent version domains. Event payload versions
+follow their own ADR-0005 pre-stable policy and may also remain at version 1 without being
+coupled to WorldDefinition schema_version.
 
 A used WorldDefinition remains immutable. Material edits to a concrete world/template
 must still change the semantic `WorldDefinition.version`, even while the document

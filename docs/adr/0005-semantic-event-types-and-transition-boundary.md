@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-05
+- Amended: 2026-10-23
 
 > Supersession note: ADR-0029 extends this initial Event vocabulary with first-class spatial/lifecycle Events: location-bearing EntityCreated, EntityReactivated, SpaceCreated, SpaceDeactivated, SpaceReactivated, and typed LocationChanged. The semantic/domain-neutral Event principle and atomic transition boundary remain unchanged.
 
@@ -199,18 +200,46 @@ This distinction need not require an inheritance hierarchy in code.
 
 A `WorldState` reducer may legitimately ignore a historical Event that has no authoritative state effect, while another projection (audit timeline, analytics, actor history, provenance graph) may consume it.
 
-## Decision 5: Event types are versioned independently
+## Decision 5: Event types are versioned independently after the first stable Event-history contract
 
-Each Event type has its own payload version:
+Each Event type has its own payload-version domain:
 
 ```text
 event_type = ResourceChanged
 event_version = 1
 ```
 
-A later incompatible payload change may introduce `ResourceChanged` version 2 without forcing one global schema migration/version bump across unrelated Event types.
+During pre-stable development, the current Event-history contract remains provisional.
+Until the first stable complete Event-history contract is explicitly frozen, all currently
+supported Event payload shapes remain at `event_version = 1`.
 
-Reducers/readers must explicitly support the Event versions they consume. Historical Event payloads are not rewritten in place merely because a newer version exists.
+An incompatible internal pre-stable payload change replaces that Event type's current
+version-1 shape in place. Earlier internal histories using the superseded version-1 shape
+become unsupported and may require recreation. GRASS does not add upcasters or parallel
+compatibility readers merely to preserve unreleased internal payload shapes.
+
+This applies both when an existing Event changes shape and when a new Event type is
+introduced. Slice 17.2 therefore keeps all of these at version 1:
+
+```text
+EntityCreated v1          # now includes mandatory location_id
+EntityReactivated v1
+SpaceCreated v1
+SpaceDeactivated v1
+SpaceReactivated v1
+LocationChanged v1
+```
+
+At the first explicitly stable complete Event-history release, the then-current payload
+shape of each Event type becomes that type's definitive version-1 compatibility contract.
+
+After that stabilization point, Event types continue to version independently. A later
+incompatible `ResourceChanged` change may introduce `ResourceChanged` version 2 without
+forcing unrelated Event types to advance.
+
+Reducers/readers must explicitly support the stable Event versions they consume.
+Post-stabilization historical Event payloads are not rewritten in place merely because a
+newer version exists.
 
 ## Decision 6: Payloads support deterministic reduction without becoming snapshots
 
@@ -362,7 +391,8 @@ replay consumes recorded Events and does not regenerate past resolution/cognitio
 - Atomic transition identity makes multi-Event commits explicit.
 - Same-time concurrency is not confused with append ordering.
 - Non-mutating facts such as refusal/failure can remain visible without forcing artificial state mutations.
-- Independent Event-type versioning reduces migration coupling.
+- Pre-stable development avoids version-number archaeology while the first complete Event-history contract is still being formed.
+- After stabilization, independent Event-type versioning reduces migration coupling.
 - Replay does not depend on original resolver/provider availability.
 
 ### Costs
@@ -387,4 +417,4 @@ This ADR intentionally does not freeze:
 - precise `CauseRef` vocabulary;
 - correlation-ID generation policy;
 - snapshot/checkpoint cadence;
-- upcasting/migration implementation for historical Event versions.
+- post-stabilization upcasting/migration implementation for historical Event versions.

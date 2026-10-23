@@ -1847,6 +1847,51 @@ The invariant is:
 > projected objects, final authoritative fields are derived from the base state plus the
 > complete transition write-set, and Event sequence supplies no mutation precedence.
 
+
+## Decision 23: Spatial/lifecycle Event payloads remain provisional version 1 before the first stable history contract
+
+Slice 17.2 does not advance Event payload version numbers.
+
+Under the amended ADR-0005 pre-stable Event policy, incompatible internal Event payload
+changes replace the current version-1 shape in place until the first stable complete
+Event-history contract is explicitly frozen.
+
+Therefore the Slice-17.2 catalogue uses:
+
+```text
+EntityCreated v1
+    entity_id
+    entity_type
+    location_id
+    properties
+
+EntityUpdated v1
+EntityDeactivated v1
+EntityReactivated v1
+
+SpaceCreated v1
+SpaceDeactivated v1
+SpaceReactivated v1
+LocationChanged v1
+```
+
+The previous internal EntityCreated v1 shape without location_id is unsupported once the
+Slice-17.2 implementation lands. Pre-release local histories/snapshots using that older
+shape are recreated rather than accepted through optional fields, upcasters, or a parallel
+v2 contract.
+
+New spatial/lifecycle Event types begin at version 1 because they are entering the same
+pre-stable history contract.
+
+This policy does not couple Event versions to WorldDefinition schema_version, storage
+schema, WorldPackage format, GEL language version, SimulationRunConfig version, or CLI JSON
+version. These remain separate version domains even when several happen to remain at 1
+during pre-stable development.
+
+At the first stable complete Event-history release, each then-current Event payload shape
+becomes that Event type's definitive v1 contract. After that point, incompatible changes
+advance only the affected Event type's event_version under normal ADR-0005 semantics.
+
 ## Consequences
 
 ### Positive
@@ -1907,7 +1952,8 @@ The invariant is:
 - CreationRef is eliminated before the closed WorldEffect boundary; WorldEffects, semantic Events, and WorldState use canonical typed IDs only;
 - the spatial/lifecycle effect and Event catalogue is explicit, with DeactivateSpaceEffect intentionally expanding to multiple semantic lifecycle Events;
 - replay/projection applies the complete committed transition as one semantic write batch, so composable Entity/Space field changes never depend on Event sequence;
-- WorldDefinition-aware candidate validation remains precommit authority, while projection rechecks only universal structural/history invariants needed for deterministic reconstruction.
+- WorldDefinition-aware candidate validation remains precommit authority, while projection rechecks only universal structural/history invariants needed for deterministic reconstruction;
+- all current spatial/lifecycle Event payloads remain pre-stable `event_version = 1`; the older internal EntityCreated-v1 shape is unsupported rather than upcast.
 
 ## Alternatives considered
 
@@ -2165,6 +2211,18 @@ the accepted facts and validates only universal structural/history invariants.
 Rejected because reactivation permission is world semantics checked before commit. Once a
 valid reactivation Event is canonical history, projection must reconstruct it rather than
 re-adjudicate historical policy.
+
+### Bump EntityCreated to version 2 during pre-stable development
+
+Rejected because the first stable Event-history contract has not yet been frozen. Internal
+pre-release payload evolution replaces provisional v1 in place rather than accumulating
+development-only version archaeology.
+
+### Keep supporting the old EntityCreated v1 shape
+
+Rejected because mandatory location is now part of Entity creation semantics. Compatibility
+with an unreleased internal payload would weaken the invariant or require migration
+machinery before the first stable history contract.
 
 ## Remaining Slice-17.2 decisions
 
