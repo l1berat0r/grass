@@ -458,7 +458,14 @@ Entity
 
 `active` is authoritative. Deactivation preserves identity/history and the Entity's canonical `location_id`.
 
-Initial projection semantics create Entities active, keep `entity_type` immutable, and replace complete properties on update. Updating or repeatedly deactivating an inactive Entity is invalid. Deactivation never cascades implicitly. Under the current lifecycle architecture, WorldDefinition may independently permit explicit Entity reactivation; reactivation preserves the existing `location_id` and is non-cascading.
+Initial projection semantics create Entities active, keep `entity_type` immutable, and
+replace complete properties on update. Repeated deactivation of an inactive Entity is
+invalid. Deactivation never cascades implicitly. Under the current lifecycle architecture,
+WorldDefinition may independently permit explicit Entity reactivation; reactivation
+preserves the existing `location_id` and is non-cascading. An Entity inactive in the base
+state cannot receive ordinary non-lifecycle mutation unless the same atomic candidate
+explicitly and validly reactivates it. An Entity active in the base state may be mutated
+and deactivated in the same candidate.
 
 Initial generic entity vocabulary includes:
 
@@ -1186,6 +1193,13 @@ DeactivateSpaceEffect, then treats the resulting lifecycle deactivations as norm
 semantic-field writes. A subject explicitly relocated outside the target closure may
 survive the cascade; a conflicting explicit lifecycle write makes the candidate invalid.
 This semantic staging is validation logic, not Event ordering or priority.
+
+Inactive Entity/Space state remains queryable canonical history but is not ordinarily
+mutable. Non-lifecycle writes to an existing subject require that subject to be active in
+the authoritative base state or explicitly and validly reactivated in the same atomic
+candidate. Base-active subjects may still receive non-lifecycle writes and be deactivated
+in that candidate. This is a candidate-level lifecycle precondition, not Event-order
+semantics.
 
 Strict routing occurs at the `SimulationState` boundary. A known Event routed to another projection is not unknown merely because `WorldState` does not consume it; Events unknown to every current projection still fail explicitly.
 

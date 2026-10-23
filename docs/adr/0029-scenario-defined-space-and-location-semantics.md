@@ -1293,6 +1293,95 @@ The invariant is:
 This preserves one order-independent atomic meaning for combinations such as
 relocate-and-destroy without introducing effect priorities.
 
+
+## Decision 19: Non-lifecycle mutation of an inactive subject requires active participation in the candidate
+
+Inactive Entity and Space state remains canonical historical state, but it is not an
+ordinary editable dormant object.
+
+A non-lifecycle mutation of an existing Entity or Space is valid only when the subject
+participates as active in the atomic transition. Active participation means either:
+
+```text
+subject is active in the authoritative base state
+```
+
+or:
+
+```text
+subject is inactive in the base state
+    + explicit valid reactivation of that subject in the same atomic candidate
+```
+
+Therefore these candidates are invalid:
+
+```text
+# Alice is inactive in base state
+SetLocationEffect(Alice, office)
+
+# Alice is inactive in base state
+UpdateEntityEffect(Alice, properties_after=...)
+
+# room is inactive in base state
+SetLocationEffect(room, building)
+```
+
+These candidates may be valid when the relevant LifecyclePolicy permits reactivation:
+
+```text
+# Alice is inactive in base state
+ReactivateEntityEffect(Alice)
+SetLocationEffect(Alice, office)
+```
+
+```text
+# Alice is inactive in base state
+ReactivateEntityEffect(Alice)
+UpdateEntityEffect(Alice, properties_after=...)
+```
+
+```text
+# room is inactive in base state
+ReactivateSpaceEffect(room)
+SetLocationEffect(room, building)
+```
+
+The rule does not require the subject to be active in the final candidate. A subject that
+is active in the base state may be mutated and deactivated atomically:
+
+```text
+# Alice is active in base state
+SetLocationEffect(Alice, hospital)
+DeactivateEntityEffect(Alice)
+```
+
+This represents one final state in which Alice is inactive and her preserved canonical
+location_id is hospital.
+
+Likewise, an active Space may be relocated and deactivated in one candidate when the
+resulting topology and cascade semantics are valid.
+
+Validation does not infer a semantic order such as "move first, deactivate second" or
+"reactivate first, update second". Instead, active participation is a candidate-level
+precondition:
+
+```text
+may_mutate_non_lifecycle(subject)
+    =
+        active_in_base_state(subject)
+        OR explicit_valid_reactivation_in_candidate(subject)
+```
+
+The candidate is then validated as one complete order-independent final state under the
+field-conflict, topology, lifecycle, and reference rules already defined.
+
+The invariant is:
+
+> Inactive state is preserved canonical history, not a mutable dormant object. An existing
+> inactive Entity or Space may receive non-lifecycle writes only when the same atomic
+> candidate explicitly and validly reactivates it. A subject active in the base state may
+> receive non-lifecycle writes and be deactivated in that same candidate.
+
 ## Consequences
 
 ### Positive
@@ -1347,7 +1436,8 @@ relocate-and-destroy without introducing effect priorities.
 - Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
 - reactivation preserves canonical location_id and never implies automatic descendant reactivation;
 - atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics;
-- Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit.
+- Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit;
+- inactive Entity/Space state is queryable historical state but not ordinarily mutable; non-lifecycle mutation requires base-state activity or same-candidate explicit reactivation.
 
 ## Alternatives considered
 
@@ -1521,6 +1611,24 @@ normally after closure expansion.
 
 Rejected because sequence is deterministic encoding, not semantic precedence. Candidate
 topology and derived closure give one order-independent result.
+
+### Allow ordinary mutation of inactive subjects without reactivation
+
+Rejected because inactive state is preserved historical state rather than an editable
+dormant object. Silent mutation while inactive would weaken lifecycle meaning and make
+reactivation policy largely cosmetic.
+
+### Require the subject to be active in the final candidate for any mutation
+
+Rejected because a valid atomic consequence may mutate an active subject and deactivate it
+in the same transition, for example relocating an Entity before preserving it as inactive
+at the resulting location.
+
+### Use Event order to satisfy inactive-subject mutation preconditions
+
+Rejected because reactivation/update/deactivation combinations are validated as one atomic
+candidate. Active participation is derived from base activity or explicit same-candidate
+reactivation, not from Event sequence.
 
 ## Remaining Slice-17.2 decisions
 

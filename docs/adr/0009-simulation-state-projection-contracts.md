@@ -47,7 +47,12 @@ SimulationState
 
 An `EntityCreated` Event creates one active Entity. `entity_type` is immutable. `EntityUpdated` replaces the complete properties value through `properties_after`; it does not merge or patch properties. Semantic content is deferred.
 
-Duplicate creation, update of a missing or inactive Entity, deactivation of a missing Entity, and repeated deactivation are invalid history. No reactivation or deletion semantics exist in Slice 2.
+Duplicate creation, update of a missing Entity, deactivation of a missing Entity, and
+repeated deactivation are invalid history. Slice 2 originally rejected update of an
+inactive Entity and defined no reactivation. As extended by ADR-0029, an Entity inactive in
+the base state may receive a non-lifecycle write only when the same atomic candidate
+explicitly and validly reactivates it; base-active Entities may be mutated and deactivated
+atomically. Deletion semantics remain absent.
 
 Entity deactivation does not implicitly mutate Relations, Resources, or StateVariables. Such changes require explicit Events.
 
