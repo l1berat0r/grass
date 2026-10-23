@@ -349,7 +349,7 @@ Accepted architecture direction includes:
 - dedicated `SpaceId`, first-class `Space` in `WorldState`, and mandatory `Entity.location_id`;
 - one direct canonical `location_id`; enclosing context is derived cycle-safely;
 - WorldDefinition `spatial_policy.allow_cycles`, with acyclic containment as the ordinary explicit policy;
-- closed spatial authority paths including `CreateSpaceEffect -> SpaceCreated` and `SetLocationEffect -> LocationChanged`, with runtime Space/Entity identity allocated by GRASS; transient mechanic-local `CreationRef` handles express same-preparation references among newly created objects and are resolved deterministically before closed effects are validated;
+- closed spatial/lifecycle authority catalogue includes location-bearing `CreateEntityEffect`, `ReactivateEntityEffect`, `CreateSpaceEffect`, `SetLocationEffect`, `DeactivateSpaceEffect`, and `ReactivateSpaceEffect`, mapped to `EntityCreated/Updated/Deactivated/Reactivated`, `SpaceCreated/Deactivated/Reactivated`, and one typed `LocationChanged`; runtime Space/Entity identity is allocated by GRASS, and transient mechanic-local `CreationRef` handles are fully resolved before the closed WorldEffect boundary;
 - generic MOVE intent resolved by world-owned MovementRule/MovementContract mechanics;
 - creation carries initial location directly and genesis validates the final atomic candidate; runtime Space creation occurs through normal Job/world or scenario mechanics, not an imperative mutation API;
 - scenario-authorized Space deactivation cascades atomically through contained active Spaces and Entities while preserving historical location links;

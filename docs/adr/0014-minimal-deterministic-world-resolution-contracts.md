@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-09
 
-> Supersession note: ADR-0029 extends the closed WorldEffect algebra with accepted spatial/lifecycle effects including CreateSpaceEffect, SetLocationEffect, DeactivateSpaceEffect, ReactivateEntityEffect, and ReactivateSpaceEffect. This remains a deliberate closed-core extension; no arbitrary custom-effect escape hatch is introduced.
+> Supersession note: ADR-0029 extends the closed WorldEffect algebra with location-bearing CreateEntityEffect plus ReactivateEntityEffect, CreateSpaceEffect, SetLocationEffect, DeactivateSpaceEffect, and ReactivateSpaceEffect. It also defines their semantic Event materialization, including cascade expansion for DeactivateSpaceEffect. This remains a deliberate closed-core extension; no arbitrary custom-effect escape hatch is introduced.
 
 ## Context
 

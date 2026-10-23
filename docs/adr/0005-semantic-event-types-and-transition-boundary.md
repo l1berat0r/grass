@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-05
 
+> Supersession note: ADR-0029 extends this initial Event vocabulary with first-class spatial/lifecycle Events: location-bearing EntityCreated, EntityReactivated, SpaceCreated, SpaceDeactivated, SpaceReactivated, and typed LocationChanged. The semantic/domain-neutral Event principle and atomic transition boundary remain unchanged.
+
 ## Context
 
 GRASS uses event sourcing as the authoritative history model. `WorldEffect` already represents a candidate state transition proposed by deterministic or generative world resolution, while `Event` represents an immutable accepted historical fact.

@@ -1535,6 +1535,184 @@ CreationRef resolution happens before final candidate validation, so same-transi
 cross-references use canonical typed IDs by the time closed WorldEffects and semantic
 Events enter the normal validation/materialization path.
 
+
+## Decision 21: Spatial/lifecycle WorldEffects and semantic Events use one closed canonical catalogue
+
+After CreationRef resolution, the closed WorldEffect layer contains canonical typed
+identities only. CreationRef never appears in WorldEffect, Event, or WorldState contracts.
+
+The Entity/spatial portion of the closed WorldEffect catalogue is:
+
+```text
+CreateEntityEffect
+    entity_id: EntityId
+    entity_type
+    location_id: SpaceId
+    properties
+
+UpdateEntityEffect
+    entity_id: EntityId
+    properties_after
+
+DeactivateEntityEffect
+    entity_id: EntityId
+
+ReactivateEntityEffect
+    entity_id: EntityId
+
+
+CreateSpaceEffect
+    space_id: SpaceId
+    location_id: SpaceId | None
+    properties
+
+SetLocationEffect
+    subject_ref: EntitySpatialRef | SpaceSpatialRef
+    location_id_after: SpaceId | None
+
+DeactivateSpaceEffect
+    space_id: SpaceId
+
+ReactivateSpaceEffect
+    space_id: SpaceId
+```
+
+For SetLocationEffect, the typed subject determines the valid location value:
+
+```text
+EntitySpatialRef
+    -> location_id_after must be SpaceId
+
+SpaceSpatialRef
+    -> location_id_after may be SpaceId | None
+```
+
+There is no UpdateSpaceEffect in Slice 17.2. Space properties remain immutable after
+SpaceCreated; later Space relocation and lifecycle changes use their dedicated effects.
+
+The corresponding semantic Event catalogue is:
+
+```text
+EntityCreated
+    entity_id
+    entity_type
+    location_id
+    properties
+
+EntityUpdated
+    entity_id
+    properties_after
+
+EntityDeactivated
+    entity_id
+
+EntityReactivated
+    entity_id
+
+
+SpaceCreated
+    space_id
+    location_id
+    properties
+
+SpaceDeactivated
+    space_id
+
+SpaceReactivated
+    space_id
+
+
+LocationChanged
+    subject_ref
+    location_id_after
+```
+
+SpaceCreated.location_id may be null for a root Space. EntityCreated.location_id is always
+a SpaceId.
+
+LocationChanged remains one semantic Event for both Entity and Space rather than splitting
+into EntityLocationChanged and SpaceLocationChanged.
+
+Its serialized subject reference is a strict tagged union, conceptually:
+
+```json
+{
+  "kind": "ENTITY",
+  "entity_id": "alice"
+}
+```
+
+or:
+
+```json
+{
+  "kind": "SPACE",
+  "space_id": "room"
+}
+```
+
+For a Space subject, LocationChanged.location_id_after may be null to make that Space a
+root. For an Entity subject it may not be null.
+
+Closed-effect materialization is conceptually:
+
+```text
+CreateEntityEffect       -> EntityCreated
+UpdateEntityEffect       -> EntityUpdated
+DeactivateEntityEffect   -> EntityDeactivated
+ReactivateEntityEffect   -> EntityReactivated
+
+CreateSpaceEffect        -> SpaceCreated
+SetLocationEffect        -> LocationChanged
+ReactivateSpaceEffect    -> SpaceReactivated
+```
+
+DeactivateSpaceEffect is the intentional non-1:1 case. Trusted candidate expansion first
+derives the complete deactivation closure under Decision 18 and then materializes one
+lifecycle Event for every subject whose active state changes:
+
+```text
+DeactivateSpaceEffect(building)
+    -> derive closure
+    -> SpaceDeactivated(building)
+       SpaceDeactivated(room)
+       EntityDeactivated(alice)
+       ...
+```
+
+The transient DeactivateSpaceEffect itself is not persisted as a generic effect-applied
+record. Canonical history records the resulting semantic lifecycle facts.
+
+ReactivateSpaceEffect remains non-cascading and therefore materializes only the explicit
+SpaceReactivated event for its target.
+
+The authority boundary is:
+
+```text
+mechanic-facing typed creation result
+    may contain CreationRef
+        |
+        v
+trusted creation preparation
+    resolves CreationRef -> canonical EntityId / SpaceId
+        |
+        v
+closed WorldEffect
+    canonical IDs only
+        |
+        v
+semantic Event
+    canonical IDs only
+        |
+        v
+WorldState
+    canonical IDs only
+```
+
+This decision freezes semantic type names and payload meaning for Slice 17.2. Event payload
+version-number handling remains an independent Event-contract concern and is not changed
+merely by this catalogue decision.
+
 ## Consequences
 
 ### Positive
@@ -1591,7 +1769,9 @@ Events enter the normal validation/materialization path.
 - atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics;
 - Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit;
 - inactive Entity/Space state is queryable historical state but not ordinarily mutable; non-lifecycle mutation requires base-state activity or same-candidate explicit reactivation;
-- mechanics may link multiple runtime creations through transient CreationRefs, while GRASS resolves them to deterministic canonical IDs during trusted preparation.
+- mechanics may link multiple runtime creations through transient CreationRefs, while GRASS resolves them to deterministic canonical IDs during trusted preparation;
+- CreationRef is eliminated before the closed WorldEffect boundary; WorldEffects, semantic Events, and WorldState use canonical typed IDs only;
+- the spatial/lifecycle effect and Event catalogue is explicit, with DeactivateSpaceEffect intentionally expanding to multiple semantic lifecycle Events.
 
 ## Alternatives considered
 
@@ -1810,6 +1990,27 @@ stale-head publication consumes no persistent identity reservation.
 
 Rejected because committed Events already contain canonical runtime identities. Replay
 projects recorded facts and never reruns identity allocation.
+
+### Carry CreationRef into WorldEffect or Event payloads
+
+Rejected because CreationRef is preparation-local linkage, not simulation identity. The
+closed authority/history layers use canonical typed IDs only.
+
+### Split LocationChanged into EntityLocationChanged and SpaceLocationChanged
+
+Rejected because both represent the same canonical semantic field change. A strict typed
+SpatialSubjectRef preserves subject kind without duplicating mutation semantics.
+
+### Persist DeactivateSpaceEffect as one generic effect Event
+
+Rejected because Events record accepted semantic facts, not transient candidate opcodes.
+Cascade materialization records the actual SpaceDeactivated/EntityDeactivated lifecycle
+facts produced by the accepted closure.
+
+### Add UpdateSpaceEffect for Slice 17.2
+
+Rejected because Space properties are immutable after creation in the accepted spatial
+model. Location and lifecycle have dedicated mutation contracts.
 
 ## Remaining Slice-17.2 decisions
 

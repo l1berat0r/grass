@@ -998,23 +998,22 @@ Initial generic candidate mutation operations were introduced incrementally. The
 closed model additionally includes spatial/lifecycle operations accepted by ADR-0029:
 
 ```text
-CREATE_ENTITY
-UPDATE_ENTITY
-DEACTIVATE_ENTITY
-REACTIVATE_ENTITY
+CreateEntityEffect(entity_id, entity_type, location_id, properties)
+UpdateEntityEffect(entity_id, properties_after)
+DeactivateEntityEffect(entity_id)
+ReactivateEntityEffect(entity_id)
 
-CREATE_SPACE
-SET_LOCATION
-DEACTIVATE_SPACE
-REACTIVATE_SPACE
+CreateSpaceEffect(space_id, location_id, properties)
+SetLocationEffect(subject_ref, location_id_after)
+DeactivateSpaceEffect(space_id)
+ReactivateSpaceEffect(space_id)
 
-CREATE_RELATION
-UPDATE_RELATION
-DEACTIVATE_RELATION
-CHANGE_RESOURCE
-SET_STATE_VARIABLE
-UPDATE_JOB
-CREATE_INFORMATION
+CreateRelationEffect(...)
+UpdateRelationEffect(...)
+DeactivateRelationEffect(...)
+ChangeResourceEffect(...)
+SetStateVariableEffect(...)
+UpdateJobEffect(...)
 ```
 
 Runtime Space creation is reached through normal Job/world-mechanic or scenario-mechanic
@@ -1033,6 +1032,11 @@ context and identical ordered creation specifications. The exact identifier enco
 implementation choice. Rejected/invalid/stale candidates reserve no authoritative identity;
 a re-resolution on a different base HistoryPosition is a new preparation. Replay reads the
 canonical IDs recorded in Events and never reallocates them.
+
+From the closed WorldEffect boundary downward, CreationRef is forbidden. Trusted
+preparation must resolve every local creation handle to a canonical typed EntityId/SpaceId
+before constructing WorldEffects. Effects, Events, projection, and WorldState therefore
+operate only on canonical identity.
 
 No arbitrary `ScenarioCustomEffect` escape hatch exists. If a generic effect is missing, core may be deliberately extended through architecture/versioning rather than allowing opaque scenario mutation opcodes.
 
@@ -1143,16 +1147,25 @@ Event
 
 `sequence` defines deterministic replay/storage order within a branch; it does not prove causality.
 
+`LocationChanged` uses one strict typed SpatialSubjectRef for Entity or Space. `DeactivateSpaceEffect` is intentionally expanded by trusted candidate preparation into one `SpaceDeactivated`/`EntityDeactivated` Event per lifecycle fact in its accepted closure; the transient effect itself is not persisted.
+
 ### 15.1 Semantic generic Event types
 
 Core uses semantic, domain-neutral Event types rather than only `WorldEffectApplied` and rather than domain verbs.
 
-Examples include:
+The current Entity/spatial semantic catalogue includes:
 
 ```text
-EntityCreated
-EntityUpdated
-EntityDeactivated
+EntityCreated(entity_id, entity_type, location_id, properties)
+EntityUpdated(entity_id, properties_after)
+EntityDeactivated(entity_id)
+EntityReactivated(entity_id)
+
+SpaceCreated(space_id, location_id, properties)
+SpaceDeactivated(space_id)
+SpaceReactivated(space_id)
+LocationChanged(subject_ref, location_id_after)
+
 RelationCreated
 RelationUpdated
 RelationDeactivated
