@@ -349,7 +349,7 @@ Accepted architecture direction includes:
 - dedicated `SpaceId`, first-class `Space` in `WorldState`, and mandatory `Entity.location_id`;
 - one direct canonical `location_id`; enclosing context is derived cycle-safely;
 - WorldDefinition `spatial_policy.allow_cycles`, with acyclic containment as the ordinary explicit policy;
-- closed spatial authority paths including `CreateSpaceEffect -> SpaceCreated` and `SetLocationEffect -> LocationChanged`, with runtime Space identity allocated by GRASS;
+- closed spatial authority paths including `CreateSpaceEffect -> SpaceCreated` and `SetLocationEffect -> LocationChanged`, with runtime Space/Entity identity allocated by GRASS; transient mechanic-local `CreationRef` handles express same-preparation references among newly created objects and are resolved deterministically before closed effects are validated;
 - generic MOVE intent resolved by world-owned MovementRule/MovementContract mechanics;
 - creation carries initial location directly and genesis validates the final atomic candidate; runtime Space creation occurs through normal Job/world or scenario mechanics, not an imperative mutation API;
 - scenario-authorized Space deactivation cascades atomically through contained active Spaces and Entities while preserving historical location links;
@@ -360,7 +360,8 @@ Accepted architecture direction includes:
 - bounded spatial query capabilities over one immutable invocation view, with statically declared readable Space properties;
 - Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
 - current pre-stable WorldDefinition remains `schema_version = 1`: mandatory explicit `spatial_policy`, mandatory explicit `lifecycle_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; policy fields have no implicit loader defaults; WorldPackage format remains 1;
-- acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities.
+- acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities;
+- runtime identity allocation is deterministic for the same authoritative preparation context; rejected/stale candidates reserve no authoritative IDs and replay never reallocates committed identities.
 
 Before implementation, perform one final consistency review against existing Event,
 projection, WorldEffect, WorldDefinition/genesis, package, and Query contracts. Do not add

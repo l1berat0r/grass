@@ -1406,6 +1406,135 @@ The invariant is:
 > candidate explicitly and validly reactivates it. A subject active in the base state may
 > receive non-lifecycle writes and be deactivated in that same candidate.
 
+
+## Decision 20: Runtime creation uses transient CreationRefs resolved to deterministic GRASS-controlled identities
+
+A mechanic may need to create multiple new objects that reference one another before any
+canonical runtime identifiers exist.
+
+Mechanics therefore use transient local CreationRef values inside one typed result/candidate
+preparation. CreationRef is not a SpaceId, EntityId, EventId, or any other canonical
+simulation identity.
+
+Conceptually:
+
+```text
+CreationRef
+    transient
+    local to one mechanic result / trusted preparation
+    non-canonical
+    never persisted as world identity
+```
+
+A mechanic may choose CreationRef values only to express relationships among objects it
+proposes to create.
+
+For example:
+
+```text
+CreateSpaceSpec
+    creation_ref = "building"
+    location = ExistingSpaceRef(world)
+    properties = ...
+
+CreateSpaceSpec
+    creation_ref = "room"
+    location = CreatedSpaceRef("building")
+    properties = ...
+
+CreateEntitySpec
+    creation_ref = "alice"
+    entity_type = Person
+    location = CreatedSpaceRef("room")
+    properties = ...
+```
+
+The trusted preparation layer resolves the local creation graph and allocates canonical
+identities:
+
+```text
+"building" -> SpaceId(...)
+"room"     -> SpaceId(...)
+"alice"    -> EntityId(...)
+```
+
+Only after that resolution does GRASS construct canonical closed effects:
+
+```text
+CreateSpaceEffect(
+    space_id = allocated_building,
+    location_id = world,
+    ...
+)
+
+CreateSpaceEffect(
+    space_id = allocated_room,
+    location_id = allocated_building,
+    ...
+)
+
+CreateEntityEffect(
+    entity_id = allocated_alice,
+    location_id = allocated_room,
+    ...
+)
+```
+
+CreationRefs may reference only creations in the same typed result/preparation context.
+References to already-existing world objects use their normal canonical typed IDs.
+
+The distinction is:
+
+```text
+CreationRef
+    mechanic-chosen local handle
+    transient
+    scoped to one preparation
+    not canonical
+
+SpaceId / EntityId
+    GRASS-controlled canonical identity
+    persistent after commit
+    used by Events and WorldState
+```
+
+### Deterministic allocation
+
+Canonical runtime identity allocation occurs in trusted preparation, not inside the
+mechanic/provider.
+
+For an identical authoritative preparation context and identical ordered creation
+specifications, GRASS must allocate the same canonical identities.
+
+The architectural requirement is deterministic allocation; this ADR does not freeze the
+concrete identifier encoding, UUID/hash scheme, or implementation algorithm.
+
+The preparation context must bind allocation to authoritative facts sufficient to prevent
+accidental dependence on process-global mutable counters or nondeterministic host state.
+At minimum, allocation is scoped by the exact branch-visible base HistoryPosition, the
+authoritative source/resolution context, and deterministic creation-spec ordering.
+
+A retry of the same semantic preparation against the same authoritative base must therefore
+not randomly produce different canonical IDs.
+
+A candidate that fails validation or loses expected-head publication does not reserve
+identity in authoritative state. If work is re-resolved against a different authoritative
+base HistoryPosition, it is a new preparation context and need not preserve IDs from the
+never-committed candidate.
+
+Replay never reallocates runtime-created identities. It reads canonical IDs from committed
+Events.
+
+Branching follows normal history semantics:
+
+- a branch forked after creation inherits the committed canonical IDs;
+- a branch forked before creation may independently prepare a new creation and therefore
+  allocate IDs from its own authoritative branch/preparation context.
+
+CreationRef resolution happens before final candidate validation, so same-transition
+cross-references use canonical typed IDs by the time closed WorldEffects and semantic
+Events enter the normal validation/materialization path.
+
 ## Consequences
 
 ### Positive
@@ -1461,7 +1590,8 @@ The invariant is:
 - reactivation preserves canonical location_id and never implies automatic descendant reactivation;
 - atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics;
 - Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit;
-- inactive Entity/Space state is queryable historical state but not ordinarily mutable; non-lifecycle mutation requires base-state activity or same-candidate explicit reactivation.
+- inactive Entity/Space state is queryable historical state but not ordinarily mutable; non-lifecycle mutation requires base-state activity or same-candidate explicit reactivation;
+- mechanics may link multiple runtime creations through transient CreationRefs, while GRASS resolves them to deterministic canonical IDs during trusted preparation.
 
 ## Alternatives considered
 
@@ -1660,6 +1790,26 @@ Rejected because lifecycle policy changes what transitions are valid world seman
 Serialized WorldDefinition snapshots must state those semantics explicitly rather than
 depend on loader defaults. The ordinary no-reactivation policy is authored as explicit
 false values.
+
+### Let creation specs use canonical IDs chosen by the mechanic
+
+Rejected because canonical runtime identity belongs to GRASS. Mechanic-chosen values may be
+used only as transient CreationRefs within one preparation context.
+
+### Allocate runtime IDs nondeterministically during preparation
+
+Rejected because retrying the same semantic preparation against the same authoritative base
+must not change candidate identity merely due to host/process randomness.
+
+### Persist or reserve IDs for rejected/stale candidates
+
+Rejected because uncommitted candidates are not authoritative history. Failed validation or
+stale-head publication consumes no persistent identity reservation.
+
+### Reallocate IDs during replay
+
+Rejected because committed Events already contain canonical runtime identities. Replay
+projects recorded facts and never reruns identity allocation.
 
 ## Remaining Slice-17.2 decisions
 

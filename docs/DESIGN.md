@@ -1022,6 +1022,18 @@ resolution. The mechanic describes the semantic creation result; GRASS allocates
 runtime SpaceId before constructing CreateSpaceEffect. Reactivation operations are valid
 only when enabled by WorldDefinition LifecyclePolicy.
 
+When one mechanic result creates several mutually referencing objects, it uses transient
+local `CreationRef` handles rather than canonical IDs. Trusted preparation resolves those
+handles to GRASS-controlled `SpaceId`/`EntityId` values before constructing closed
+WorldEffects. CreationRef is a transient local handle only; it is never persisted as world
+identity.
+
+Canonical runtime allocation is deterministic for the same authoritative preparation
+context and identical ordered creation specifications. The exact identifier encoding is an
+implementation choice. Rejected/invalid/stale candidates reserve no authoritative identity;
+a re-resolution on a different base HistoryPosition is a new preparation. Replay reads the
+canonical IDs recorded in Events and never reallocates them.
+
 No arbitrary `ScenarioCustomEffect` escape hatch exists. If a generic effect is missing, core may be deliberately extended through architecture/versioning rather than allowing opaque scenario mutation opcodes.
 
 `TemporalProjection` is separate from WorldEffects.
@@ -1236,6 +1248,11 @@ ancestry-aware HistoryPosition must match the transition branch and equal its
 current visible head under the same atomic store lock used for publication.
 Stale rejection consumes no Event sequence, EventId, or TransitionRef. Unchecked
 structural commit remains available for genesis and lower-level history use.
+
+Stale rejection also creates no persistent runtime-identity reservation for GRASS-controlled
+runtime creation. Deterministic preparation may reproduce the same IDs when retried against
+the same authoritative context, but only committed Events make those identities
+authoritative.
 
 A branch created before a recorded decision may invoke cognition again when it reaches the DecisionPoint. A branch created after a recorded decision inherits that decision/Plan as part of the shared prefix unless an explicit earlier fork/regeneration/intervention is selected.
 
