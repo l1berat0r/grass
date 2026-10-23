@@ -172,10 +172,16 @@ Under ADR-0026, that number identifies the single current internal representatio
 first stable complete WorldDefinition contract is frozen; incompatible pre-stable shapes
 may replace schema 1 in place and earlier shapes become unsupported. The current strict
 mapping contains an opaque `world_definition_id`, an opaque non-empty semantic `version`,
-explicit `spatial_policy`, vocabulary registries, initial conditions, required
+explicit mandatory `spatial_policy`, explicit mandatory `lifecycle_policy`, vocabulary registries, initial conditions, required
 `scenario_event_rules`, and immutable structured metadata. The rule collection may be
 empty. Every current `AT_TIME` rule requires one direct, usage-specific `mechanic`.
 The semantic loader performs no file I/O.
+
+Policy sections have no implicit loader fallback. Ordinary worlds explicitly author
+`spatial_policy.allow_cycles = false` and
+`lifecycle_policy.allow_entity_reactivation = false` /
+`allow_space_reactivation = false` when those capabilities are disabled. Missing policy
+sections or fields are strict-schema errors so immutable snapshots remain self-describing.
 
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 

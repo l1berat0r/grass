@@ -359,7 +359,7 @@ Accepted architecture direction includes:
 - inactive Entity/Space state is preserved/queryable but not ordinarily mutable: non-lifecycle writes require base-state activity or explicit valid same-candidate reactivation; a base-active subject may still be mutated and deactivated atomically;
 - bounded spatial query capabilities over one immutable invocation view, with statically declared readable Space properties;
 - Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
-- current pre-stable WorldDefinition remains `schema_version = 1`: `spatial_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; WorldPackage format remains 1;
+- current pre-stable WorldDefinition remains `schema_version = 1`: mandatory explicit `spatial_policy`, mandatory explicit `lifecycle_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; policy fields have no implicit loader defaults; WorldPackage format remains 1;
 - acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities.
 
 Before implementation, perform one final consistency review against existing Event,

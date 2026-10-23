@@ -814,15 +814,35 @@ Under ADR-0026, `schema_version = 1` remains the single current pre-stable shape
 first stable complete WorldDefinition representation is explicitly frozen. Earlier
 internal schema-1 documents are not compatibility targets.
 
-The current schema-1 WorldDefinition gains an explicit world-level spatial policy:
+The current schema-1 WorldDefinition gains explicit world-level spatial and lifecycle
+policies:
 
 ```text
 spatial_policy
     allow_cycles: bool
+
+lifecycle_policy
+    allow_entity_reactivation: bool
+    allow_space_reactivation: bool
 ```
 
-The field is mandatory in the current strict representation. Worlds that use ordinary
-acyclic containment author `allow_cycles = false` explicitly.
+Both policy sections and all listed fields are mandatory in the current strict
+representation.
+
+Worlds that use ordinary acyclic containment author `allow_cycles = false` explicitly.
+Worlds that do not permit reactivation author both lifecycle flags as `false` explicitly.
+
+The ordinary semantic policy values are therefore:
+
+```text
+allow_cycles = false
+allow_entity_reactivation = false
+allow_space_reactivation = false
+```
+
+but these are not loader fallbacks. Omitting `spatial_policy`, `lifecycle_policy`, or any
+required policy field is a schema error. A serialized WorldDefinition must state the
+complete policy semantics it uses.
 
 Initial conditions gain Space declarations:
 
@@ -879,6 +899,10 @@ Conceptually, a current world document may therefore contain:
   "schema_version": 1,
   "spatial_policy": {
     "allow_cycles": false
+  },
+  "lifecycle_policy": {
+    "allow_entity_reactivation": false,
+    "allow_space_reactivation": false
   },
   "initial_conditions": {
     "logical_time": 0,
@@ -1430,7 +1454,7 @@ The invariant is:
 - mechanic composition must validate declared spatial query capabilities and readable Space property names;
 - GEL/BUILTIN/IMPLEMENTATION adapters need an invocation-scoped immutable SpatialQuery view rather than direct WorldState access;
 - Query API/DTOs must expose Space inspection and direct/enclosing location semantics consistently with core traversal;
-- the current strict WorldDefinition schema-1 document gains mandatory spatial_policy and initial Spaces/Entity location fields;
+- the current strict WorldDefinition schema-1 document gains mandatory spatial_policy, mandatory lifecycle_policy, and initial Spaces/Entity location fields;
 - repository-maintained worlds/examples must migrate atomically with the Slice-17.2 implementation instead of relying on compatibility parsing;
 - runtime Space creation uses a first-class CreateSpaceEffect and GRASS-controlled identity allocation;
 - Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
@@ -1629,6 +1653,13 @@ at the resulting location.
 Rejected because reactivation/update/deactivation combinations are validated as one atomic
 candidate. Active participation is derived from base activity or explicit same-candidate
 reactivation, not from Event sequence.
+
+### Make lifecycle_policy optional with implicit false values
+
+Rejected because lifecycle policy changes what transitions are valid world semantics.
+Serialized WorldDefinition snapshots must state those semantics explicitly rather than
+depend on loader defaults. The ordinary no-reactivation policy is authored as explicit
+false values.
 
 ## Remaining Slice-17.2 decisions
 
