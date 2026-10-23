@@ -1713,6 +1713,140 @@ This decision freezes semantic type names and payload meaning for Slice 17.2. Ev
 version-number handling remains an independent Event-contract concern and is not changed
 merely by this catalogue decision.
 
+
+## Decision 22: Projection applies each committed transition as one semantic batch
+
+Projection does not assign mutation precedence to Event sequence within one
+CommittedTransition.
+
+The projection boundary consumes the complete decoded transition and first classifies its
+authoritative writes by projected identity and semantic field.
+
+Conceptually:
+
+```text
+CommittedTransition
+    -> decode all Events
+    -> classify complete write-set
+    -> validate write conflicts and lifecycle shape
+    -> derive each final projected object from:
+           authoritative base object
+           + complete transition write-set
+    -> validate complete structural candidate
+    -> publish one new immutable SimulationState
+```
+
+For an existing Entity, the final candidate is derived independently per field:
+
+```text
+properties_after =
+    EntityUpdated.properties_after
+    OR base.properties
+
+location_after =
+    LocationChanged.location_id_after
+    OR base.location_id
+
+active_after =
+    EntityReactivated -> true
+    EntityDeactivated -> false
+    otherwise base.active
+```
+
+Space uses the same principle for lifecycle and location; its properties remain creation-only
+in Slice 17.2.
+
+Therefore:
+
+```text
+# base: Alice inactive
+EntityReactivated(Alice)
+EntityUpdated(Alice, ...)
+```
+
+has the same meaning regardless of the storage order of those two Events. The complete
+transition write-set establishes one final candidate in which Alice is active with the new
+properties.
+
+Likewise:
+
+```text
+# base: Alice active
+LocationChanged(Alice, hospital)
+EntityDeactivated(Alice)
+```
+
+projects to one inactive Alice whose preserved canonical location is hospital, independent
+of Event order.
+
+Creation remains a full-state write. EntityCreated and SpaceCreated establish the complete
+initial projected object and conflict with same-transition writes to that new object's
+lifecycle, location, or properties under Decision 17.
+
+Relation, Resource, StateVariable, Job, cognition, and other projections may retain their
+existing reducers where their accepted contracts are already order-independent. Any
+projection that permits multiple independently composable writes to one identity must use
+the same complete-transition principle rather than sequential mutation precedence.
+
+### Projection validation versus WorldDefinition-aware candidate validation
+
+Projection remains a deterministic reducer of committed history and does not require the
+WorldDefinition to reconstruct WorldState.
+
+Before commit, WorldDefinition-aware candidate validation decides whether a proposed
+transition is legal under scenario semantics, including:
+
+```text
+SpatialPolicy.allow_cycles
+LifecyclePolicy.allow_entity_reactivation
+LifecyclePolicy.allow_space_reactivation
+movement / mechanic / scenario rules
+other world-defined constraints
+```
+
+After commit, projection validates universal structural/history invariants required to
+reconstruct the recorded fact, including:
+
+```text
+known Event type/version/payload
+valid complete-transition write-set
+identity existence/creation rules
+typed references exist in the complete candidate
+Entity has a direct Space location
+active Entity/Space direct location references an active Space
+Space direct self-location is invalid
+valid structural lifecycle transition shape
+complete final WorldState structural consistency
+```
+
+Projection does not re-adjudicate whether the historical WorldDefinition permitted a
+reactivation or a longer containment cycle. A committed EntityReactivated/SpaceReactivated
+Event is an authoritative lifecycle fact; a committed cyclic topology must remain
+projectable because cycle permission belongs to the immutable WorldDefinition used when the
+transition was validated.
+
+Thus:
+
+```text
+candidate validation
+    knows WorldDefinition
+    decides whether the transition may be committed
+
+projection / replay
+    knows committed Events
+    deterministically reconstructs what was committed
+```
+
+Event sequence remains deterministic storage/replay encoding. It may be used for canonical
+serialization and stable history order, but never to decide which same-transition
+authoritative field write wins or which lifecycle precondition happens "first".
+
+The invariant is:
+
+> Projection applies one CommittedTransition as one semantic batch. For composite
+> projected objects, final authoritative fields are derived from the base state plus the
+> complete transition write-set, and Event sequence supplies no mutation precedence.
+
 ## Consequences
 
 ### Positive
@@ -1771,7 +1905,9 @@ merely by this catalogue decision.
 - inactive Entity/Space state is queryable historical state but not ordinarily mutable; non-lifecycle mutation requires base-state activity or same-candidate explicit reactivation;
 - mechanics may link multiple runtime creations through transient CreationRefs, while GRASS resolves them to deterministic canonical IDs during trusted preparation;
 - CreationRef is eliminated before the closed WorldEffect boundary; WorldEffects, semantic Events, and WorldState use canonical typed IDs only;
-- the spatial/lifecycle effect and Event catalogue is explicit, with DeactivateSpaceEffect intentionally expanding to multiple semantic lifecycle Events.
+- the spatial/lifecycle effect and Event catalogue is explicit, with DeactivateSpaceEffect intentionally expanding to multiple semantic lifecycle Events;
+- replay/projection applies the complete committed transition as one semantic write batch, so composable Entity/Space field changes never depend on Event sequence;
+- WorldDefinition-aware candidate validation remains precommit authority, while projection rechecks only universal structural/history invariants needed for deterministic reconstruction.
 
 ## Alternatives considered
 
@@ -2011,6 +2147,24 @@ facts produced by the accepted closure.
 
 Rejected because Space properties are immutable after creation in the accepted spatial
 model. Location and lifecycle have dedicated mutation contracts.
+
+### Project composite writes by mutating state sequentially in Event order
+
+Rejected because accepted same-transition combinations such as reactivate-and-update or
+relocate-and-deactivate would gain different meaning when their storage order changed.
+Sequence is encoding order, not mutation precedence.
+
+### Require WorldDefinition during ordinary replay projection
+
+Rejected because canonical Events must be sufficient to reconstruct authoritative state.
+WorldDefinition-aware policy decides whether a transition may be committed; replay projects
+the accepted facts and validates only universal structural/history invariants.
+
+### Re-evaluate lifecycle policy during replay
+
+Rejected because reactivation permission is world semantics checked before commit. Once a
+valid reactivation Event is canonical history, projection must reconstruct it rather than
+re-adjudicate historical policy.
 
 ## Remaining Slice-17.2 decisions
 

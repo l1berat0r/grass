@@ -134,15 +134,40 @@ All fields are required for version 1. Missing or extra fields are invalid. Payl
 
 ## Decision 8: Atomic strict projection
 
-Projection consumes complete `CommittedTransition` values. It validates and applies each transition to private candidate data and returns one new immutable `SimulationState` only after the complete transition succeeds.
+Projection consumes complete `CommittedTransition` values and, as extended by ADR-0029,
+applies each transition as one semantic batch rather than as sequential state mutation in
+Event order.
 
-As extended by ADR-0029, atomic conflict detection is defined at the authoritative semantic-field level rather than by EntityId alone. For Entity, explicitly composable lifecycle, location, and complete-properties writes may coexist in one transition when the complete final state is order-independent. More than one write to the same semantic field remains invalid, and Entity creation is a full-state write that cannot be combined with same-transition lifecycle/location/property rewrites. Relation, Resource, and StateVariable retain their existing per-identity/key conflict semantics unless a later ADR explicitly decomposes them. Event sequence never chooses between conflicting writes.
+Projection decodes the complete transition, classifies writes by projected identity and
+authoritative semantic field, validates conflicts/lifecycle shape, derives complete final
+objects from base state plus the full write-set, validates the complete structural
+candidate, and only then publishes one new immutable `SimulationState`.
 
-Structural cross-references are validated against the final candidate state, not intermediate Event order. A Relation, Resource, or Entity-scoped StateVariable may therefore reference an Entity created elsewhere in the same transition.
+Atomic conflict detection is defined at the authoritative semantic-field level rather than
+by EntityId alone. For Entity, explicitly composable lifecycle, location, and
+complete-properties writes may coexist in one transition when the complete final state is
+order-independent. More than one write to the same semantic field remains invalid, and
+Entity creation is a full-state write that cannot be combined with same-transition
+lifecycle/location/property rewrites. Relation, Resource, and StateVariable retain their
+existing per-identity/key conflict semantics unless a later ADR explicitly decomposes them.
+
+Structural cross-references are validated against the complete final candidate state, not
+intermediate Event order. A Relation, Resource, or Entity-scoped StateVariable may therefore
+reference an Entity created elsewhere in the same transition. Event sequence is stable
+history encoding only and never chooses which write happens first or wins.
 
 Unknown Event types, unsupported versions, malformed payloads, missing/extra fields, sequence gaps, wrong branches, and invalid lifecycle operations fail explicitly and publish no partial state.
 
-Strict Event routing belongs at the `SimulationState` projection boundary. As later slices introduce known ExecutionState and CognitionState Events, those Events must be routed to the appropriate projection rather than rejected merely because `WorldState` does not consume them. Events unknown to all current projections must never be silently ignored.
+Strict Event routing belongs at the `SimulationState` projection boundary. As later slices
+introduce known ExecutionState and CognitionState Events, those Events must be routed to the
+appropriate projection rather than rejected merely because `WorldState` does not consume
+them. Events unknown to all current projections must never be silently ignored.
+
+WorldDefinition-aware scenario policy remains outside projection. Candidate validation may
+use the immutable WorldDefinition to decide whether a cycle, reactivation, movement, or
+other world-defined consequence is legal before commit. Projection/replay does not require
+WorldDefinition to reconstruct committed state and revalidates only universal
+structural/history invariants.
 
 ## Consequences
 

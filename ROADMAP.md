@@ -361,7 +361,8 @@ Accepted architecture direction includes:
 - Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
 - current pre-stable WorldDefinition remains `schema_version = 1`: mandatory explicit `spatial_policy`, mandatory explicit `lifecycle_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; policy fields have no implicit loader defaults; WorldPackage format remains 1;
 - acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities;
-- runtime identity allocation is deterministic for the same authoritative preparation context; rejected/stale candidates reserve no authoritative IDs and replay never reallocates committed identities.
+- runtime identity allocation is deterministic for the same authoritative preparation context; rejected/stale candidates reserve no authoritative IDs and replay never reallocates committed identities;
+- projection applies each CommittedTransition as one semantic batch: composite Entity/Space fields are derived from base state plus the complete write-set, Event order has no mutation precedence, and replay validates universal structural invariants without requiring WorldDefinition policy.
 
 Before implementation, perform one final consistency review against existing Event,
 projection, WorldEffect, WorldDefinition/genesis, package, and Query contracts. Do not add

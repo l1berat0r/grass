@@ -48,7 +48,14 @@ These are deterministic projections of the same Event history, not independent s
 
 `HistoryPosition` is that separate ancestry-aware cursor: a viewed branch ID plus an optional last visible complete `TransitionRef`. The reference may originate on an ancestor and denotes state after the whole transition. Logical time and sequence are derived from canonical history rather than duplicated in this cursor.
 
-Projection applies one complete `CommittedTransition` to private candidate data and publishes one new immutable `SimulationState` only after every Event and final structural invariant succeeds. Unknown Events, unsupported versions, malformed payloads, sequence gaps, wrong branches, and invalid lifecycle history fail explicitly rather than producing partial state.
+Projection applies one complete `CommittedTransition` as one semantic batch. It decodes
+all Events, classifies the complete write-set, derives final projected fields from the base
+state plus that write-set, validates final structural invariants, and publishes one new
+immutable `SimulationState` only after the complete transition succeeds. Event sequence is
+stable storage/replay encoding and supplies no mutation precedence. Unknown Events,
+unsupported versions, malformed payloads, sequence gaps, wrong branches, conflicting
+writes, and invalid structural lifecycle history fail explicitly rather than producing
+partial state.
 
 ### 3.1 WorldState
 
@@ -1231,6 +1238,18 @@ the authoritative base state or explicitly and validly reactivated in the same a
 candidate. Base-active subjects may still receive non-lifecycle writes and be deactivated
 in that candidate. This is a candidate-level lifecycle precondition, not Event-order
 semantics.
+
+Committed-transition projection mirrors that atomic model. For composite Entity/Space
+state, it derives lifecycle, location, and properties from the complete transition
+write-set plus the authoritative base object rather than mutating state sequentially per
+Event. This makes reactivate+update, reactivate+relocate, and relocate+deactivate
+order-independent. Creation is still a full-state write and conflicts with additional
+same-transition writes to the new object's own lifecycle/location/properties.
+
+WorldDefinition-aware policy is checked before commit. Projection/replay requires canonical
+Events, not WorldDefinition, and validates only universal structural/history invariants.
+It therefore reconstructs a committed reactivation or WorldDefinition-permitted cyclic
+topology without re-adjudicating historical policy.
 
 Strict routing occurs at the `SimulationState` boundary. A known Event routed to another projection is not unknown merely because `WorldState` does not consume it; Events unknown to every current projection still fail explicitly.
 

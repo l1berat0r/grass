@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-05
 
+> Supersession note: ADR-0029 clarifies that one CommittedTransition is projected as one semantic batch. Event sequence remains stable history encoding and supplies no mutation precedence among independently composable writes inside that transition. WorldDefinition-aware policy remains a precommit validation concern rather than a replay dependency.
+
 ## Context
 
 The architecture already defines an event-sourced authoritative history, a domain-neutral `WorldState`, persistent Plans and Jobs, actor-relative Observations, and `DecisionPoint`-driven cognition. The end-to-end acceptance walkthrough exposed an important boundary that had not yet been named explicitly.
