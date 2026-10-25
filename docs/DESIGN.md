@@ -1288,10 +1288,12 @@ never resolves conflicting writes.
 Space-deactivation cascades use the same order-independent candidate model. Trusted
 validation first composes explicit topology writes (creation and direct relocation) into a
 candidate spatial topology, then derives the cycle-safe contained active closure for each
-DeactivateSpaceEffect, then treats the resulting lifecycle deactivations as normal
-semantic-field writes. A subject explicitly relocated outside the target closure may
-survive the cascade; a conflicting explicit lifecycle write makes the candidate invalid.
-This semantic staging is validation logic, not Event ordering or priority.
+DeactivateSpaceEffect. Closures from multiple accepted deactivation roots are unioned
+before lifecycle-field conflict validation, so each affected Entity/Space contributes at
+most one derived deactivation write even when several roots reach it. A subject explicitly
+relocated outside every target closure may survive the cascade; a conflicting explicit
+lifecycle write still makes the candidate invalid. This semantic staging is validation
+logic, not Event ordering or priority.
 
 Inactive Entity/Space state remains queryable canonical history but is not ordinarily
 mutable. Non-lifecycle writes to an existing subject require that subject to be active in

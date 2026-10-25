@@ -2212,6 +2212,67 @@ mechanic
 and prevents movement-rule discovery from recursively depending on arbitrary GEL/plugin
 execution.
 
+
+## Decision 28: Overlapping Space-deactivation cascades compose as one union closure
+
+When one atomic candidate contains multiple accepted DeactivateSpaceEffect roots, trusted
+candidate preparation computes all cascades against the same composed candidate spatial
+topology and combines their contained active subjects as a set union.
+
+Conceptually:
+
+```text
+candidate spatial topology
+    + accepted DeactivateSpaceEffect roots
+    -> cycle-safe closure(root_1)
+       cycle-safe closure(root_2)
+       ...
+    -> union of contained active subjects
+    -> at most one derived lifecycle deactivation write per subject
+```
+
+For example:
+
+```text
+building
+└── room
+    └── Alice
+
+DeactivateSpaceEffect(building)
+DeactivateSpaceEffect(room)
+```
+
+Both roots reach room and Alice, but the accepted candidate contains only one derived
+lifecycle deactivation write for room and one for Alice.
+
+The overlap itself is not a semantic-field conflict. Conflict detection operates after
+cascade expansion on the deduplicated derived lifecycle write-set.
+
+This matters because derived writes represent the same final lifecycle fact rather than two
+independent attempts to write the same field. Treating overlap as duplicate writes would
+make a valid nested destructive consequence fail merely because two independently valid
+deactivation roots share descendants.
+
+Explicit lifecycle writes remain distinct from derived cascade writes. Therefore an
+explicit ReactivateEntityEffect/ReactivateSpaceEffect that targets a subject included in
+the union closure still conflicts with the derived deactivation of that same lifecycle
+field under Decision 17.
+
+Likewise, explicit topology-changing writes are composed before every root closure is
+calculated, exactly as defined by Decision 18. A subject relocated outside all root closures
+is not included merely because it belonged to one of those roots in the base state.
+
+The union operation applies to derived cascade membership/writes. This decision does not
+require accepting duplicate identical DeactivateSpaceEffect entries for the same root in a
+proposal; proposal-level duplicate-intent validation may reject such redundant explicit
+entries independently.
+
+Invariant:
+
+> Multiple Space-deactivation roots are evaluated over one composed candidate topology.
+> Their cascade closures are unioned, and each affected subject contributes at most one
+> derived lifecycle deactivation write.
+
 ## Consequences
 
 ### Positive
@@ -2266,7 +2327,7 @@ execution.
 - Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
 - reactivation preserves canonical location_id and never implies automatic descendant reactivation;
 - atomic conflict detection is field-aware for Entity/Space, allowing explicitly composable lifecycle/location/properties changes without Event-order semantics;
-- Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit;
+- Space-deactivation cascades are derived from the composed candidate topology, so explicit relocation may remove a subject from the closure while lifecycle conflicts remain explicit; multiple accepted cascade roots are unioned and each affected subject contributes at most one derived lifecycle deactivation write;
 - inactive Entity/Space state is queryable historical state but not ordinarily mutable; non-lifecycle mutation requires base-state activity or same-candidate explicit reactivation;
 - mechanics may link multiple runtime creations through transient CreationRefs, while GRASS resolves them to deterministic canonical IDs during trusted preparation;
 - CreationRef is eliminated before the closed WorldEffect boundary; WorldEffects, semantic Events, and WorldState use canonical typed IDs only;
@@ -2604,6 +2665,16 @@ after one movement rule has been selected.
 
 Rejected because selectors should operate on typed explicitly exposed values rather than
 serialization layout or unrestricted world-state traversal.
+
+### Treat overlapping cascade-derived deactivations as duplicate field-write conflicts
+
+Rejected because overlapping roots describe the same resulting inactive lifecycle state for
+shared descendants. Derived closures are unioned before field-conflict validation.
+
+### Apply each DeactivateSpaceEffect cascade sequentially
+
+Rejected because cascade membership and resulting lifecycle writes must be derived from one
+composed candidate topology, not from mutation order between roots.
 
 ## Remaining Slice-17.2 decisions
 
