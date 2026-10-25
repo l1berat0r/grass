@@ -2146,6 +2146,72 @@ The default rule is not stored in rules and is not referenced from that collecti
 prevents one authored rule from participating both in conditional matching and fallback
 selection.
 
+
+## Decision 27: MovementSelector is a bounded declarative matcher, not a mechanic binding
+
+ConditionalMovementRule.selector is a declarative selection contract owned by core
+authoring semantics. It is not another BUILTIN, GEL, or IMPLEMENTATION mechanic.
+
+Conceptually:
+
+```text
+immutable movement-selection context
+    -> resolve selector-visible typed values
+    -> MovementSelector
+    -> MATCH | NO_MATCH
+```
+
+The selector answers only:
+
+```text
+Does this ConditionalMovementRule apply?
+```
+
+It does not resolve MOVE, compute MovementResult, create effects, invoke plugins, or gain
+world-mutation authority.
+
+Only after deterministic rule selection does GRASS execute the chosen rule's
+`mechanic_binding`:
+
+```text
+MovementSelector
+    -> select exactly one ConditionalMovementRule
+       or fall back to DefaultMovementRule
+    -> resolve input_bindings
+    -> BUILTIN | GEL | IMPLEMENTATION mechanic
+    -> MovementResult
+    -> MovementContract
+    -> trusted consequences
+```
+
+MovementSelector operates only on an explicit bounded selection context derived by trusted
+code. It receives no unrestricted WorldState/SimulationState, EventStore, scheduler,
+filesystem, network, or implementation/plugin handle.
+
+Selectors are typed and declarative rather than arbitrary JSONPath/string expressions over
+serialized state. Their initial operator/predicate vocabulary is intentionally left to the
+next authoring decision, but it must remain bounded, deterministic, side-effect-free, and
+sufficient to express generic scenario matching over explicitly exposed values such as
+requested target, current direct location, PlanStep/Blueprint data, and declared
+scenario-defined type/property values.
+
+The selector itself has no random context and no failure mode equivalent to mechanic
+execution. Invalid selector authoring is a WorldDefinition/package validation error;
+runtime evaluation of a valid selector deterministically returns MATCH or NO_MATCH.
+
+This separation preserves:
+
+```text
+selector
+    = choose which movement semantics apply
+
+mechanic
+    = execute the chosen movement semantics
+```
+
+and prevents movement-rule discovery from recursively depending on arbitrary GEL/plugin
+execution.
+
 ## Consequences
 
 ### Positive
@@ -2182,7 +2248,7 @@ selection.
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -2527,6 +2593,17 @@ selector would create ambiguity whenever any conditional rule also matches.
 
 Rejected because that makes the base contract admit semantically invalid states. Selector
 belongs only to ConditionalMovementRule.
+
+### Implement MovementSelector through BUILTIN/GEL/IMPLEMENTATION
+
+Rejected because rule discovery should be deterministic declarative matching, not recursive
+mechanic execution with its own invocation/failure surface. Mechanic bindings execute only
+after one movement rule has been selected.
+
+### Use arbitrary JSONPath/string predicates over serialized state
+
+Rejected because selectors should operate on typed explicitly exposed values rather than
+serialization layout or unrestricted world-state traversal.
 
 ## Remaining Slice-17.2 decisions
 

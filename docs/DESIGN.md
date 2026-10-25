@@ -219,6 +219,13 @@ DefaultMovementRule(MovementRule)
 contains one DefaultMovementRule or null. The default has no selector and is consulted only
 after zero conditional matches; it never participates in matching.
 
+MovementSelector is a bounded declarative matcher, not a MechanicBinding. Trusted selection
+code exposes only explicit typed selector-visible values and evaluates the selector to
+MATCH/NO_MATCH. It has no unrestricted WorldState access, GEL/plugin execution, randomness,
+or mutation authority. Only after rule selection does the selected MovementRule's
+`mechanic_binding` execute through BUILTIN/GEL/IMPLEMENTATION. The exact initial selector
+operator/predicate vocabulary remains to be frozen separately.
+
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
 The version-1 vocabulary registries contain unique non-empty legal names for Entity, Relation, Resource, and StateVariable types. Individual registries may be empty. They define names only: property schemas, relation role/arity constraints, Resource units/bounds, StateVariable schemas/defaults, mechanics, Blueprints, and schema-expression infrastructure remain deferred.
