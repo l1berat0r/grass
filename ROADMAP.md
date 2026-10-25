@@ -364,6 +364,7 @@ Accepted architecture direction includes:
 - current pre-stable WorldDefinition remains `schema_version = 1`: mandatory explicit `spatial_policy`, mandatory explicit `lifecycle_policy`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; policy fields have no implicit loader defaults; WorldPackage format remains 1;
 - acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities;
 - runtime identity allocation is deterministic for the same authoritative preparation context; rejected/stale candidates reserve no authoritative IDs and replay never reallocates committed identities;
+- mechanic-facing same-result references use typed `ExistingEntityRef|CreatedEntityRef` and `ExistingSpaceRef|CreatedSpaceRef` unions across spatial, Relation, Resource, and Entity-scoped StateVariable consequences; trusted preparation resolves the complete graph before any closed WorldEffect is constructed;
 - projection applies each CommittedTransition as one semantic batch: composite Entity/Space fields are derived from base state plus the complete write-set, Event order has no mutation precedence, and replay validates universal structural invariants without requiring WorldDefinition policy;
 - all current Event payloads remain provisional `event_version = 1` before the first stable Event-history contract; incompatible internal payload changes replace v1 in place, while post-stabilization versioning remains independent per Event type.
 

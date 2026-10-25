@@ -1036,16 +1036,32 @@ handles to GRASS-controlled `SpaceId`/`EntityId` values before constructing clos
 WorldEffects. CreationRef is a transient local handle only; it is never persisted as world
 identity.
 
+Mechanic-facing results use typed unresolved wrappers across the complete same-result
+reference graph:
+
+```text
+EntityResultRef = ExistingEntityRef(EntityId) | CreatedEntityRef(CreationRef)
+SpaceResultRef  = ExistingSpaceRef(SpaceId)   | CreatedSpaceRef(CreationRef)
+```
+
+A newly created Entity may therefore be referenced by same-result Relation, Resource,
+Entity-scoped StateVariable, or other typed consequences before its canonical EntityId
+exists. Likewise, newly created Spaces may be referenced by other spatial creation/location
+specifications. The wrappers are type-safe; Entity and Space creation references are not
+interchangeable.
+
 Canonical runtime allocation is deterministic for the same authoritative preparation
 context and identical ordered creation specifications. The exact identifier encoding is an
 implementation choice. Rejected/invalid/stale candidates reserve no authoritative identity;
 a re-resolution on a different base HistoryPosition is a new preparation. Replay reads the
 canonical IDs recorded in Events and never reallocates them.
 
-From the closed WorldEffect boundary downward, CreationRef is forbidden. Trusted
-preparation must resolve every local creation handle to a canonical typed EntityId/SpaceId
-before constructing WorldEffects. Effects, Events, projection, and WorldState therefore
-operate only on canonical identity.
+From the closed WorldEffect boundary downward, `CreationRef`, `CreatedEntityRef`, and
+`CreatedSpaceRef` are forbidden. Trusted preparation resolves the complete typed
+same-result reference graph to canonical `EntityId`/`SpaceId` values before constructing
+any WorldEffect. Relation participants, Resource owners, Entity-scoped StateVariables,
+spatial references, and all other closed effects therefore operate only on canonical typed
+identity.
 
 No arbitrary `ScenarioCustomEffect` escape hatch exists. If a generic effect is missing, core may be deliberately extended through architecture/versioning rather than allowing opaque scenario mutation opcodes.
 

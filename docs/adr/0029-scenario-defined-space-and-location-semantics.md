@@ -1892,6 +1892,129 @@ At the first stable complete Event-history release, each then-current Event payl
 becomes that Event type's definitive v1 contract. After that point, incompatible changes
 advance only the affected Event type's event_version under normal ADR-0005 semantics.
 
+
+## Decision 24: Mechanic-facing creation references are typed and may be used across the full same-result reference graph
+
+CreationRef is not limited to spatial parent/location links. A mechanic may need other
+same-result consequences to reference an object whose canonical runtime identity has not
+yet been allocated.
+
+Mechanic-facing typed results therefore use typed unresolved reference wrappers.
+
+Conceptually:
+
+```text
+EntityResultRef
+    ExistingEntityRef(EntityId)
+    | CreatedEntityRef(CreationRef)
+
+SpaceResultRef
+    ExistingSpaceRef(SpaceId)
+    | CreatedSpaceRef(CreationRef)
+```
+
+The wrappers are nominally typed. A CreatedEntityRef is valid only where an Entity reference
+is required; a CreatedSpaceRef is valid only where a Space reference is required. GRASS
+does not expose one untyped CreatedRef that can cross Entity/Space reference domains.
+
+This allows one mechanic result to describe a complete internally linked creation graph.
+
+For example:
+
+```text
+CreateEntitySpec
+    creation_ref = "alice"
+    entity_type = Person
+    location = ExistingSpaceRef(world)
+    properties = ...
+
+CreateRelationSpec
+    relation_type = employment
+    participants =
+        employee -> CreatedEntityRef("alice")
+        employer -> ExistingEntityRef(acme)
+
+ChangeResourceSpec
+    entity = CreatedEntityRef("alice")
+    resource_type = money
+    quantity_after = ...
+
+SetStateVariableSpec
+    scope = CreatedEntityScope(CreatedEntityRef("alice"))
+    state_variable_type = ...
+    value_after = ...
+```
+
+Likewise, spatial creation can continue to use:
+
+```text
+CreateSpaceSpec
+    creation_ref = "building"
+    location = ExistingSpaceRef(world)
+
+CreateSpaceSpec
+    creation_ref = "room"
+    location = CreatedSpaceRef("building")
+
+CreateEntitySpec
+    creation_ref = "alice"
+    location = CreatedSpaceRef("room")
+```
+
+The exact mechanic-facing DTO names may evolve, but the semantic boundary is fixed:
+
+> Any same-result reference that would normally require a canonical EntityId or SpaceId may
+> reference a newly created object through the corresponding typed Created*Ref wrapper.
+
+CreationRefs remain scoped to one typed result/preparation context. A Created*Ref may not
+reference a creation from another mechanic result, another transition, or already committed
+history.
+
+Trusted preparation resolves the complete typed reference graph before constructing any
+closed WorldEffect:
+
+```text
+typed mechanic result
+    ExistingEntityRef / CreatedEntityRef
+    ExistingSpaceRef  / CreatedSpaceRef
+        |
+        v
+resolve complete CreationRef graph
+allocate canonical EntityId / SpaceId
+validate reference kinds
+        |
+        v
+closed WorldEffects
+    canonical IDs only
+```
+
+After resolution:
+
+```text
+CreateRelationEffect
+ChangeResourceEffect
+SetStateVariableEffect
+CreateEntityEffect
+CreateSpaceEffect
+SetLocationEffect
+...
+```
+
+contain only canonical typed identities. No unresolved Created*Ref or CreationRef may cross
+the WorldEffect boundary.
+
+The reference-resolution phase must fail explicitly when:
+
+- a CreatedEntityRef points to a CreationRef that does not denote an Entity creation;
+- a CreatedSpaceRef points to a CreationRef that does not denote a Space creation;
+- a CreationRef is missing or duplicated within the preparation context;
+- the same-result creation/reference graph cannot be resolved under the accepted typed
+  contracts.
+
+Resolution of the graph itself does not establish Event order or candidate mutation
+precedence. It only replaces preparation-local handles with canonical typed identities
+before the normal closed-effect validation path.
+
 ## Consequences
 
 ### Positive
@@ -1953,7 +2076,8 @@ advance only the affected Event type's event_version under normal ADR-0005 seman
 - the spatial/lifecycle effect and Event catalogue is explicit, with DeactivateSpaceEffect intentionally expanding to multiple semantic lifecycle Events;
 - replay/projection applies the complete committed transition as one semantic write batch, so composable Entity/Space field changes never depend on Event sequence;
 - WorldDefinition-aware candidate validation remains precommit authority, while projection rechecks only universal structural/history invariants needed for deterministic reconstruction;
-- all current spatial/lifecycle Event payloads remain pre-stable `event_version = 1`; the older internal EntityCreated-v1 shape is unsupported rather than upcast.
+- all current spatial/lifecycle Event payloads remain pre-stable `event_version = 1`; the older internal EntityCreated-v1 shape is unsupported rather than upcast;
+- same-result references to newly created Entities/Spaces use typed `CreatedEntityRef` / `CreatedSpaceRef` wrappers across the full mechanic-facing reference graph, including Relation, Resource, StateVariable, and spatial consequences.
 
 ## Alternatives considered
 
@@ -2223,6 +2347,24 @@ development-only version archaeology.
 Rejected because mandatory location is now part of Entity creation semantics. Compatibility
 with an unreleased internal payload would weaken the invariant or require migration
 machinery before the first stable history contract.
+
+### Use one untyped CreatedRef for all creation-reference kinds
+
+Rejected because Entity and Space references have different semantic contracts. Typed
+CreatedEntityRef/CreatedSpaceRef wrappers catch kind errors before the closed WorldEffect
+boundary.
+
+### Limit CreationRef usage to spatial location links
+
+Rejected because same-transition creation may also feed Relation participants, Resource
+owners, Entity-scoped StateVariables, and other typed consequences. Restricting local
+references to location would force artificial multi-transition workflows or premature
+canonical-ID exposure.
+
+### Let unresolved Created*Ref values cross into WorldEffect
+
+Rejected because WorldEffect is already inside the canonical authority boundary. Trusted
+preparation must resolve the complete reference graph first.
 
 ## Remaining Slice-17.2 decisions
 
