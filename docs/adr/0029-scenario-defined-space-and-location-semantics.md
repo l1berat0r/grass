@@ -313,16 +313,26 @@ BUILTIN, GEL, and IMPLEMENTATION are alternate ways to compute the same typed Mo
 
 A Plan/PlanStep expresses what the actor attempts, not which technical movement implementation should run. Actor/provider-authored MOVE steps therefore do not select implementation mechanics directly.
 
-WorldDefinition owns movement-mechanic selection through world-defined rules, conceptually:
+WorldDefinition owns movement-mechanic selection through a small rule hierarchy,
+conceptually:
 
 ```text
 MovementRule
     rule_id
-    selector
     input_bindings
     movement_contract_ref
     mechanic_binding
+
+ConditionalMovementRule(MovementRule)
+    selector
+
+DefaultMovementRule(MovementRule)
+    # no selector
 ```
+
+`MovementRule` is the shared semantic/execution contract. Conditional rules add the
+matching condition; the default rule is the same kind of movement-resolution rule without a
+selector.
 
 The flow is:
 
@@ -336,31 +346,41 @@ MOVE PlanStep / Job
     -> Job outcome + optional SetLocationEffect
 ```
 
-Selectors may use only accepted generic/explicitly bound scenario information, such as the requested target, current direct location, PlanStep parameters, Blueprint references/parameters, or scenario-defined type/property values. Core does not compile in domain selector vocabulary such as walking, room, vehicle, portal, or door.
+Selectors exist only on ConditionalMovementRule and may use only accepted
+generic/explicitly bound scenario information, such as the requested target, current direct
+location, PlanStep parameters, Blueprint references/parameters, or scenario-defined
+type/property values. Core does not compile in domain selector vocabulary such as walking,
+room, vehicle, portal, or door.
 
-Ordinary worlds may configure an explicit default movement binding for cases where no specific MovementRule matches.
+Ordinary worlds may configure one explicit DefaultMovementRule for cases where no
+ConditionalMovementRule matches. The default is not represented as an always-matching
+selector and does not participate in ordinary matching.
 
 Selection semantics are:
 
 ```text
-exactly one applicable MovementRule
+exactly one applicable ConditionalMovementRule
     -> use it
 
-no applicable MovementRule
-    + explicit default movement binding
-    -> use default
+no applicable ConditionalMovementRule
+    + default_rule != null
+    -> use DefaultMovementRule
 
-no applicable MovementRule
-    + no default
+no applicable ConditionalMovementRule
+    + default_rule == null
     -> movement cannot be resolved
 
-more than one applicable MovementRule
+more than one applicable ConditionalMovementRule
     -> invalid ambiguity
 ```
 
-Declaration order is not semantic priority. Slice 17.2 does not introduce numeric or implicit rule priorities.
+Declaration order is not semantic priority. Slice 17.2 does not introduce numeric or
+implicit rule priorities.
 
-> MovementRule selection must resolve to at most one applicable rule. Ambiguous matching is invalid rather than resolved by declaration order or implicit priority. If no rule matches, an explicitly configured default movement binding may be used.
+> ConditionalMovementRule selection must resolve to at most one applicable rule.
+> Ambiguous matching is invalid rather than resolved by declaration order or implicit
+> priority. DefaultMovementRule is consulted only after zero conditional matches and never
+> participates in matching.
 
 
 ## Decision 8: Creation materializes complete initial spatial state
@@ -2074,6 +2094,58 @@ input-binding, mechanic-binding, and contract mapping DTO details may still be r
 the following authoring decisions, provided they remain inside this explicit `movement`
 section and preserve Decision 6/7 semantics.
 
+
+## Decision 26: MovementRule is a shared base contract with conditional and default variants
+
+MovementRule is not duplicated into two unrelated DTO families.
+
+The accepted conceptual hierarchy is:
+
+```text
+MovementRule
+    rule_id
+    input_bindings
+    movement_contract_ref
+    mechanic_binding
+
+ConditionalMovementRule(MovementRule)
+    selector
+
+DefaultMovementRule(MovementRule)
+```
+
+The base type owns the common movement-resolution contract. ConditionalMovementRule adds
+only the selector used during deterministic rule matching. DefaultMovementRule adds no
+selector because it is selected by fallback position, not by matching.
+
+This hierarchy may be represented in implementation through inheritance, a discriminated
+union over a shared base model, or an equivalent type-safe construction. The architectural
+requirement is semantic rather than tied to one Python inheritance mechanism:
+
+- shared fields are defined once;
+- conditional rules require a selector;
+- the default rule has no selector;
+- the default rule is never evaluated as an always-matching conditional rule;
+- both variants remain MovementRule values for common validation, provenance, mechanic
+  invocation, and diagnostics.
+
+The WorldDefinition movement section therefore contains:
+
+```text
+movement
+    contracts: [MovementContract, ...]
+    rules: [ConditionalMovementRule, ...]
+    default_rule: DefaultMovementRule | null
+```
+
+A DefaultMovementRule keeps a rule_id because it is still material world semantics that may
+be referenced in diagnostics, provenance, deterministic invocation context, and package
+validation.
+
+The default rule is not stored in rules and is not referenced from that collection. This
+prevents one authored rule from participating both in conditional matching and fallback
+selection.
+
 ## Consequences
 
 ### Positive
@@ -2439,6 +2511,22 @@ Such worlds express that choice explicitly with empty contracts/rules and a null
 
 Rejected because core must not invent scenario movement semantics. A default exists only
 when the WorldDefinition authors one explicitly.
+
+### Model DefaultMovementRule as an unrelated duplicated DTO
+
+Rejected because the conditional and default variants share the same movement-resolution
+contract. Duplicating rule_id/input bindings/contract/mechanic fields would create avoidable
+schema drift.
+
+### Model DefaultMovementRule as a normal conditional rule with an always-true selector
+
+Rejected because the default must not participate in ordinary matching. An always-true
+selector would create ambiguity whenever any conditional rule also matches.
+
+### Put selector on the MovementRule base and ignore it for the default
+
+Rejected because that makes the base contract admit semantically invalid states. Selector
+belongs only to ConditionalMovementRule.
 
 ## Remaining Slice-17.2 decisions
 

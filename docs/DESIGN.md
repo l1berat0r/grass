@@ -112,8 +112,8 @@ WorldDefinition
 
     movement
         contracts
-        rules
-        default_rule
+        rules: ConditionalMovementRule[]
+        default_rule: DefaultMovementRule?
 
     vocabulary
         entity_types
@@ -199,6 +199,25 @@ The mandatory `movement` section is explicit even when empty. Its canonical empt
 contains `contracts: []`, `rules: []`, and `default_rule: null`. Omitting the section is
 a schema error; an explicit empty section means that the world deliberately provides no
 MOVE resolution. GRASS adds no implicit movement fallback.
+
+Movement rule authoring uses one shared semantic hierarchy:
+
+```text
+MovementRule
+    rule_id
+    input_bindings
+    movement_contract_ref
+    mechanic_binding
+
+ConditionalMovementRule(MovementRule)
+    selector
+
+DefaultMovementRule(MovementRule)
+```
+
+`movement.rules` contains only ConditionalMovementRule values. `movement.default_rule`
+contains one DefaultMovementRule or null. The default has no selector and is consulted only
+after zero conditional matches; it never participates in matching.
 
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
