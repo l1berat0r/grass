@@ -2015,6 +2015,65 @@ Resolution of the graph itself does not establish Event order or candidate mutat
 precedence. It only replaces preparation-local handles with canonical typed identities
 before the normal closed-effect validation path.
 
+
+## Decision 25: WorldDefinition has a mandatory explicit movement section
+
+The current strict pre-stable WorldDefinition schema includes a mandatory top-level
+`movement` section.
+
+Conceptually:
+
+```text
+movement
+    contracts
+    rules
+    default_rule
+```
+
+The current serialized empty form is explicit:
+
+```json
+{
+  "movement": {
+    "contracts": [],
+    "rules": [],
+    "default_rule": null
+  }
+}
+```
+
+The section itself is mandatory even when a world deliberately provides no MOVE
+resolution.
+
+Therefore:
+
+```text
+movement section absent
+    -> invalid WorldDefinition
+
+movement present with:
+    contracts = []
+    rules = []
+    default_rule = null
+    -> valid WorldDefinition that deliberately provides no MOVE resolution
+```
+
+There is no loader-level implicit movement configuration and no built-in fallback merely
+because the section is missing or empty.
+
+Ordinary actor-capable worlds are expected to define movement rules; an empty movement
+configuration is valid primarily for scenarios where MOVE is intentionally unsupported or
+irrelevant.
+
+The section owns scenario-authored MovementContract and MovementRule declarations plus the
+explicit default movement rule/binding already accepted by Decision 7. It remains part of
+WorldDefinition because it changes scenario semantics rather than run execution policy.
+
+This decision freezes the mandatory placement and empty representation. The exact selector,
+input-binding, mechanic-binding, and contract mapping DTO details may still be refined by
+the following authoring decisions, provided they remain inside this explicit `movement`
+section and preserve Decision 6/7 semantics.
+
 ## Consequences
 
 ### Positive
@@ -2063,7 +2122,7 @@ before the normal closed-effect validation path.
 - mechanic composition must validate declared spatial query capabilities and readable Space property names;
 - GEL/BUILTIN/IMPLEMENTATION adapters need an invocation-scoped immutable SpatialQuery view rather than direct WorldState access;
 - Query API/DTOs must expose Space inspection and direct/enclosing location semantics consistently with core traversal;
-- the current strict WorldDefinition schema-1 document gains mandatory spatial_policy, mandatory lifecycle_policy, and initial Spaces/Entity location fields;
+- the current strict WorldDefinition schema-1 document gains mandatory spatial_policy, mandatory lifecycle_policy, mandatory movement configuration, and initial Spaces/Entity location fields;
 - repository-maintained worlds/examples must migrate atomically with the Slice-17.2 implementation instead of relying on compatibility parsing;
 - runtime Space creation uses a first-class CreateSpaceEffect and GRASS-controlled identity allocation;
 - Entity/Space reactivation extends the closed lifecycle effect/Event model only when enabled by WorldDefinition LifecyclePolicy;
@@ -2365,6 +2424,21 @@ canonical-ID exposure.
 
 Rejected because WorldEffect is already inside the canonical authority boundary. Trusted
 preparation must resolve the complete reference graph first.
+
+### Make movement optional and infer an empty configuration
+
+Rejected because movement rules are world semantics. Strict WorldDefinition snapshots should
+state explicitly whether MOVE is configured instead of relying on loader defaults.
+
+### Treat an empty movement section as invalid
+
+Rejected because some deliberately unusual scenarios may have no meaningful MOVE semantics.
+Such worlds express that choice explicitly with empty contracts/rules and a null default.
+
+### Add an implicit built-in movement fallback
+
+Rejected because core must not invent scenario movement semantics. A default exists only
+when the WorldDefinition authors one explicitly.
 
 ## Remaining Slice-17.2 decisions
 
