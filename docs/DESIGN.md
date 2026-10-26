@@ -238,8 +238,32 @@ EXISTS
 
 over typed selector-visible value references and compatible literals. It has no arbitrary
 paths, regex/glob, arithmetic, general comparisons, user functions, or direct spatial/world
-queries. Trusted context preparation exposes any derived values needed for matching. The
-exact selector-visible value-reference catalogue is frozen separately.
+queries. Trusted context preparation exposes any derived values needed for matching.
+
+The initial selector-visible value-reference catalogue is closed:
+
+```text
+ACTOR_ID
+ACTOR_ENTITY_TYPE
+CURRENT_LOCATION
+BLUEPRINT_ID
+BLUEPRINT_VERSION
+STEP_PARAMETER(name)
+STEP_BINDING(name)
+NAMED_VALUE(name)
+```
+
+Core actor/location refs come from the authoritative MOVE context. STEP_PARAMETER and
+STEP_BINDING read named values from the existing PlanStep fields. NAMED_VALUE exposes one
+explicitly declared typed value prepared by trusted selection-context binding, for example a
+Space property or derived `is_within` result. MovementSelector itself performs no property
+traversal or spatial/world query.
+
+Blueprint/step/named refs may be absent when semantically optional. EXISTS returns false for
+an absent valid ref; EQ/IN return NO_MATCH. Unknown ref kinds, undeclared NAMED_VALUE names,
+invalid bindings, or incompatible literals are authoring-validation errors rather than
+runtime non-matches. Raw StructuredValue request data is validated/resolved to the declared
+typed selector value before selector evaluation.
 
 MOVE does not add a dedicated requested-target field to PlanStep. Primitive-specific
 requested arguments remain in generic `PlanStep.parameters`; scenario/Blueprint semantics

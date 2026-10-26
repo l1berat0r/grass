@@ -2327,9 +2327,7 @@ For example, a future selector-visible reference may expose a derived boolean or
 that trusted code computed using accepted spatial semantics; the boolean expression layer
 only compares/tests that value.
 
-The exact initial catalogue of selector-visible value references remains a separate
-authoring decision. This Decision freezes only the boolean expression algebra and its
-authority boundary.
+The exact selector-visible value catalogue is defined by Decision 31. This Decision freezes only the boolean expression algebra and its authority boundary.
 
 The expression tree must be finite, structurally validated, deterministic, and
 side-effect-free. Implementation may impose ordinary depth/node/list-size limits as
@@ -2414,6 +2412,132 @@ The invariant is:
 > them into typed selector/mechanic inputs. MOVE introduces no dedicated requested-target
 > field into the core PlanStep contract.
 
+
+## Decision 31: MovementSelector sees a closed typed selection-context value catalogue
+
+MovementSelector may reference only a small closed set of trusted selector-visible values.
+
+The initial catalogue is:
+
+```text
+ACTOR_ID
+ACTOR_ENTITY_TYPE
+CURRENT_LOCATION
+BLUEPRINT_ID
+BLUEPRINT_VERSION
+STEP_PARAMETER(name)
+STEP_BINDING(name)
+NAMED_VALUE(name)
+```
+
+Their meanings are:
+
+- `ACTOR_ID` is the canonical EntityId of the actor whose MOVE Job is being resolved;
+- `ACTOR_ENTITY_TYPE` is that actor Entity's scenario-defined entity_type;
+- `CURRENT_LOCATION` is the actor Entity's canonical direct SpaceId at movement-selection time;
+- `BLUEPRINT_ID` and `BLUEPRINT_VERSION` expose the PlanStep BlueprintRef when one is present;
+- `STEP_PARAMETER(name)` reads the named entry from PlanStep.parameters;
+- `STEP_BINDING(name)` reads the named entry from the existing PlanStep.bindings mapping;
+- `NAMED_VALUE(name)` reads one explicitly declared typed derived value prepared by trusted movement-selection context binding.
+
+MovementSelector does not gain generic object/property traversal from these references.
+There is no selector syntax such as:
+
+```text
+actor.properties.foo
+target.properties.security_zone
+world.spaces[...]
+```
+
+Scenario-defined or derived values required for matching are exposed through named trusted
+selection-context values instead.
+
+For example, trusted context preparation may declare and resolve:
+
+```text
+NAMED_VALUE("target_security_zone")
+    <- SPACE_PROPERTY(
+           resolve STEP_PARAMETER("target") as SpaceId,
+           "security_zone"
+       )
+
+NAMED_VALUE("target_is_within_building")
+    <- IS_WITHIN(
+           resolve STEP_PARAMETER("target") as SpatialSubjectRef,
+           SpaceId("building")
+       )
+```
+
+and the selector remains only:
+
+```text
+EQ(NAMED_VALUE("target_security_zone"), "restricted")
+EQ(NAMED_VALUE("target_is_within_building"), true)
+```
+
+The binding/context-preparation layer obtains and derives values; MovementSelector only
+compares/tests them.
+
+### Optional and missing values
+
+`ACTOR_ID`, `ACTOR_ENTITY_TYPE`, and `CURRENT_LOCATION` are required for an actor MOVE
+selection context.
+
+The following may be absent by normal semantics:
+
+```text
+BLUEPRINT_ID
+BLUEPRINT_VERSION
+STEP_PARAMETER(name)
+STEP_BINDING(name)
+NAMED_VALUE(name)
+```
+
+For NAMED_VALUE, absence is possible only when its declared binding itself yields an
+optional value.
+
+For a valid selector-visible reference whose runtime value is absent:
+
+```text
+EXISTS(ref) -> false
+EQ(ref, literal) -> NO_MATCH
+IN(ref, literals...) -> NO_MATCH
+```
+
+`NOT`, `ALL`, and `ANY` then compose those ordinary boolean results.
+
+This missing-value behavior is distinct from invalid authoring. An unknown core value-ref
+kind, an undeclared NAMED_VALUE name, an invalid binding, or a type-incompatible literal is
+a WorldDefinition/package validation error rather than a runtime NO_MATCH.
+
+### Type boundary
+
+STEP_PARAMETER and STEP_BINDING source data remain generic StructuredValue at PlanStep
+storage level. Trusted selection-context preparation validates/resolves the referenced value
+against the typed selector contract before exposing it to MovementSelector.
+
+For example:
+
+```text
+STEP_PARAMETER("target")
+    raw value: "server-room"
+    trusted resolution: SpaceId("server-room")
+    exposed as typed selector-visible SpaceId
+```
+
+A raw string is never treated as a canonical SpaceId merely because the text matches an
+existing identifier.
+
+The initial selector-visible catalogue is deliberately small. Additional direct core refs
+require an explicit architecture extension; scenario-specific values should ordinarily use
+NAMED_VALUE rather than expanding core vocabulary.
+
+Invariant:
+
+> MovementSelector reads only the closed typed selection context. Trusted bindings may
+> derive named values from explicitly authorized request/state/query inputs, but the
+> selector itself performs no state traversal or query execution.
+
 ## Consequences
 
 ### Positive
@@ -2450,7 +2574,7 @@ The invariant is:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over typed selector-visible values; MOVE-specific request arguments remain in generic `PlanStep.parameters`, and movement bindings explicitly interpret named parameters into typed values;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`, and movement bindings explicitly interpret named parameters into typed values;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -2850,6 +2974,22 @@ bindings explicitly identify which named parameter supplies a given typed input.
 
 Rejected because request data and canonical identity are distinct semantic layers. Trusted
 bindings must explicitly validate/resolve parameters into typed EntityId/SpaceId values.
+
+### Let MovementSelector traverse arbitrary Entity/Space properties
+
+Rejected because selector matching should not become a second query language. Scenario-
+specific state/property values are exposed deliberately through typed NAMED_VALUE bindings.
+
+### Treat missing optional selector values as runtime errors
+
+Rejected because optional Blueprint/parameter/binding/derived values are normal matching
+inputs. EXISTS observes presence; EQ/IN simply do not match absent values. Invalid
+references or types remain authoring-validation errors.
+
+### Treat raw STEP_PARAMETER strings as EntityId/SpaceId automatically
+
+Rejected because PlanStep request data is not canonical identity. Trusted context binding
+must validate and resolve raw values before exposing typed selector-visible references.
 
 ## Remaining Slice-17.2 decisions
 
