@@ -280,23 +280,28 @@ MovementInput
 
 The mechanic receives only explicitly bound typed inputs. It does not receive unrestricted WorldState/SimulationState, mutate location_id, create Events, or bypass the normal candidate-validation boundary.
 
-The typed result is interpreted by a trusted world-defined MovementContract, conceptually:
+The typed result is interpreted by the trusted movement adapter under a world-defined
+MovementContract, conceptually:
 
 ```text
 MovementContract
     contract_id
     input_schema
-    result_schema
-    outcome_mapping
-    consequence_mapping
 ```
 
-Exact DTO fields remain open. The semantic boundary is fixed:
+MovementResult itself has one standard core shape, defined by Decision 32. MovementContract
+therefore does not define a second arbitrary result schema or an outcome/effect mapping DSL.
 
-- the contract may map accepted result values to existing Job outcomes;
-- the contract may map accepted result values to zero or one SetLocationEffect for the moving subject;
+The semantic boundary is:
+
+- the mechanic returns one existing ResolutionOutcome classification;
+- it may also return one resolved destination for the moving subject;
+- trusted preparation converts the outcome to the normal per-Job resolution outcome;
+- trusted preparation converts a present resolved destination to zero or one
+  SetLocationEffect for the moving subject;
 - the requested MOVE target and the resolved authoritative destination are distinct concepts;
-- blocked, failed, partial, redirected, portal-like, or otherwise unusual movement remains scenario-defined rather than core movement behavior.
+- blocked, failed, partial, redirected, portal-like, or otherwise unusual movement remains
+  scenario-defined rather than core movement behavior.
 
 A scenario may therefore resolve:
 
@@ -2538,6 +2543,122 @@ Invariant:
 > derive named values from explicitly authorized request/state/query inputs, but the
 > selector itself performs no state traversal or query execution.
 
+
+## Decision 32: MovementResult has one standard core shape
+
+MOVE does not use an arbitrary world-specific result schema followed by
+`outcome_mapping`/`consequence_mapping`.
+
+Every movement mechanic returns the same typed core result:
+
+```text
+MovementResult
+    outcome: ResolutionOutcome
+    resolved_destination: SpaceResultRef | None
+```
+
+`ResolutionOutcome` is the existing closed resolution vocabulary:
+
+```text
+SUCCESS
+PARTIAL
+BLOCKED
+FAILED
+INTERRUPTED
+```
+
+The trusted movement adapter materializes the result as:
+
+```text
+MovementResult.outcome
+    -> SubjectResolutionOutcome(job_id, outcome)
+
+resolved_destination != None
+    -> resolve SpaceResultRef to canonical SpaceId
+    -> SetLocationEffect(
+           subject_ref = EntitySpatialRef(actor_id),
+           location_id_after = resolved_destination
+       )
+```
+
+No movement mechanic returns WorldEffect or Event directly.
+
+### Resolved destination semantics
+
+A present `resolved_destination` means that the movement attempt produced a proposed
+authoritative change of the actor's direct canonical location.
+
+It is not narration, an intended target, or advisory metadata.
+
+Therefore:
+
+```text
+resolved_destination != None
+    -> proposed spatial relocation
+
+resolved_destination == None
+    -> no spatial relocation consequence
+```
+
+The presence of a destination is independent from the ResolutionOutcome classification.
+
+For example:
+
+```text
+SUCCESS + server-room
+PARTIAL + security-checkpoint
+INTERRUPTED + corridor
+BLOCKED + None
+FAILED + None
+```
+
+are all natural results.
+
+Core does not impose the stronger rule that only SUCCESS may relocate, nor that BLOCKED or
+FAILED must always have a null destination. A scenario mechanic may model a failed or
+blocked attempt that nevertheless changed location if that is the scenario's accepted
+semantics. The outcome classifies the resolution; `resolved_destination` states whether
+the accepted candidate contains a direct spatial consequence.
+
+This keeps unusual movement semantics world-defined while preserving one universal
+mechanic/result adapter contract.
+
+### MovementContract responsibility
+
+MovementContract now defines the typed input boundary needed by the selected movement
+mechanic:
+
+```text
+MovementContract
+    contract_id
+    input_schema
+```
+
+The result type is not scenario-defined; it is always MovementResult.
+
+A selected MovementRule supplies its input_bindings and mechanic_binding. Trusted
+preparation resolves and validates those inputs against MovementContract.input_schema,
+invokes BUILTIN/GEL/IMPLEMENTATION, validates the returned MovementResult, and then creates
+the normal ResolutionOutcome/WorldEffect candidate data.
+
+The requested action arguments remain separate from the result:
+
+```text
+PlanStep.parameters
+    -> movement input bindings
+    -> MovementInput
+    -> mechanic
+    -> MovementResult
+```
+
+This preserves the distinction between requested target and resolved destination.
+
+Invariant:
+
+> Movement mechanics return one standard typed MovementResult. Outcome projection and the
+> optional SetLocationEffect are trusted core adapter semantics, not scenario-authored
+> mapping rules.
+
 ## Consequences
 
 ### Positive
@@ -2550,7 +2671,7 @@ Invariant:
 - cycle-safe traversal prevents pathological spatial topology from hanging the runtime;
 - Entity and Space relocation share one closed validated spatial authority path;
 - actor MOVE intent remains distinct from authoritative location mutation;
-- movement behavior stays world-defined and replaceable through BUILTIN, GEL, or IMPLEMENTATION mechanics;
+- movement behavior stays world-defined and replaceable through BUILTIN, GEL, or IMPLEMENTATION mechanics, while every movement mechanic returns the same core `MovementResult(outcome, resolved_destination)` and trusted preparation alone maps that result to `SubjectResolutionOutcome` plus optional `SetLocationEffect`;
 - deterministic rule selection avoids hidden declaration-order semantics;
 - moving a container/vehicle Space updates nested effective context without Event fan-out over every contained subject;
 - creation never exposes an Entity without its mandatory direct location;
@@ -2990,6 +3111,23 @@ references or types remain authoring-validation errors.
 
 Rejected because PlanStep request data is not canonical identity. Trusted context binding
 must validate and resolve raw values before exposing typed selector-visible references.
+
+### Give each MovementContract an arbitrary result_schema and mapping DSL
+
+Rejected because MOVE currently needs one universal result meaning: resolution classification
+plus an optional resolved destination. A second scenario mapping language would add
+complexity without adding required semantics.
+
+### Let movement mechanics return SetLocationEffect directly
+
+Rejected because mechanics remain below the authoritative candidate-effect boundary.
+MovementResult is typed data; trusted preparation constructs the closed WorldEffect.
+
+### Require resolved_destination only for SUCCESS
+
+Rejected because PARTIAL, INTERRUPTED, and unusual scenario-defined FAILED/BLOCKED outcomes
+may still have a real spatial consequence. Outcome classification and relocation are
+orthogonal fields.
 
 ## Remaining Slice-17.2 decisions
 

@@ -276,6 +276,25 @@ structured values do not become canonical EntityId/SpaceId values implicitly.
 parameters carry requested action arguments, while movement bindings describe how world
 semantics obtain typed inputs from allowed request/state/context sources.
 
+MovementResult has one standard core shape:
+
+```text
+MovementResult
+    outcome: ResolutionOutcome
+    resolved_destination: SpaceResultRef | None
+```
+
+MovementContract therefore owns the movement mechanic's `input_schema`, not an arbitrary
+scenario-specific result schema or outcome/effect mapping DSL. Trusted preparation maps the
+result outcome to the existing SubjectResolutionOutcome and a present resolved destination
+to one SetLocationEffect for the moving actor after resolving the SpaceResultRef to a
+canonical SpaceId. Mechanics never return WorldEffects or Events directly.
+
+`resolved_destination` means an actual proposed direct-location consequence, not the
+requested target or narration. Its presence is independent from SUCCESS/PARTIAL/BLOCKED/
+FAILED/INTERRUPTED classification; scenario semantics decide which combinations are
+meaningful.
+
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
 The version-1 vocabulary registries contain unique non-empty legal names for Entity, Relation, Resource, and StateVariable types. Individual registries may be empty. They define names only: property schemas, relation role/arity constraints, Resource units/bounds, StateVariable schemas/defaults, mechanics, Blueprints, and schema-expression infrastructure remain deferred.
