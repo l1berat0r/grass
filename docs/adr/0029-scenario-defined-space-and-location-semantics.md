@@ -2273,6 +2273,68 @@ Invariant:
 > Their cascade closures are unioned, and each affected subject contributes at most one
 > derived lifecycle deactivation write.
 
+
+## Decision 29: MovementSelector uses a minimal closed boolean expression algebra
+
+MovementSelector is a recursive closed declarative boolean expression.
+
+The initial operator set is exactly:
+
+```text
+MovementSelector
+    ALL(selectors...)
+    | ANY(selectors...)
+    | NOT(selector)
+    | EQ(value_ref, literal)
+    | IN(value_ref, literals...)
+    | EXISTS(value_ref)
+```
+
+The operators have ordinary deterministic boolean semantics:
+
+- `ALL` matches only when every child selector matches;
+- `ANY` matches when at least one child selector matches;
+- `NOT` negates one child selector;
+- `EQ` compares one typed selector-visible value with one compatible literal;
+- `IN` tests one typed selector-visible value against a finite non-empty collection of
+  compatible literals;
+- `EXISTS` tests whether an optional selector-visible value is present.
+
+The initial algebra deliberately does not include separate NEQ, NOT_IN, comparison
+operators, regex, glob matching, arithmetic, user functions, arbitrary method calls, or
+embedded expressions. Simple negation composes through NOT, for example:
+
+```text
+NOT(EQ(...))
+```
+
+instead of a separate NEQ operator.
+
+Operands are only:
+
+```text
+typed selector-visible value references
+or
+typed literals
+```
+
+They are never arbitrary JSONPath/string paths into serialized WorldState, Event payloads,
+PlanStep structures, or package documents.
+
+MovementSelector does not perform spatial/world queries by itself. Trusted selection-context
+preparation resolves or exposes every allowed selector-visible value before evaluation.
+For example, a future selector-visible reference may expose a derived boolean or SpaceId
+that trusted code computed using accepted spatial semantics; the boolean expression layer
+only compares/tests that value.
+
+The exact initial catalogue of selector-visible value references remains a separate
+authoring decision. This Decision freezes only the boolean expression algebra and its
+authority boundary.
+
+The expression tree must be finite, structurally validated, deterministic, and
+side-effect-free. Implementation may impose ordinary depth/node/list-size limits as
+resource-safety constraints without changing selector semantics.
+
 ## Consequences
 
 ### Positive
@@ -2309,7 +2371,7 @@ Invariant:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over typed selector-visible values;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -2675,6 +2737,24 @@ shared descendants. Derived closures are unioned before field-conflict validatio
 
 Rejected because cascade membership and resulting lifecycle writes must be derived from one
 composed candidate topology, not from mutation order between roots.
+
+### Add a general expression language to MovementSelector
+
+Rejected because selector matching does not need a second GEL-like language. A small closed
+boolean algebra is easier to validate, reason about, and keep independent from mechanic
+execution.
+
+### Add regex/glob/arithmetic/comparison operators preemptively
+
+Rejected because no current scenario contract requires them. The closed selector algebra can
+be extended deliberately when a concrete matching requirement cannot be expressed by the
+initial operators.
+
+### Let selector expressions perform spatial queries directly
+
+Rejected because query authority belongs to trusted context preparation and bounded query
+capabilities. MovementSelector consumes already exposed typed values and remains a pure
+boolean matcher.
 
 ## Remaining Slice-17.2 decisions
 

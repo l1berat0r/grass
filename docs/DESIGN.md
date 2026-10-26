@@ -223,8 +223,23 @@ MovementSelector is a bounded declarative matcher, not a MechanicBinding. Truste
 code exposes only explicit typed selector-visible values and evaluates the selector to
 MATCH/NO_MATCH. It has no unrestricted WorldState access, GEL/plugin execution, randomness,
 or mutation authority. Only after rule selection does the selected MovementRule's
-`mechanic_binding` execute through BUILTIN/GEL/IMPLEMENTATION. The exact initial selector
-operator/predicate vocabulary remains to be frozen separately.
+`mechanic_binding` execute through BUILTIN/GEL/IMPLEMENTATION.
+
+MovementSelector expression algebra is closed and initially contains only:
+
+```text
+ALL
+ANY
+NOT
+EQ
+IN
+EXISTS
+```
+
+over typed selector-visible value references and compatible literals. It has no arbitrary
+paths, regex/glob, arithmetic, general comparisons, user functions, or direct spatial/world
+queries. Trusted context preparation exposes any derived values needed for matching. The
+exact selector-visible value-reference catalogue is frozen separately.
 
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
