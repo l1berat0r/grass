@@ -241,6 +241,17 @@ paths, regex/glob, arithmetic, general comparisons, user functions, or direct sp
 queries. Trusted context preparation exposes any derived values needed for matching. The
 exact selector-visible value-reference catalogue is frozen separately.
 
+MOVE does not add a dedicated requested-target field to PlanStep. Primitive-specific
+requested arguments remain in generic `PlanStep.parameters`; scenario/Blueprint semantics
+choose names such as `target`, `destination`, or `mode`. Movement selection bindings
+and MovementRule.input_bindings may explicitly read named PlanStep parameters and
+validate/resolve them into typed selector-visible values or MovementInput fields. Raw
+structured values do not become canonical EntityId/SpaceId values implicitly.
+
+`PlanStep.bindings`, `PlanStep.parameters`, and movement `input_bindings` remain distinct:
+parameters carry requested action arguments, while movement bindings describe how world
+semantics obtain typed inputs from allowed request/state/context sources.
+
 `WorldDefinitionRef(world_definition_id, version)` is the semantic definition identity. The document `schema_version` describes representation and is not part of that identity.
 
 The version-1 vocabulary registries contain unique non-empty legal names for Entity, Relation, Resource, and StateVariable types. Individual registries may be empty. They define names only: property schemas, relation role/arity constraints, Resource units/bounds, StateVariable schemas/defaults, mechanics, Blueprints, and schema-expression infrastructure remain deferred.

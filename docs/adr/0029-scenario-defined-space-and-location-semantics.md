@@ -2335,6 +2335,85 @@ The expression tree must be finite, structurally validated, deterministic, and
 side-effect-free. Implementation may impose ordinary depth/node/list-size limits as
 resource-safety constraints without changing selector semantics.
 
+
+## Decision 30: MOVE request arguments live in PlanStep.parameters and bindings interpret them
+
+GRASS does not add a dedicated core `requested_target`, `movement_target`, or other
+MOVE-specific field to PlanStep.
+
+PlanStep.parameters remains the generic location for primitive-specific requested action
+arguments. A MOVE step may therefore author parameters such as:
+
+```text
+PlanStep
+    primitive = MOVE
+    parameters:
+        target = "server-room"
+        mode = "walk"
+```
+
+The exact parameter names and their scenario meaning are world/Blueprint semantics rather
+than core MOVE field names.
+
+Movement selection/context bindings and mechanic input_bindings may explicitly read named
+PlanStep parameters and resolve/convert them into typed values used by MovementSelector or
+MovementInput.
+
+Conceptually:
+
+```text
+PlanStep.parameters["target"]
+    -> trusted binding
+    -> SpaceId("server-room")
+    -> selector-visible value and/or MovementInput field
+```
+
+This preserves the distinction:
+
+```text
+PlanStep.parameters
+    = what the actor/planner requested
+
+movement bindings
+    = how world semantics interpret and type that request
+
+MovementSelector
+    = which movement rule applies
+
+movement mechanic
+    = what actually happens
+```
+
+A MovementRule may therefore bind, for example:
+
+```text
+requested_destination
+    <- STEP_PARAMETER("target")
+
+movement_mode
+    <- STEP_PARAMETER("mode")
+
+current_location
+    <- actor direct location
+```
+
+The trusted binding layer validates missing values, expected types, canonical references,
+and any declared conversion/resolution rules before selector/mechanic execution. A raw
+structured parameter does not automatically become a canonical SpaceId or EntityId merely
+because its string value resembles one.
+
+PlanStep.bindings remains a separate existing PlanStep field. This Decision does not merge
+PlanStep.bindings with PlanStep.parameters or with MovementRule.input_bindings.
+PlanStep.parameters carries action arguments; MovementRule/input bindings describe how
+movement semantics obtain typed inputs from allowed request/state/context sources.
+
+The invariant is:
+
+> PlanStep.parameters carries primitive-specific requested action arguments. Movement
+> selection and mechanic input bindings may explicitly read named parameters and resolve
+> them into typed selector/mechanic inputs. MOVE introduces no dedicated requested-target
+> field into the core PlanStep contract.
+
 ## Consequences
 
 ### Positive
@@ -2371,7 +2450,7 @@ resource-safety constraints without changing selector semantics.
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over typed selector-visible values;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over typed selector-visible values; MOVE-specific request arguments remain in generic `PlanStep.parameters`, and movement bindings explicitly interpret named parameters into typed values;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -2755,6 +2834,22 @@ initial operators.
 Rejected because query authority belongs to trusted context preparation and bounded query
 capabilities. MovementSelector consumes already exposed typed values and remains a pure
 boolean matcher.
+
+### Add requested_target as a core PlanStep field
+
+Rejected because PlanStep already has generic structured parameters for primitive-specific
+request arguments. A dedicated MOVE field would specialize the core PlanStep model
+unnecessarily.
+
+### Standardize one mandatory parameter name such as movement_target
+
+Rejected because parameter names belong to scenario/Blueprint action semantics. Movement
+bindings explicitly identify which named parameter supplies a given typed input.
+
+### Treat raw PlanStep parameter strings as canonical IDs automatically
+
+Rejected because request data and canonical identity are distinct semantic layers. Trusted
+bindings must explicitly validate/resolve parameters into typed EntityId/SpaceId values.
 
 ## Remaining Slice-17.2 decisions
 
