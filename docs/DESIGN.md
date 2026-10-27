@@ -583,7 +583,7 @@ GEL is side-effect-free with respect to authoritative simulation state. It compu
 
 Randomness, where exposed to GEL, comes only from an explicit deterministic run random context/stream, never from a hidden process-global RNG.
 
-Canonical scenario data preserves GEL source, language version, input/output schema, and a source hash where useful. Parsed AST/bytecode may be cached as derived data.
+Canonical GelProgram data preserves exact GEL source, language version, input schema, and output schema. A source hash, parsed AST, or bytecode may be derived/cached but is not part of the canonical GEL contract.
 
 ### 5.2 Slice 10 GEL v1 runtime
 
@@ -595,10 +595,11 @@ canonical or persisted. `execute_gel` receives only schema-validated explicit
 input plus an optional invocation-scoped random context and returns one immutable
 schema-validated typed value.
 
-GEL v1 values are boolean, signed bounded integer, bounded string, homogeneous
-bounded list, and exact-field object. There are no floats, nulls, unions, enums,
-arbitrary maps, dynamic values, or implicit conversions. Integers use checked
-signed-64-bit semantics. Arithmetic is unary minus, addition, subtraction,
+Current pre-stable GEL v1 values include boolean, signed bounded integer, bounded string,
+homogeneous bounded list, exact-field object, explicit null, finite string-constrained enum
+schemas, and OPTIONAL(T) nullable schemas. Object-field requiredness is separate from
+nullable value semantics. Floats, unrestricted unions, arbitrary maps, dynamic values, and
+implicit conversions remain absent. Integers use checked signed-64-bit semantics. Arithmetic is unary minus, addition, subtraction,
 multiplication, floor division, and modulo. Division/modulo by zero and overflow
 fail explicitly.
 
@@ -620,10 +621,10 @@ timeout. Parse, static, input, execution, numeric, output, random-context, and
 budget failures are explicit and produce no Events, state mutation, or partial
 authoritative result.
 
-Slice 10 does not integrate GEL with WorldDefinition mechanics, scheduling,
-resolution, WorldEffects, Events, or the engine. A future trusted adapter may turn
-a typed result into candidate effects below the normal authoritative validation
-boundary. Ordinary replay never invokes GEL to reconstruct history.
+The original Slice-10 runtime boundary itself does not grant GEL WorldDefinition,
+scheduling, WorldEffect, Event, or engine authority. Later composition layers integrate GEL
+through trusted semantic adapters below the normal authoritative validation boundary.
+Ordinary replay never invokes GEL to reconstruct history.
 
 ### 5.3 Slice 14 runnable composition
 
@@ -1347,7 +1348,9 @@ specifications. The wrappers are type-safe; Entity and Space creation references
 interchangeable.
 
 Canonical runtime allocation is deterministic for the same authoritative preparation
-context and identical ordered creation specifications. The exact identifier encoding is an
+context plus typed CreationRef/created identity kind and is independent of creation-spec
+list order. Reordering otherwise identical creation specifications preserves allocated
+identity; changing a CreationRef may change it. The exact identifier encoding is an
 implementation choice. Rejected/invalid/stale candidates reserve no authoritative identity;
 a re-resolution on a different base HistoryPosition is a new preparation. Replay reads the
 canonical IDs recorded in Events and never reallocates them.

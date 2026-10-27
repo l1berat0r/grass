@@ -243,10 +243,9 @@ GELMechanic
     input_schema
     output_schema
     source
-    source_hash?
 ```
 
-The parsed AST/interpreter bytecode may be cached as derived data but is not the canonical scenario definition.
+A source hash, parsed AST, or interpreter bytecode may be cached as derived data but is not part of the canonical GEL program contract.
 
 ### Explicit input capability
 
@@ -310,7 +309,7 @@ The interpreter must enforce hard limits such as:
 - maximum collection sizes;
 - recursion depth (initially zero/no recursion);
 - numeric bounds/NaN/overflow policy;
-- wall-clock timeout or equivalent operation budget;
+- deterministic operation/execution budget; host wall-clock safeguards, if any, are operational and not GEL language semantics;
 - maximum result size.
 
 A parse/type/budget/runtime failure produces a mechanic execution error. The engine does not silently guess a result merely to keep the simulation moving.
