@@ -2659,6 +2659,169 @@ Invariant:
 > optional SetLocationEffect are trusted core adapter semantics, not scenario-authored
 > mapping rules.
 
+
+## Decision 33: ValueBinding is a global typed read-only value-resolution contract
+
+GRASS uses one global ValueBinding architecture concept rather than defining separate
+movement-, reaction-, and perception-specific binding mechanisms.
+
+Conceptually:
+
+```text
+ValueBinding
+    = declarative recipe for resolving one typed value
+```
+
+Every ValueBinding has the same core invariants:
+
+```text
+deterministic
+side-effect-free
+typed
+read-only
+no unrestricted WorldState / SimulationState
+no Event or WorldEffect creation
+no commit authority
+no ambient filesystem/network/process access
+validated against an explicit usage context
+```
+
+ValueBinding is not a second GEL or general expression language. It answers primarily:
+
+```text
+Where does this value come from,
+and how is it validated/resolved as the required type?
+```
+
+It does not provide arbitrary user computation. Computation belongs to the selected
+mechanic, for example BUILTIN, GEL, or IMPLEMENTATION.
+
+### BindingContext bounds readable authority
+
+The global ValueBinding contract does not imply one global namespace containing every
+possible source.
+
+Each semantic usage defines a bounded BindingContext and the source/query vocabulary that
+is legal in that context.
+
+Conceptually:
+
+```text
+ValueBinding + MovementBindingContext
+ValueBinding + ReactionBindingContext
+ValueBinding + PerceptionBindingContext
+...
+```
+
+The implementation need not use Python generics or these exact class names. The invariant is
+that a binding is always validated and resolved relative to one explicit semantic usage
+context.
+
+For example:
+
+```text
+MovementBindingContext
+    may expose:
+        actor identity/type
+        current direct location
+        PlanStep parameters/bindings
+        BlueprintRef
+        declared bounded spatial queries
+
+ReactionBindingContext
+    may expose:
+        matched semantic Event data
+        declared reaction inputs
+        explicitly authorized world/query values
+
+PerceptionBindingContext
+    may expose:
+        actor
+        OBSERVE request or Stimulus data
+        explicitly authorized perception/query values
+```
+
+A source legal in one context is not automatically legal in another.
+
+### Movement uses the global contract in two places
+
+Movement rule authoring uses ValueBinding for both selector preparation and mechanic input
+preparation:
+
+```text
+MovementRule
+    selection_bindings:
+        name -> ValueBinding
+
+    input_bindings:
+        mechanic_input_name -> ValueBinding
+```
+
+`selection_bindings` resolve named typed values exposed to MovementSelector through
+`NAMED_VALUE(name)`.
+
+`input_bindings` resolve the typed fields required by MovementContract.input_schema.
+
+The same underlying ValueBinding machinery therefore supplies both paths:
+
+```text
+ValueBinding
+    -> selection value
+    -> NAMED_VALUE(name)
+    -> MovementSelector
+```
+
+or:
+
+```text
+ValueBinding
+    -> mechanic input field
+    -> MovementInput
+    -> mechanic
+```
+
+### Other scenario mechanics reuse the same contract
+
+The `input_bindings` already accepted for ScenarioReactionRule and PerceptionRule use the
+same global ValueBinding abstraction under their own bounded contexts.
+
+This does not make movement-specific sources such as STEP_PARAMETER globally readable by
+reaction/perception bindings. Reuse is at the value-resolution contract level; readable
+authority remains usage-specific.
+
+### Query capabilities remain explicit
+
+A ValueBinding may use a bounded query operation only when that operation is explicitly
+permitted by its BindingContext and declared capability surface. It never receives an
+unrestricted state handle.
+
+For spatial queries this preserves Decision 11:
+
+```text
+ValueBinding
+    + usage BindingContext
+    + declared SpatialQueryBinding
+    -> typed value
+```
+
+### Failure boundary
+
+Invalid binding authoring, unsupported source kinds, undeclared query capabilities, or
+incompatible expected types are definition/package validation errors where they can be
+detected statically.
+
+Runtime absence remains an explicit typed/optional-value semantic defined by the binding
+source and consuming contract; it is not silently converted into arbitrary defaults.
+
+The exact initial ValueBinding leaf/source variants and serialized DTO shape remain the next
+authoring decision.
+
+Invariant:
+
+> ValueBinding is the universal typed, deterministic, read-only value-resolution contract.
+> Each semantic usage defines its own bounded BindingContext and permitted source/query
+> vocabulary; ValueBinding never creates one unrestricted global readable-state namespace.
+
 ## Consequences
 
 ### Positive
@@ -2695,7 +2858,7 @@ Invariant:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`, and movement bindings explicitly interpret named parameters into typed values;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -3128,6 +3291,22 @@ MovementResult is typed data; trusted preparation constructs the closed WorldEff
 Rejected because PARTIAL, INTERRUPTED, and unusual scenario-defined FAILED/BLOCKED outcomes
 may still have a real spatial consequence. Outcome classification and relocation are
 orthogonal fields.
+
+### Define separate ValueBinding mechanisms for movement, reactions, and perception
+
+Rejected because all three usages need the same typed deterministic read-only value-resolution
+contract. Duplicating that machinery would make later convergence harder and invite subtly
+different authority/type/absence semantics.
+
+### Give global ValueBinding one unrestricted global source namespace
+
+Rejected because reuse of the binding contract must not imply cross-domain read authority.
+Each usage supplies a bounded BindingContext and its own permitted source/query vocabulary.
+
+### Make ValueBinding a general expression language
+
+Rejected because value acquisition/resolution and arbitrary computation are separate
+responsibilities. Computation belongs to BUILTIN/GEL/IMPLEMENTATION mechanics.
 
 ## Remaining Slice-17.2 decisions
 

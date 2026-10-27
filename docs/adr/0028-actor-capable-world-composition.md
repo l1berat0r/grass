@@ -489,6 +489,11 @@ Rules react to accepted canonical history, not transient pre-validation WorldEff
 
 The mechanic receives only explicitly declared typed inputs. It does not receive unrestricted `WorldState`, `SimulationState`, `EventStore`, scheduler, engine, or commit handles. A matched rule may validly evaluate to a no-op; `ScenarioReactionResolved` still records accepted consumption.
 
+ADR-0029 globalizes `ValueBinding` as the shared typed deterministic read-only
+value-resolution contract. `ScenarioReactionRule.input_bindings` use that contract under a
+reaction-specific bounded BindingContext; movement/perception source kinds are not
+implicitly readable here.
+
 ### ReactionContract defines result meaning
 
 The shape and meaning of `ReactionResult` are defined by a world-level `ReactionContract`, not by hard-coded domain classes in GRASS core.
@@ -642,7 +647,10 @@ PerceptionContract
     observation_content_schema
 ```
 
-The exact DTO/schema remains open, but the semantic boundary is fixed.
+The exact DTO/schema remains open, but the semantic boundary is fixed. ADR-0029 globalizes
+`ValueBinding`; `PerceptionRule.input_bindings` use that shared contract under a
+perception-specific bounded BindingContext rather than a separate perception-only binding
+system.
 
 ### Active OBSERVE selection
 

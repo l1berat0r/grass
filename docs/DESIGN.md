@@ -344,6 +344,45 @@ and CLI JSON schema version 1 remain separate version domains. Event payloads cu
 remain provisional version 1 under ADR-0005 until the first stable Event-history contract
 is frozen; that policy is independent from WorldDefinition schema numbering.
 
+### 4.1 Global ValueBinding contract
+
+GRASS uses one global `ValueBinding` abstraction for typed deterministic read-only value
+resolution across movement, scenario reactions, perception, and future semantic usages.
+
+```text
+ValueBinding
+    + usage-specific BindingContext
+    -> one typed value
+```
+
+The shared contract is side-effect-free, has no Event/WorldEffect/commit authority, receives
+no unrestricted WorldState/SimulationState, and is not a general expression language.
+Arbitrary computation belongs to BUILTIN/GEL/IMPLEMENTATION mechanics.
+
+Readable authority is usage-specific rather than global. Movement, reaction, and perception
+each define a bounded BindingContext with only the source/query vocabulary that usage is
+allowed to read. A source supported by MovementBindingContext is not automatically visible
+to ReactionBindingContext or PerceptionBindingContext.
+
+Movement uses the shared contract for both:
+
+```text
+selection_bindings:
+    name -> ValueBinding
+
+input_bindings:
+    mechanic_input_name -> ValueBinding
+```
+
+The first prepares typed `NAMED_VALUE(name)` inputs for MovementSelector; the second
+prepares MovementInput fields validated against MovementContract.input_schema.
+ScenarioReactionRule.input_bindings and PerceptionRule.input_bindings reuse the same global
+ValueBinding contract under their own bounded contexts.
+
+ValueBinding may invoke only explicitly declared bounded query capabilities. It never gains
+an unrestricted state handle. The concrete initial source/leaf variants and serialized DTO
+shape are defined separately.
+
 ## 5. Scenario mechanics and GEL
 
 Built-in formulas are convenience models, not the expressiveness boundary of GRASS.
