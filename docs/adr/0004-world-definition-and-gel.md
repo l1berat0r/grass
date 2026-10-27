@@ -215,6 +215,19 @@ Never:
 LLM output -> eval/exec host language
 ```
 
+Until stable GRASS v1.0, GEL language version 1 is pre-stable and may be
+changed incompatibly in place. Pre-release GEL-v1 programs maintained by the repository
+move forward with the current contract; GEL v2 is not introduced merely for design-stage
+language additions. The then-current GEL v1 becomes the compatibility baseline at stable
+GRASS v1.0.
+
+The current GEL-v1 type/schema system is being extended with NULL, finite ENUM, and OPTIONAL
+support where required by GRASS semantic contracts.
+
+GEL v1 enum constraints use ordinary strings plus a finite allowed-value schema rather than
+a separate enum runtime object or literal syntax. NULL/OPTIONAL and enum details are owned by
+ADR-0017.
+
 A GEL mechanic declares typed inputs and typed output. Canonical scenario data should preserve at least:
 
 ```text
@@ -295,6 +308,11 @@ The interpreter must enforce hard limits such as:
 - maximum result size.
 
 A parse/type/budget/runtime failure produces a mechanic execution error. The engine does not silently guess a result merely to keep the simulation moving.
+
+Composition validation may conservatively inspect prepared GEL field references against the
+concrete semantic input bindings before a WorldDefinition is accepted. This reduces
+avoidable absent-input failures without adding presence-testing syntax to GEL. A runtime
+read of an actually absent object field remains an explicit GEL execution error.
 
 In deterministic resolution, a deterministic GEL mechanic failure that prevents valid resolution is an implementation/scenario integrity failure consistent with the existing fatal-invalid-resolution policy. Generative repair behavior applies only where an explicit generative boundary is responsible for producing a candidate, not as an excuse to reinterpret broken deterministic mechanics.
 

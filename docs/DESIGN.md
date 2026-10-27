@@ -536,6 +536,32 @@ LLM output -> host-language eval/exec
 
 A GEL mechanic declares its input and output schemas. It may read only explicitly supplied typed variables/read-only views. It receives no unrestricted WorldState handle and no ambient filesystem, network, process, environment, database, import, reflection, or dynamic-code capability.
 
+Until stable GRASS v1.0, `language_version = 1` is pre-stable and evolves in place.
+Breaking pre-release GEL syntax/type/schema changes update the current v1 contract rather
+than creating GEL v2/v3; maintained repository GEL material moves forward with it. Stable
+language-version compatibility begins when GRASS v1.0 freezes GEL v1.
+
+Current GEL v1 is extended with explicit NULL, finite ENUM, and OPTIONAL support so GRASS
+semantic contracts do not need sentinel/list encodings merely to fit the DSL.
+
+In GEL v1, `OPTIONAL(T)` means a present value may be `T` or `null`; it does not make an
+object field omittable. Object fields separately declare `required: bool`. This preserves
+absent, explicit null, and ordinary values as distinct states. Redundant
+`OPTIONAL(OPTIONAL(T))` and `OPTIONAL(NULL)` schemas are invalid.
+
+GEL keeps absent-field access simple: dereferencing an absent non-required object field
+raises `GelExecutionError`. GEL v1 adds no `has_field`, optional-chaining, or presence
+flow-narrowing syntax. Before a WorldDefinition is accepted, composition validation
+conservatively extracts every statically referenced GEL input field and requires the
+concrete binding configuration to guarantee that field's presence. Branch reachability is
+not initially analyzed; every static reference counts.
+
+GEL v1 ENUM is a finite constrained string schema. Enum-constrained values use ordinary
+string literals and string equality; GEL adds no separate enum literal/runtime value kind.
+Membership is checked statically when provable from the expected enum schema and otherwise
+by normal schema validation at input/output boundaries. OPTIONAL composes normally with
+ENUM.
+
 Initial GEL may support arithmetic, comparisons, boolean logic, local variables, `if`/`else`, safe mathematical functions, typed objects/lists, and bounded `for` iteration. Unbounded `while`, recursion, imports, reflection, concurrency, and dynamic code generation are excluded initially.
 
 The interpreter enforces hard limits for source/AST size, operation count, loop iterations, collection/result size, numeric behavior, and execution time/operation budget.

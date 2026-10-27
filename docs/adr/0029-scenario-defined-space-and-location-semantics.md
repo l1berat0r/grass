@@ -4076,6 +4076,64 @@ Rejected because standard MovementResult contains no CreateSpaceSpec graph capab
 resolving that CreationRef. A compound create-and-relocate result must explicitly carry its
 creation specifications under a richer semantic contract.
 
+### GEL v1 remains pre-stable and grows to represent MovementResult naturally
+
+GRASS semantic contracts are not distorted to fit missing features in the current GEL
+implementation.
+
+Until stable GRASS v1.0, GEL language version 1 is pre-stable and evolves in place. The
+current GEL-v1 contract therefore gains NULL, finite ENUM, and OPTIONAL support rather than
+encoding MovementResult through artificial list/sentinel conventions or creating GEL v2.
+
+The intended movement-facing shape remains semantically natural:
+
+```text
+MovementResult
+    outcome: ResolutionOutcome
+    resolved_destination: SpaceId | None
+```
+
+A GEL mechanic may represent the nominal SpaceId through the validated mechanic adapter's
+string representation, but optionality and outcome vocabulary must be represented directly
+by GEL-v1 type/schema features rather than list/sentinel workarounds.
+
+GEL v1 OPTIONAL is nullable-value semantics, not omitted-field semantics:
+`OPTIONAL(T) = T | NULL`. Object-field requiredness separately controls whether a field
+may be absent.
+
+For MovementResult, both fields remain structurally required:
+
+```text
+outcome:
+    required: true
+    schema: ENUM(SUCCESS, PARTIAL, BLOCKED, FAILED, INTERRUPTED)
+
+resolved_destination:
+    required: true
+    schema: OPTIONAL(STRING)
+```
+
+Thus a non-relocating result contains `resolved_destination: null`; it does not omit the
+field.
+
+GEL optional-input safety uses conservative composition validation rather than new
+presence-test syntax. If prepared GEL statically references an input field, the concrete
+MovementRule binding for that field must guarantee presence; an optional binding is invalid
+for that GEL program even when the MovementContract field itself is non-required. Every
+static field reference counts conservatively regardless of branch reachability. An absent
+field that nevertheless reaches runtime field access raises GelExecutionError.
+
+ADR-0017 defines GEL-v1 ENUM as a finite constrained string schema with ordinary string
+literal/equality syntax. For the MovementResult outcome field, the GEL output schema
+constrains the value to SUCCESS/PARTIAL/BLOCKED/FAILED/INTERRUPTED, and the trusted movement
+adapter maps the accepted string to ResolutionOutcome.
+
+### Encode optional MovementResult fields as zero-or-one GEL lists
+
+Rejected because GRASS semantic contracts must not be deformed around temporary GEL
+limitations. GEL v1 itself gains the missing NULL/ENUM/OPTIONAL capabilities during
+pre-stable development.
+
 ## Remaining Slice-17.2 decisions
 
 The material Slice-17.2 semantic decisions are now recorded. Before changing this ADR from
