@@ -3151,6 +3151,153 @@ Invariant:
 > GelSchema, preserves nominal GRASS identifier types, distinguishes absence from explicit
 > NULL, and does not silently coerce serialized strings into canonical identifiers.
 
+
+## Decision 36: MovementContract input_schema is an exact ValueSchema OBJECT with field requiredness
+
+MovementContract.input_schema is one exact-field ValueSchema OBJECT.
+
+Conceptually:
+
+```text
+MovementContract
+    contract_id
+    input_schema: OBJECT
+```
+
+Each object field declares:
+
+```text
+ValueField
+    schema: ValueSchema
+    required: bool
+```
+
+For example:
+
+```text
+input_schema:
+    actor_id:
+        schema: IDENTIFIER(ENTITY)
+        required: true
+
+    requested_destination:
+        schema: IDENTIFIER(SPACE)
+        required: true
+
+    current_location:
+        schema: IDENTIFIER(SPACE)
+        required: true
+
+    mode:
+        schema: STRING
+        required: false
+```
+
+The contract states what the selected movement mechanic accepts. It does not state where
+those values come from.
+
+MovementRule.input_bindings supplies the corresponding ValueBinding values:
+
+```text
+input_bindings:
+    actor_id:
+        value_schema: IDENTIFIER(ENTITY)
+        optional: false
+        source:
+            path: actor.id
+
+    requested_destination:
+        value_schema: IDENTIFIER(SPACE)
+        optional: false
+        source:
+            path: step.parameters.target
+
+    current_location:
+        value_schema: IDENTIFIER(SPACE)
+        optional: false
+        source:
+            path: actor.location_id
+
+    mode:
+        value_schema: STRING
+        optional: true
+        source:
+            path: step.parameters.mode
+```
+
+The architectural split is:
+
+```text
+MovementContract.input_schema
+    = what the mechanic expects
+
+MovementRule.input_bindings
+    = where each expected value comes from
+```
+
+### Contract requiredness and binding optionality are distinct
+
+`ValueField.required` belongs to the receiving contract. It states whether the mechanic
+input object may omit that field.
+
+`ValueBinding.optional` belongs to the producing binding. It states whether the binding
+may legitimately resolve to no value.
+
+They are not the same property.
+
+Compatibility is:
+
+```text
+required field + non-optional binding
+    -> valid
+
+required field + optional binding
+    -> invalid
+
+optional field + non-optional binding
+    -> valid
+
+optional field + optional binding
+    -> valid
+```
+
+If an optional binding resolves to no value for an optional field, the field is omitted from
+the MovementInput object. It is not populated with NULL unless the binding explicitly
+produces a present NULL value and the field schema accepts NULL.
+
+### Exact field matching
+
+MovementRule.input_bindings must correspond exactly to MovementContract.input_schema fields.
+
+Therefore:
+
+- every required contract field has exactly one binding;
+- every optional contract field still has exactly one declared binding, whose runtime value
+  may be absent;
+- bindings for undeclared fields are invalid;
+- duplicate field bindings are invalid;
+- each binding.value_schema must equal the contract field's ValueSchema;
+- an optional binding is invalid for a required field.
+
+Requiring a declared binding even for optional fields keeps the contract self-describing:
+optional means "this source may yield no value", not "the rule may silently omit how this
+field would be obtained".
+
+Trusted preparation resolves the complete input binding set, omits only absent optional
+fields, validates the resulting exact object against MovementContract.input_schema, and only
+then invokes the selected mechanic.
+
+This validation is independent from the mechanic implementation kind. BUILTIN, GEL, and
+IMPLEMENTATION bindings all receive semantically equivalent MovementInput values after
+their implementation adapter performs any separately validated representation conversion.
+
+Invariant:
+
+> MovementContract.input_schema defines an exact typed input object. Field requiredness is a
+> consumer contract property; ValueBinding.optional is a producer property. MovementRule
+> must declare one type-compatible binding for every contract field, and only optional
+> contract fields may be backed by optional bindings.
+
 ## Consequences
 
 ### Positive
@@ -3187,7 +3334,7 @@ Invariant:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments; global `ValueSchema` provides scalar, nominal `IDENTIFIER(kind)`, homogeneous `LIST`, and exact-field `OBJECT` semantic types independently from GelSchema;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments; global `ValueSchema` provides scalar, nominal `IDENTIFIER(kind)`, homogeneous `LIST`, and exact-field `OBJECT` semantic types independently from GelSchema; `MovementContract.input_schema` is an exact ValueSchema OBJECT whose field `required` semantics are distinct from producer-side `ValueBinding.optional`;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -3668,6 +3815,22 @@ Rejected because serialization equality is not semantic type equality. A STRING 
 ### Make optional absence equivalent to NULL
 
 Rejected because absence and an explicit present null value are distinct data semantics.
+
+### Put optional only on ValueBinding and omit contract requiredness
+
+Rejected because source availability and consumer input requirements are different semantics.
+The contract must state whether a mechanic input field may be absent independently from how
+one rule obtains it.
+
+### Let optional MovementContract fields have no declared binding
+
+Rejected because that would make a MovementRule incomplete and introduce implicit source
+behavior. Every contract field has one declared binding; optional fields may resolve absent.
+
+### Treat absent optional input as NULL
+
+Rejected because absence and explicit NULL are distinct ValueSchema semantics. An absent
+optional binding omits the field; NULL is present data and requires a compatible schema.
 
 ## Remaining Slice-17.2 decisions
 

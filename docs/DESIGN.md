@@ -290,6 +290,24 @@ result outcome to the existing SubjectResolutionOutcome and a present resolved d
 to one SetLocationEffect for the moving actor after resolving the SpaceResultRef to a
 canonical SpaceId. Mechanics never return WorldEffects or Events directly.
 
+`MovementContract.input_schema` is an exact-field ValueSchema OBJECT. Each field contains
+one ValueSchema plus an explicit `required` flag. MovementRule.input_bindings declares
+exactly one ValueBinding for every contract field and no others.
+
+```text
+contract field.required
+    = whether MovementInput may omit the field
+
+ValueBinding.optional
+    = whether the source may resolve to no value
+```
+
+A required field cannot use an optional binding. An optional field may use either an
+optional or non-optional binding. If an optional binding resolves absent, the optional input
+field is omitted rather than replaced with NULL. Binding ValueSchema must equal the contract
+field schema. This complete compatibility check occurs before BUILTIN/GEL/IMPLEMENTATION
+invocation.
+
 `resolved_destination` means an actual proposed direct-location consequence, not the
 requested target or narration. Its presence is independent from SUCCESS/PARTIAL/BLOCKED/
 FAILED/INTERRUPTED classification; scenario semantics decide which combinations are
