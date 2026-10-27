@@ -2554,7 +2554,7 @@ Every movement mechanic returns the same typed core result:
 ```text
 MovementResult
     outcome: ResolutionOutcome
-    resolved_destination: SpaceResultRef | None
+    resolved_destination: SpaceId | None
 ```
 
 `ResolutionOutcome` is the existing closed resolution vocabulary:
@@ -2574,7 +2574,7 @@ MovementResult.outcome
     -> SubjectResolutionOutcome(job_id, outcome)
 
 resolved_destination != None
-    -> resolve SpaceResultRef to canonical SpaceId
+    -> validate referenced canonical SpaceId in the authoritative base/candidate context
     -> SetLocationEffect(
            subject_ref = EntitySpatialRef(actor_id),
            location_id_after = resolved_destination
@@ -3463,6 +3463,64 @@ Invariant:
 > input binding, world-read authority, semantic result interpretation, WorldEffect/Event
 > construction, or commit authority.
 
+
+## Decision 38: Standard MovementResult may relocate only to an existing canonical SpaceId
+
+Decision 32's standard MovementResult does not use SpaceResultRef.
+
+Its exact destination field is:
+
+```text
+MovementResult
+    outcome: ResolutionOutcome
+    resolved_destination: SpaceId | None
+```
+
+A present resolved_destination therefore references an already canonical Space identity
+available to the movement resolution context. Standard MOVE does not create a Space and then
+relocate the actor into that newly created Space inside the same MovementResult.
+
+This keeps the ordinary MOVE semantic narrow:
+
+```text
+MOVE
+    = resolve actor relocation among existing canonical Spaces
+```
+
+rather than:
+
+```text
+MOVE
+    = arbitrary world creation plus relocation
+```
+
+The trusted movement adapter validates a present SpaceId through the normal candidate/world
+rules before constructing SetLocationEffect.
+
+Decision 24 remains unchanged for richer typed mechanic results that actually contain
+creation specifications. Such a result may use:
+
+```text
+CreateSpaceSpec(creation_ref = ...)
+CreatedSpaceRef(creation_ref)
+```
+
+because the same result provides the creation graph needed to resolve the CreationRef.
+
+MovementResult has no creation-spec collection, so allowing CreatedSpaceRef there would
+create an unresolved reference with no same-result creation to bind to.
+
+A future scenario requiring atomic "create a new Space and move an actor into it" should use
+a richer semantic result/contract or scenario reaction that explicitly contains the
+corresponding creation specs and typed CreatedSpaceRef graph. It does not expand the
+standard MovementResult merely to support that compound operation.
+
+Invariant:
+
+> Standard MovementResult references only an existing canonical SpaceId. CreationRef and
+> CreatedSpaceRef are valid only in typed result contracts that also provide the same-result
+> creation graph needed to resolve them.
+
 ## Consequences
 
 ### Positive
@@ -3475,7 +3533,7 @@ Invariant:
 - cycle-safe traversal prevents pathological spatial topology from hanging the runtime;
 - Entity and Space relocation share one closed validated spatial authority path;
 - actor MOVE intent remains distinct from authoritative location mutation;
-- movement behavior stays world-defined and replaceable through BUILTIN, GEL, or IMPLEMENTATION mechanics, while every movement mechanic returns the same core `MovementResult(outcome, resolved_destination)` and trusted preparation alone maps that result to `SubjectResolutionOutcome` plus optional `SetLocationEffect`;
+- movement behavior stays world-defined and replaceable through BUILTIN, GEL, or IMPLEMENTATION mechanics, while every movement mechanic returns the same core `MovementResult(outcome, resolved_destination)` where `resolved_destination` is an existing canonical `SpaceId | None`; trusted preparation alone maps that result to `SubjectResolutionOutcome` plus optional `SetLocationEffect`;
 - deterministic rule selection avoids hidden declaration-order semantics;
 - moving a container/vehicle Space updates nested effective context without Event fan-out over every contained subject;
 - creation never exposes an Entity without its mandatory direct location;
@@ -4011,6 +4069,12 @@ package-local host-language execution.
 
 Rejected because implementation expressiveness must not change authoritative capabilities.
 All variants remain below the same typed-result and trusted materialization boundary.
+
+### Allow CreatedSpaceRef in standard MovementResult without creation specs
+
+Rejected because standard MovementResult contains no CreateSpaceSpec graph capable of
+resolving that CreationRef. A compound create-and-relocate result must explicitly carry its
+creation specifications under a richer semantic contract.
 
 ## Remaining Slice-17.2 decisions
 

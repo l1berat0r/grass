@@ -281,14 +281,16 @@ MovementResult has one standard core shape:
 ```text
 MovementResult
     outcome: ResolutionOutcome
-    resolved_destination: SpaceResultRef | None
+    resolved_destination: SpaceId | None
 ```
 
 MovementContract therefore owns the movement mechanic's `input_schema`, not an arbitrary
 scenario-specific result schema or outcome/effect mapping DSL. Trusted preparation maps the
-result outcome to the existing SubjectResolutionOutcome and a present resolved destination
-to one SetLocationEffect for the moving actor after resolving the SpaceResultRef to a
-canonical SpaceId. Mechanics never return WorldEffects or Events directly.
+result outcome to the existing SubjectResolutionOutcome and a present canonical SpaceId
+destination to one SetLocationEffect for the moving actor. Mechanics never return
+WorldEffects or Events directly. Standard MovementResult does not carry creation specs and
+therefore cannot use CreatedSpaceRef; compound create-and-relocate semantics require a
+richer result contract that explicitly contains the same-result creation graph.
 
 `MovementContract.input_schema` is an exact-field ValueSchema OBJECT. Each field contains
 one ValueSchema plus an explicit `required` flag. MovementRule.input_bindings declares
