@@ -450,6 +450,34 @@ Invariant:
 > GelEnumSchema constrains ordinary GEL strings to one value from a finite declared set.
 > GEL v1 adds no separate enum literal syntax or runtime enum object.
 
+
+## Decision 13: Semantic-contract adapters are explicit composition boundaries
+
+GEL schemas describe GEL-language values. They are not the semantic type system of GRASS.
+
+When a GEL program implements a scenario mechanic, the composition layer must validate an
+explicit supported mapping between the GRASS semantic contract and the program's input and
+output GelSchemas.
+
+The adapter may translate already-validated nominal GRASS identifiers to a GEL
+representation such as STRING and validate/resolve them back at the semantic result
+boundary. Such representation translation never makes arbitrary GEL strings equivalent to
+canonical GRASS identifiers.
+
+Unsupported or lossy conversions are invalid mechanic composition. In particular, a
+semantic FLOAT cannot be silently converted to INTEGER or STRING merely because current GEL
+v1 lacks floating-point values.
+
+The standalone GEL runtime itself remains unaware of WorldState, SpaceId, MovementResult,
+or other scenario-domain contracts. These mappings belong to the trusted composition/
+mechanic-adapter layer outside the interpreter.
+
+Invariant:
+
+> GelSchema is an implementation-language boundary. Scenario semantic contracts remain
+> authoritative, and GEL integration requires explicit supported mappings rather than
+> implicit coercion.
+
 ## Consequences
 
 - GEL v1 source has deterministic, testable semantics independent of simulation

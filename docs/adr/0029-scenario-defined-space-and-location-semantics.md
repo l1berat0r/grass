@@ -1528,8 +1528,8 @@ SpaceId / EntityId
 Canonical runtime identity allocation occurs in trusted preparation, not inside the
 mechanic/provider.
 
-For an identical authoritative preparation context and identical ordered creation
-specifications, GRASS must allocate the same canonical identities.
+For an identical authoritative preparation context and identical typed CreationRefs, GRASS
+must allocate the same canonical identities regardless of creation-spec list order.
 
 The architectural requirement is deterministic allocation; this ADR does not freeze the
 concrete identifier encoding, UUID/hash scheme, or implementation algorithm.
@@ -1537,10 +1537,13 @@ concrete identifier encoding, UUID/hash scheme, or implementation algorithm.
 The preparation context must bind allocation to authoritative facts sufficient to prevent
 accidental dependence on process-global mutable counters or nondeterministic host state.
 At minimum, allocation is scoped by the exact branch-visible base HistoryPosition, the
-authoritative source/resolution context, and deterministic creation-spec ordering.
+authoritative source/resolution context, the created identity kind, and the CreationRef.
+Creation-spec list position is not part of semantic identity allocation.
 
 A retry of the same semantic preparation against the same authoritative base must therefore
-not randomly produce different canonical IDs.
+not randomly produce different canonical IDs. Reordering otherwise identical creation specs
+also does not change their allocated identities. Renaming a CreationRef is a semantic change
+to the preparation-local creation graph and may change the resulting canonical identity.
 
 A candidate that fails validation or loses expected-head publication does not reserve
 identity in authoritative state. If work is re-resolved against a different authoritative
@@ -2050,6 +2053,7 @@ Conceptually:
 
 ```text
 movement
+    selection_bindings
     contracts
     rules
     default_rule
@@ -2060,6 +2064,7 @@ The current serialized empty form is explicit:
 ```json
 {
   "movement": {
+    "selection_bindings": {},
     "contracts": [],
     "rules": [],
     "default_rule": null
@@ -2077,6 +2082,7 @@ movement section absent
     -> invalid WorldDefinition
 
 movement present with:
+    selection_bindings = {}
     contracts = []
     rules = []
     default_rule = null
@@ -2138,6 +2144,7 @@ The WorldDefinition movement section therefore contains:
 
 ```text
 movement
+    selection_bindings: Mapping[str, ValueBinding]
     contracts: [MovementContract, ...]
     rules: [ConditionalMovementRule, ...]
     default_rule: DefaultMovementRule | null
@@ -2745,22 +2752,28 @@ A source legal in one context is not automatically legal in another.
 
 ### Movement uses the global contract in two places
 
-Movement rule authoring uses ValueBinding for both selector preparation and mechanic input
-preparation:
+Movement authoring uses ValueBinding in two different places:
 
 ```text
-MovementRule
+movement
     selection_bindings:
         name -> ValueBinding
 
+MovementRule
     input_bindings:
         mechanic_input_name -> ValueBinding
 ```
 
-`selection_bindings` resolve named typed values exposed to MovementSelector through
-`NAMED_VALUE(name)`.
+`movement.selection_bindings` defines one shared deterministic selection context for all
+ConditionalMovementRules in that movement configuration. Its named typed values are exposed
+to every MovementSelector through `NAMED_VALUE(name)`.
 
-`input_bindings` resolve the typed fields required by MovementContract.input_schema.
+`MovementRule.input_bindings` remains rule-local because it prepares the mechanic input
+for the rule that was actually selected.
+
+This placement prevents duplicate definitions of the same selector-visible derived value
+across overlapping rules and guarantees that every selector is evaluated against the same
+prepared named-value surface.
 
 The same underlying ValueBinding machinery therefore supplies both paths:
 
@@ -3371,14 +3384,20 @@ trusted adapter
 Movement therefore remains:
 
 ```text
-MovementRule
+movement
     selection_bindings
+    contracts
+    rules
+    default_rule
+
+MovementRule
     input_bindings
     movement_contract_ref
     mechanic_binding
 ```
 
-and `input_bindings` do not move inside MechanicBinding.
+`selection_bindings` belong to movement-level rule discovery, while `input_bindings`
+belong to the selected rule's mechanic invocation. Neither moves inside MechanicBinding.
 
 ### BUILTIN
 
@@ -3520,6 +3539,296 @@ Invariant:
 > Standard MovementResult references only an existing canonical SpaceId. CreationRef and
 > CreatedSpaceRef are valid only in typed result contracts that also provide the same-result
 > creation graph needed to resolve them.
+
+
+## Decision 39: Movement selection bindings are shared at movement-configuration scope
+
+Selector-visible derived values are defined once for the complete movement rule-selection
+process rather than separately on each MovementRule.
+
+The canonical conceptual structure is:
+
+```text
+movement
+    selection_bindings: Mapping[str, ValueBinding]
+    contracts
+    rules
+    default_rule
+
+ConditionalMovementRule
+    rule_id
+    selector
+    input_bindings
+    movement_contract_ref
+    mechanic_binding
+
+DefaultMovementRule
+    rule_id
+    input_bindings
+    movement_contract_ref
+    mechanic_binding
+```
+
+Trusted preparation builds one immutable movement-selection context from the authoritative
+MOVE request/base-state context and the movement-level selection bindings. Every
+ConditionalMovementRule selector is evaluated against that same context.
+
+```text
+MOVE request/base context
+    + movement.selection_bindings
+    -> shared immutable selection context
+    -> selector A
+    -> selector B
+    -> ...
+    -> exactly one conditional match / default fallback
+```
+
+`NAMED_VALUE(name)` refers only to names declared in
+`movement.selection_bindings`.
+
+Rule-local `input_bindings` are resolved only after one rule has been selected and remain
+responsible for preparing that rule's MovementContract input object.
+
+This separation is deliberate:
+
+```text
+movement.selection_bindings
+    = prepare values used to choose a rule
+
+MovementRule.input_bindings
+    = prepare values used to execute the chosen rule
+```
+
+Selection bindings are not duplicated on individual conditional rules, and DefaultMovementRule
+does not carry selection bindings because it does not participate in conditional matching.
+
+The canonical explicit empty movement configuration is therefore:
+
+```json
+{
+  "movement": {
+    "selection_bindings": {},
+    "contracts": [],
+    "rules": [],
+    "default_rule": null
+  }
+}
+```
+
+Implementations may evaluate named selection values lazily, but lazy evaluation must not
+change semantics: all selectors observe one logically shared immutable selection context
+defined by the movement-level binding declarations.
+
+Invariant:
+
+> Movement rule discovery uses one shared movement-level selection-binding definition.
+> Rule-local bindings begin only after rule selection and prepare the selected mechanic's
+> typed input.
+
+
+## Decision 40: GEL semantic adapters require explicit lossless supported mappings
+
+A GEL mechanic does not redefine the GRASS semantic contract around the GEL type system.
+
+Composition instead validates an explicit adapter mapping between the semantic contract and
+the concrete GelProgram input/output schemas:
+
+```text
+GRASS semantic input
+    -> validated semantic-to-GEL adapter
+    -> GelProgram.input_schema
+
+GelProgram.output_schema
+    -> validated GEL-to-semantic adapter
+    -> GRASS semantic result
+```
+
+A mapping is legal only when GRASS explicitly supports it and the translation preserves the
+semantic contract. There is no generic implicit coercion layer.
+
+Ordinary structural mappings include:
+
+```text
+ValueSchema.BOOLEAN
+    -> GelBooleanSchema
+
+ValueSchema.INTEGER
+    -> compatible GelIntegerSchema
+
+ValueSchema.STRING
+    -> compatible GelStringSchema
+
+ValueSchema.NULL
+    -> GelNullSchema
+
+ValueSchema.LIST(T)
+    -> GelListSchema(mapped T)
+
+ValueSchema.OBJECT(fields)
+    -> compatible GelObjectSchema(mapped fields)
+```
+
+Object-field presence and nullable-value semantics must remain compatible across the
+boundary. A semantic optional/nullable value maps only to a GEL schema capable of preserving
+that distinction.
+
+### Nominal GRASS identifiers may use validated representation types
+
+Nominal GRASS identifiers such as SpaceId or EntityId need not become native nominal GEL
+types merely to cross the computation boundary.
+
+For example:
+
+```text
+semantic SpaceId("server-room")
+    -> validate as IDENTIFIER(SPACE)
+    -> GEL STRING "server-room"
+```
+
+On a semantic output boundary:
+
+```text
+GEL STRING "server-room"
+    -> resolve/validate as canonical SpaceId
+    -> semantic IDENTIFIER(SPACE)
+```
+
+The adapter conversion does not make STRING semantically equivalent to
+IDENTIFIER(SPACE). Raw arbitrary strings are never silently promoted to canonical IDs.
+
+### Unsupported semantic types invalidate composition
+
+If the semantic contract contains a type for which the selected GEL version has no explicit
+supported representation, the GEL mechanic is invalid for that contract.
+
+For example, while GEL v1 has no floating-point type:
+
+```text
+ValueSchema.FLOAT
+    + GEL mechanic
+    -> composition error
+```
+
+GRASS does not silently round to INTEGER, stringify the number, or otherwise weaken the
+semantic contract. If a required semantic type cannot be represented, GEL v1 itself must be
+extended deliberately during pre-stable development or another mechanic implementation kind
+must be selected.
+
+### MovementResult GEL mapping
+
+The standard semantic movement result remains:
+
+```text
+MovementResult
+    outcome: ResolutionOutcome
+    resolved_destination: SpaceId | None
+```
+
+A compatible GEL-v1 output schema is:
+
+```text
+OBJECT
+    outcome:
+        required: true
+        schema: ENUM(
+            "SUCCESS",
+            "PARTIAL",
+            "BLOCKED",
+            "FAILED",
+            "INTERRUPTED"
+        )
+
+    resolved_destination:
+        required: true
+        schema: OPTIONAL(STRING)
+```
+
+The trusted movement GEL adapter maps:
+
+```text
+GEL enum-constrained string
+    -> ResolutionOutcome
+
+GEL destination STRING
+    -> canonical existing SpaceId
+
+GEL null
+    -> None
+```
+
+Composition validates both MovementContract <-> GelProgram.input_schema and the standard
+MovementResult <-> GelProgram.output_schema before the WorldDefinition is accepted.
+
+GelProgram input_schema/output_schema are implementation-language boundaries, not duplicate
+scenario semantic contracts.
+
+Invariant:
+
+> A GEL mechanic may implement a GRASS semantic contract only when every semantic input and
+> output type has an explicit supported adapter mapping. Unsupported or lossy mappings make
+> composition invalid; they never weaken or reshape the semantic contract.
+
+
+## Decision 41: Runtime identity allocation is keyed by typed CreationRef, not list position
+
+Creation-spec ordering is not part of created-object identity.
+
+Canonical identity allocation is conceptually keyed by:
+
+```text
+authoritative preparation context
++ created identity kind
++ CreationRef
+    -> canonical EntityId / SpaceId / ...
+```
+
+not by:
+
+```text
+authoritative preparation context
++ creation-spec list index
+```
+
+Therefore two otherwise identical typed results that differ only by reordering their
+creation specifications allocate the same canonical IDs for the same typed CreationRefs.
+
+For example:
+
+```text
+CreateSpaceSpec(creation_ref = "room", ...)
+CreateEntitySpec(creation_ref = "alice", ...)
+```
+
+and:
+
+```text
+CreateEntitySpec(creation_ref = "alice", ...)
+CreateSpaceSpec(creation_ref = "room", ...)
+```
+
+produce the same canonical SpaceId for `"room"` and EntityId for `"alice"` when prepared
+against the same authoritative context.
+
+This also means creation specifications do not need topological declaration order merely to
+obtain stable IDs. A CreatedSpaceRef("room") may refer to the same-result room creation even
+when the corresponding CreateSpaceSpec appears later in the serialized result; trusted
+preparation resolves the complete typed creation graph before constructing closed
+WorldEffects.
+
+CreationRef remains preparation-local rather than globally canonical. Changing
+`CreationRef("room")` to `CreationRef("main-room")` changes the semantic local creation
+slot and may therefore produce a different canonical identity even when the created object's
+other properties are identical.
+
+The concrete ID encoding/hash/UUID algorithm remains implementation-level, but it must
+preserve these semantics and must not depend on process-global counters, object iteration
+order, or creation-spec list position.
+
+Invariant:
+
+> For one authoritative preparation context, typed CreationRef identifies the deterministic
+> local creation slot used for canonical ID allocation. Reordering creation specs does not
+> change identity; changing the CreationRef may.
 
 ## Consequences
 
@@ -4133,6 +4442,25 @@ adapter maps the accepted string to ResolutionOutcome.
 Rejected because GRASS semantic contracts must not be deformed around temporary GEL
 limitations. GEL v1 itself gains the missing NULL/ENUM/OPTIONAL capabilities during
 pre-stable development.
+
+### Keep selection_bindings on each MovementRule
+
+Rejected because selectors are evaluated before one rule is selected. Per-rule definitions
+would duplicate shared derived values, allow semantically equivalent selectors to drift onto
+different preparation recipes, and make the movement-selection context unnecessarily
+rule-dependent.
+
+### Coerce unsupported semantic values into whatever GEL v1 can represent
+
+Rejected because implementation-language limitations must not redefine GRASS semantic
+contracts. Unsupported mappings are composition errors until GEL gains an explicit safe
+representation or another mechanic implementation is selected.
+
+### Allocate canonical runtime IDs from creation-spec list position
+
+Rejected because list position is serialization/order detail rather than semantic identity.
+Typed CreationRef already provides the stable preparation-local slot needed for deterministic
+allocation and same-result cross-reference resolution.
 
 ## Remaining Slice-17.2 decisions
 

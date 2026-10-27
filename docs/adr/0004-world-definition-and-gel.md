@@ -228,6 +228,12 @@ GEL v1 enum constraints use ordinary strings plus a finite allowed-value schema 
 a separate enum runtime object or literal syntax. NULL/OPTIONAL and enum details are owned by
 ADR-0017.
 
+GEL integration must preserve the independent GRASS semantic contract. The trusted
+composition/adapter layer validates explicit supported mappings between semantic types and
+GelSchema values. Unsupported or lossy conversions invalidate mechanic composition rather
+than weakening the semantic contract; nominal GRASS identifiers may use validated
+representation types such as GEL STRING without becoming semantic strings.
+
 A GEL mechanic declares typed inputs and typed output. Canonical scenario data should preserve at least:
 
 ```text

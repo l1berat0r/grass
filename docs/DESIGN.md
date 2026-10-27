@@ -267,8 +267,7 @@ typed selector value before selector evaluation.
 
 MOVE does not add a dedicated requested-target field to PlanStep. Primitive-specific
 requested arguments remain in generic `PlanStep.parameters`; scenario/Blueprint semantics
-choose names such as `target`, `destination`, or `mode`. Movement selection bindings
-and MovementRule.input_bindings may explicitly read named PlanStep parameters and
+choose names such as `target`, `destination`, or `mode`. `movement.selection_bindings` and MovementRule.input_bindings may explicitly read named PlanStep parameters and
 validate/resolve them into typed selector-visible values or MovementInput fields. Raw
 structured values do not become canonical EntityId/SpaceId values implicitly.
 
@@ -384,18 +383,20 @@ each define a bounded BindingContext with only the source/query vocabulary that 
 allowed to read. A source supported by MovementBindingContext is not automatically visible
 to ReactionBindingContext or PerceptionBindingContext.
 
-Movement uses the shared contract for both:
+Movement uses the shared contract in two scopes:
 
 ```text
-selection_bindings:
+movement.selection_bindings:
     name -> ValueBinding
 
-input_bindings:
+MovementRule.input_bindings:
     mechanic_input_name -> ValueBinding
 ```
 
-The first prepares typed `NAMED_VALUE(name)` inputs for MovementSelector; the second
-prepares MovementInput fields validated against MovementContract.input_schema.
+Movement-level selection bindings prepare one shared immutable named-value context seen by
+all ConditionalMovementRule selectors through `NAMED_VALUE(name)`. Rule-local input
+bindings are resolved only after selection and prepare MovementInput fields validated
+against MovementContract.input_schema.
 ScenarioReactionRule.input_bindings and PerceptionRule.input_bindings reuse the same global
 ValueBinding contract under their own bounded contexts.
 
@@ -561,6 +562,18 @@ string literals and string equality; GEL adds no separate enum literal/runtime v
 Membership is checked statically when provable from the expected enum schema and otherwise
 by normal schema validation at input/output boundaries. OPTIONAL composes normally with
 ENUM.
+
+Semantic-contract/GEL adaptation is explicit and validated during composition. ValueSchema
+remains the GRASS semantic type system; GelSchema is only the implementation-language
+boundary. Supported mappings preserve semantics, including object-field presence and
+nullable values. Nominal identifiers may use validated GEL STRING representation while
+remaining nominal semantic IDs outside GEL. Unsupported mappings such as semantic FLOAT
+when GEL has no float type are composition errors; there is no lossy rounding, stringifying,
+or other implicit coercion.
+
+For MOVE, the GEL result schema uses ENUM for ResolutionOutcome and OPTIONAL(STRING) for the
+SpaceId-or-null destination; the trusted adapter maps those values back to the canonical
+MovementResult and validates any destination as an existing SpaceId.
 
 Initial GEL may support arithmetic, comparisons, boolean logic, local variables, `if`/`else`, safe mathematical functions, typed objects/lists, and bounded `for` iteration. Unbounded `while`, recursion, imports, reflection, concurrency, and dynamic code generation are excluded initially.
 
@@ -1748,3 +1761,5 @@ Project-owned source files should use `SPDX-License-Identifier: GPL-3.0-only` wh
 > **Keep the world's rules explicit, keep actors' knowledge incomplete, keep decisions replaceable, keep execution bounded, and keep history inspectable.**
 
 Complexity should emerge from interactions among composable mechanics rather than from a monolithic prompt or an opaque model-generated story.
+
+Creation-spec list position is not part of runtime identity. Canonical IDs are deterministically keyed by authoritative preparation context plus typed CreationRef/created identity kind, so reordering otherwise identical creation specs preserves IDs while changing a CreationRef may change the allocated identity.
