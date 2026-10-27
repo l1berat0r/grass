@@ -1763,3 +1763,5 @@ Project-owned source files should use `SPDX-License-Identifier: GPL-3.0-only` wh
 Complexity should emerge from interactions among composable mechanics rather than from a monolithic prompt or an opaque model-generated story.
 
 Creation-spec list position is not part of runtime identity. Canonical IDs are deterministically keyed by authoritative preparation context plus typed CreationRef/created identity kind, so reordering otherwise identical creation specs preserves IDs while changing a CreationRef may change the allocated identity.
+
+Duplicate explicit DeactivateSpaceEffect values for the same root are invalid duplicate intent; only overlapping derived cascade lifecycle writes from distinct accepted roots are unioned/deduplicated.

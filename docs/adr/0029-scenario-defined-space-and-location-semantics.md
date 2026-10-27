@@ -2274,10 +2274,25 @@ Likewise, explicit topology-changing writes are composed before every root closu
 calculated, exactly as defined by Decision 18. A subject relocated outside all root closures
 is not included merely because it belonged to one of those roots in the base state.
 
-The union operation applies to derived cascade membership/writes. This decision does not
-require accepting duplicate identical DeactivateSpaceEffect entries for the same root in a
-proposal; proposal-level duplicate-intent validation may reject such redundant explicit
-entries independently.
+The union operation applies only to derived cascade membership/writes. Duplicate explicit
+DeactivateSpaceEffect entries for the same root are not another overlap case: they are
+redundant duplicate intent and make the candidate invalid.
+
+Therefore:
+
+```text
+DeactivateSpaceEffect(building)
+DeactivateSpaceEffect(room)
+    -> valid distinct roots
+    -> union/deduplicate overlapping derived cascade writes
+
+DeactivateSpaceEffect(room)
+DeactivateSpaceEffect(room)
+    -> invalid duplicate explicit intent
+```
+
+This prevents cascade-specific deduplication from becoming a general rule that repeated
+explicit effects may be silently ignored.
 
 Invariant:
 
@@ -3830,6 +3845,51 @@ Invariant:
 > local creation slot used for canonical ID allocation. Reordering creation specs does not
 > change identity; changing the CreationRef may.
 
+
+## Decision 42: Duplicate explicit Space-deactivation roots are invalid intent
+
+Space-deactivation cascade deduplication applies to derived lifecycle writes produced by
+different accepted explicit roots. It does not deduplicate repeated explicit
+DeactivateSpaceEffect values that target the same Space.
+
+Therefore:
+
+```text
+DeactivateSpaceEffect(A)
+DeactivateSpaceEffect(B)
+```
+
+is valid when A and B are distinct accepted roots, even when their cascade closures overlap.
+Any shared derived Entity/Space lifecycle deactivation is unioned to one derived write.
+
+By contrast:
+
+```text
+DeactivateSpaceEffect(A)
+DeactivateSpaceEffect(A)
+```
+
+is invalid candidate authoring because the same explicit semantic intent was supplied twice.
+
+The distinction is:
+
+```text
+duplicate explicit intent
+    -> invalid
+
+overlapping derived consequences from distinct explicit intents
+    -> valid and deduplicated
+```
+
+This rule does not establish a universal idempotent-effect policy for other WorldEffects.
+Each explicit effect family continues to follow its normal conflict/duplicate validation
+semantics.
+
+Invariant:
+
+> Cascade deduplication normalizes overlapping derived consequences; it never silently
+> erases duplicate explicit DeactivateSpaceEffect intent for the same root.
+
 ## Consequences
 
 ### Positive
@@ -4461,6 +4521,11 @@ representation or another mechanic implementation is selected.
 Rejected because list position is serialization/order detail rather than semantic identity.
 Typed CreationRef already provides the stable preparation-local slot needed for deterministic
 allocation and same-result cross-reference resolution.
+
+### Silently deduplicate duplicate explicit DeactivateSpaceEffect roots
+
+Rejected because deduplication is justified for overlapping derived cascade consequences,
+not for repeated explicit author intent. Duplicate same-root explicit effects are invalid.
 
 ## Remaining Slice-17.2 decisions
 
