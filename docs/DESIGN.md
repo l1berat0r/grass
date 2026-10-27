@@ -462,6 +462,38 @@ validated IDENTIFIER(SPACE) may be supplied to GEL as a STRING, but raw strings 
 implicitly promoted to SpaceId by that adapter. Unsupported/lossy schema mappings are
 composition errors.
 
+### 5.0 Global MechanicBinding contract
+
+GRASS uses one global `MechanicBinding` abstraction to choose how a typed semantic
+mechanic contract is computed:
+
+```text
+MechanicBinding
+    BUILTIN
+    | GEL
+    | IMPLEMENTATION
+```
+
+Conceptually, BUILTIN selects a registered GRASS/library implementation plus typed config,
+GEL contains a canonical validated GelProgram, and IMPLEMENTATION selects explicitly trusted
+installed host/plugin code through a stable implementation reference plus typed config.
+
+MechanicBinding does not own `input_bindings`, BindingContext/read authority, semantic
+input/result meaning, WorldEffect/Event creation, or commit authority. Those remain separate
+rule/contract/trusted-adapter responsibilities.
+
+```text
+ValueBinding / BindingContext
+    -> typed semantic input
+    -> MechanicBinding
+    -> typed semantic result
+    -> trusted materialization
+```
+
+All three variants have the same authority boundary. IMPLEMENTATION is not an arbitrary
+filesystem path/import string from WorldPackage and does not receive broader mutation or
+EventStore access. Replay uses committed Events and never reinvokes mechanics.
+
 ## 5. Scenario mechanics and GEL
 
 Built-in formulas are convenience models, not the expressiveness boundary of GRASS.

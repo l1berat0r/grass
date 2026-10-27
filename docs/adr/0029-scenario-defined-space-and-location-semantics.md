@@ -3298,6 +3298,171 @@ Invariant:
 > must declare one type-compatible binding for every contract field, and only optional
 > contract fields may be backed by optional bindings.
 
+
+## Decision 37: MechanicBinding is one global implementation-selection contract
+
+GRASS uses one global MechanicBinding architecture concept rather than defining separate
+movement-, reaction-, and perception-specific implementation-binding systems.
+
+The closed initial variants are:
+
+```text
+MechanicBinding
+    BuiltinMechanicBinding
+    | GelMechanicBinding
+    | ImplementationMechanicBinding
+```
+
+Conceptually:
+
+```text
+BuiltinMechanicBinding
+    kind = BUILTIN
+    implementation
+    config
+
+GelMechanicBinding
+    kind = GEL
+    program
+
+ImplementationMechanicBinding
+    kind = IMPLEMENTATION
+    implementation_ref
+    config
+```
+
+The exact implementation/config payload schema is owned by the selected implementation kind
+and usage contract; the architectural separation is fixed.
+
+### MechanicBinding selects implementation, not semantics
+
+MechanicBinding answers:
+
+```text
+How is this already-typed semantic mechanic contract executed?
+```
+
+It does not define:
+
+```text
+where input values come from
+what world state may be read
+what the semantic input contract means
+what the semantic result means
+what WorldEffects or Events are produced
+```
+
+Those responsibilities remain separate:
+
+```text
+ValueBinding / BindingContext
+    -> obtain typed inputs
+
+MovementContract / ReactionContract / PerceptionContract
+    -> define semantic typed boundary
+
+MechanicBinding
+    -> choose implementation
+
+trusted adapter
+    -> interpret semantic result into candidate consequences
+```
+
+Movement therefore remains:
+
+```text
+MovementRule
+    selection_bindings
+    input_bindings
+    movement_contract_ref
+    mechanic_binding
+```
+
+and `input_bindings` do not move inside MechanicBinding.
+
+### BUILTIN
+
+BUILTIN selects one well-known GRASS/library implementation registered for the relevant
+semantic usage.
+
+Conceptually:
+
+```text
+kind: BUILTIN
+implementation: DIRECT_MOVE
+config: {...}
+```
+
+A builtin implementation still receives only the typed input contract and returns the same
+semantic result required by that usage. Being built in does not grant direct mutation/Event
+authority.
+
+### GEL
+
+GEL selects one canonical validated GelProgram.
+
+Conceptually:
+
+```text
+kind: GEL
+program:
+    language_version: 1
+    input_schema: ...
+    output_schema: ...
+    source: ...
+```
+
+The mechanic adapter is responsible for validating that the semantic contract can be
+represented by the program's GelSchema input/output boundary and for translating between
+already-validated GRASS semantic values and GEL values.
+
+GEL receives no additional world-read authority merely because a ValueBinding or bounded
+query was used to prepare one of its inputs.
+
+### IMPLEMENTATION
+
+IMPLEMENTATION selects explicitly trusted installed host-language/plugin code through a
+stable implementation reference.
+
+Conceptually:
+
+```text
+kind: IMPLEMENTATION
+implementation_ref: "acme.mobility.vehicle_move"
+config: {...}
+```
+
+`implementation_ref` is not an arbitrary filesystem path, import string, or package-local
+Python source automatically executed from WorldPackage. Resolution requires an installed
+and explicitly authorized implementation registry/integration boundary.
+
+Trusted implementation code may be more expressive internally, but it still receives the
+same bounded semantic inputs and must return the same semantic result contract. It does not
+gain EventStore, commit, or authoritative mutation access through MechanicBinding.
+
+### Same authority boundary for every variant
+
+For one semantic contract:
+
+```text
+typed semantic input
+    -> BUILTIN | GEL | IMPLEMENTATION
+    -> typed semantic result
+    -> trusted validation/materialization
+```
+
+Changing the implementation variant must not change the authoritative capabilities of the
+mechanic.
+
+Replay never reinvokes MechanicBinding; replay uses committed semantic Events.
+
+Invariant:
+
+> MechanicBinding is the global implementation-selection contract. BUILTIN, GEL, and
+> IMPLEMENTATION differ only in how typed semantic computation is executed; they do not own
+> input binding, world-read authority, semantic result interpretation, WorldEffect/Event
+> construction, or commit authority.
+
 ## Consequences
 
 ### Positive
@@ -3334,7 +3499,7 @@ Invariant:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments; global `ValueSchema` provides scalar, nominal `IDENTIFIER(kind)`, homogeneous `LIST`, and exact-field `OBJECT` semantic types independently from GelSchema; `MovementContract.input_schema` is an exact ValueSchema OBJECT whose field `required` semantics are distinct from producer-side `ValueBinding.optional`;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments; global `ValueSchema` provides scalar, nominal `IDENTIFIER(kind)`, homogeneous `LIST`, and exact-field `OBJECT` semantic types independently from GelSchema; `MovementContract.input_schema` is an exact ValueSchema OBJECT whose field `required` semantics are distinct from producer-side `ValueBinding.optional`; the selected computation uses the global `MechanicBinding` variants BUILTIN/GEL/IMPLEMENTATION without moving input-binding or authority semantics into the implementation binding;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -3831,6 +3996,21 @@ behavior. Every contract field has one declared binding; optional fields may res
 
 Rejected because absence and explicit NULL are distinct ValueSchema semantics. An absent
 optional binding omits the field; NULL is present data and requires a compatible schema.
+
+### Put input_bindings inside MechanicBinding
+
+Rejected because input provenance/read authority is semantic rule authoring, while
+MechanicBinding only selects how an already-typed contract is computed.
+
+### Let IMPLEMENTATION name arbitrary Python/module paths from WorldPackage
+
+Rejected because IMPLEMENTATION means explicitly trusted installed code, not arbitrary
+package-local host-language execution.
+
+### Give IMPLEMENTATION broader mutation/Event authority than BUILTIN or GEL
+
+Rejected because implementation expressiveness must not change authoritative capabilities.
+All variants remain below the same typed-result and trusted materialization boundary.
 
 ## Remaining Slice-17.2 decisions
 

@@ -182,6 +182,13 @@ An explicitly trusted, installed scenario/plugin implementation written in norma
 
 All three forms remain below the same world-resolution, validation, Event, reducer, and branch-authority boundaries. Selecting a more expressive mechanic never grants authority to mutate committed reality directly.
 
+ADR-0029 later fixes `MechanicBinding` as one global implementation-selection contract
+reused across mechanic usages. The binding selects only BUILTIN, GEL, or an explicitly
+trusted installed IMPLEMENTATION. It does not own input bindings, readable-state authority,
+semantic contract/result meaning, WorldEffect/Event construction, or commit authority.
+IMPLEMENTATION references resolve through an installed/authorized implementation boundary,
+not arbitrary WorldPackage filesystem/import paths.
+
 ## Decision 5: GEL execution model
 
 GEL is a versioned, deterministic DSL/interpreter boundary.
