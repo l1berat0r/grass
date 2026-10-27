@@ -76,18 +76,19 @@ The current pre-stable GEL v1 type/schema system includes:
 Floats, arbitrary maps, dynamic/Any values, and unrestricted general unions remain
 outside the current language. Boolean and integer are distinct types.
 
-The exact ENUM semantics and optional-field access/flow-narrowing rules are refined by
-later amendments before implementation. NULL/OPTIONAL value semantics and their separation
-from object-field presence are fixed by Decision 10.
+NULL/OPTIONAL value semantics and their separation from object-field presence are fixed by
+Decision 10. Absent-field runtime/composition behavior is fixed by Decision 11, ENUM
+semantics by Decision 12, and semantic-contract adapter boundaries by Decision 13.
 
-Schemas include the existing `GelBooleanSchema`, `GelIntegerSchema(minimum, maximum)`,
-`GelStringSchema(max_length)`, `GelListSchema(item_schema, max_items)`, and
-`GelObjectSchema(fields)`, plus current-v1 NULL/ENUM/OPTIONAL schema forms defined
-by the later amendment. Input schema is always an object schema. Integer bounds
-must be ordered and inside the language integer domain. Strings and lists declare
-positive-or-zero maxima no larger than the language limits. Object fields form an
-exact closed set and use legal GEL identifiers. Missing and additional fields are
-invalid. Both input and output are validated and recursively copied/frozen.
+Schemas include `GelBooleanSchema`, `GelIntegerSchema(minimum, maximum)`,
+`GelStringSchema(max_length)`, `GelListSchema(item_schema, max_items)`,
+`GelObjectSchema(fields)`, and the NULL/ENUM/OPTIONAL forms defined by Decisions 10-12.
+Input schema is always an object schema. Integer bounds must be ordered and inside the
+language integer domain. Strings and lists declare positive-or-zero maxima no larger than
+the language limits. Object fields form an exact closed declared set and use legal GEL
+identifiers. Undeclared additional fields are invalid; omission is valid only for a field
+whose GelObjectField.required is false. Both input and output are validated and recursively
+copied/frozen.
 
 Integer-only GEL v1 does not constrain GRASS Resource, StateVariable, or future
 GEL-version numeric models.

@@ -367,7 +367,6 @@ Accepted architecture direction includes:
 - mechanic-facing same-result references use typed `ExistingEntityRef|CreatedEntityRef` and `ExistingSpaceRef|CreatedSpaceRef` unions across spatial, Relation, Resource, and Entity-scoped StateVariable consequences; trusted preparation resolves the complete graph before any closed WorldEffect is constructed;
 - projection applies each CommittedTransition as one semantic batch: composite Entity/Space fields are derived from base state plus the complete write-set, Event order has no mutation precedence, and replay validates universal structural invariants without requiring WorldDefinition policy;
 - all current Event payloads remain provisional `event_version = 1` before the first stable Event-history contract; incompatible internal payload changes replace v1 in place, while post-stabilization versioning remains independent per Event type.
-
 - pre-stable GEL v1 evolves in place until stable GRASS v1.0 rather than minting new GEL language versions during design; current v1 gains explicit NULL, OPTIONAL(T) as T-or-null, separate object-field requiredness, finite string-constrained ENUM, deterministic absent-field GelExecutionError, and conservative pre-run composition validation of statically referenced GEL input fields against concrete bindings;
 
 Before implementation, perform one final consistency review against existing Event,

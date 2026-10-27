@@ -118,7 +118,7 @@ Alice -> vehicle-cabin -> poznan
 
 Alice's direct canonical `location_id` remains `vehicle-cabin`.
 
-The exact higher-level query vocabulary for direct location versus transitive containment/reachability remains to be fixed later in this ADR.
+Direct location and transitive containment are exposed through the bounded query semantics fixed later in this ADR: direct_location, enclosing_spaces, and is_within.
 
 ## Decision 4: Cyclic Space containment is optional world semantics
 
@@ -131,7 +131,7 @@ SpatialPolicy
     allow_cycles: bool = false
 ```
 
-The exact final serialization placement may be refined with the WorldDefinition schema work, but the semantic choice belongs to WorldDefinition rather than SimulationRunConfig because it changes what constitutes a valid world.
+`spatial_policy` is a mandatory top-level WorldDefinition section. The policy belongs to WorldDefinition rather than SimulationRunConfig because it changes what constitutes a valid world.
 
 When `allow_cycles = false`, accepted initial state and every later Space relocation must reject a containment cycle.
 
@@ -147,7 +147,7 @@ Core traversal must be cycle-safe regardless of policy. Algorithms following `lo
 
 Because each Space has at most one direct `location_id`, enabling cycles does not create an unrestricted multi-parent graph. It creates a functional directed graph in which each Space has zero or one outgoing containment edge; components may contain a cycle with trees feeding into it.
 
-Exact semantic answers for unusual self-reachability questions such as whether a cyclic Space should be considered transitively "inside itself" are deliberately not frozen yet. Direct location remains unambiguous.
+Self-reachability is explicitly excluded from transitive containment semantics: a Space is never included in its own enclosing_spaces result, and is_within(space, same_space) is false even when the Space participates in a containment cycle.
 
 
 ## Decision 5: Location mutation uses one closed candidate path for Entity and Space
@@ -2100,10 +2100,10 @@ The section owns scenario-authored MovementContract and MovementRule declaration
 explicit default movement rule/binding already accepted by Decision 7. It remains part of
 WorldDefinition because it changes scenario semantics rather than run execution policy.
 
-This decision freezes the mandatory placement and empty representation. The exact selector,
-input-binding, mechanic-binding, and contract mapping DTO details may still be refined by
-the following authoring decisions, provided they remain inside this explicit `movement`
-section and preserve Decision 6/7 semantics.
+This decision freezes the mandatory placement and empty representation. The following
+authoring decisions in this ADR define the selector, ValueBinding, MechanicBinding,
+MovementContract, MovementResult, and GEL-adapter details within this explicit `movement`
+section while preserving Decision 6/7 semantics.
 
 
 ## Decision 26: MovementRule is a shared base contract with conditional and default variants
@@ -4527,9 +4527,13 @@ allocation and same-result cross-reference resolution.
 Rejected because deduplication is justified for overlapping derived cascade consequences,
 not for repeated explicit author intent. Duplicate same-root explicit effects are invalid.
 
-## Remaining Slice-17.2 decisions
+## Final consistency and implementation obligations
 
-The material Slice-17.2 semantic decisions are now recorded. Before changing this ADR from
-Draft to Accepted, perform one final consistency review against the existing core/Event/
-WorldDefinition contracts and identify any implementation-blocking gaps rather than adding
-new spatial semantics by default.
+The material Slice-17.2 semantic decisions are recorded. Before changing this ADR from
+Draft to Accepted, perform one final consistency review against the current core, Event,
+WorldEffect, WorldDefinition/genesis, package, Query, projection, and GEL contracts.
+
+That review is intended to identify implementation-blocking contradictions or missing
+contracts, not to add new spatial semantics by default. Once no such blocker remains, this
+ADR can move to Accepted and implementation can update the pre-spatial code to the contracts
+defined here.

@@ -267,7 +267,7 @@ typed selector value before selector evaluation.
 
 MOVE does not add a dedicated requested-target field to PlanStep. Primitive-specific
 requested arguments remain in generic `PlanStep.parameters`; scenario/Blueprint semantics
-choose names such as `target`, `destination`, or `mode`. `movement.selection_bindings` and MovementRule.input_bindings may explicitly read named PlanStep parameters and
+choose names such as `target`, `destination`, or `mode`. `movement.selection_bindings` and `MovementRule.input_bindings` may explicitly read named PlanStep parameters and
 validate/resolve them into typed selector-visible values or MovementInput fields. Raw
 structured values do not become canonical EntityId/SpaceId values implicitly.
 
