@@ -380,8 +380,39 @@ ScenarioReactionRule.input_bindings and PerceptionRule.input_bindings reuse the 
 ValueBinding contract under their own bounded contexts.
 
 ValueBinding may invoke only explicitly declared bounded query capabilities. It never gains
-an unrestricted state handle. The concrete initial source/leaf variants and serialized DTO
-shape are defined separately.
+an unrestricted state handle.
+
+The initial source model is:
+
+```text
+ValueBinding
+    value_schema
+    optional
+    source: PathValue | LiteralValue | QueryValue
+
+PathValue
+    path: ValuePath
+
+LiteralValue
+    value
+
+QueryValue
+    operation
+    arguments: name -> PathValue | LiteralValue
+```
+
+ValuePath is compact JSONPath-like navigation over the current bounded BindingContext, for
+example `actor.location_id`, `step.parameters.target`, or
+`step.blueprint.version`. It is not full JSONPath and does not expose serialized
+WorldState/SimulationState. Wildcards, recursive descent, filters, slices, functions,
+computed paths, and arbitrary roots are excluded. Dotted segments navigate declared fields
+or simple mapping keys; bracket-quoted syntax may address an exact non-simple mapping key.
+
+QueryValue is reserved for explicitly authorized bounded operations such as spatial
+`SPACE_PROPERTY` or `IS_WITHIN`. Its arguments are only paths or literals, never nested
+queries or arbitrary expressions. The query signature supplies argument types; the
+ValueBinding `value_schema` supplies the expected result type. Most bindings should remain
+plain path lookups.
 
 ## 5. Scenario mechanics and GEL
 

@@ -2813,14 +2813,195 @@ detected statically.
 Runtime absence remains an explicit typed/optional-value semantic defined by the binding
 source and consuming contract; it is not silently converted into arbitrary defaults.
 
-The exact initial ValueBinding leaf/source variants and serialized DTO shape remain the next
-authoring decision.
+The initial ValueBinding source variants and bounded ValuePath/query shape are defined by Decision 34. The exact reusable value-schema vocabulary remains a separate authoring decision.
 
 Invariant:
 
 > ValueBinding is the universal typed, deterministic, read-only value-resolution contract.
 > Each semantic usage defines its own bounded BindingContext and permitted source/query
 > vocabulary; ValueBinding never creates one unrestricted global readable-state namespace.
+
+
+## Decision 34: ValueBinding uses bounded ValuePath, literal, or flat query sources
+
+The initial ValueBinding shape is intentionally small.
+
+Conceptually:
+
+```text
+ValueBinding
+    value_schema
+    optional
+    source:
+        PathValue
+        | LiteralValue
+        | QueryValue
+```
+
+The three source variants are:
+
+```text
+PathValue
+    path: ValuePath
+
+LiteralValue
+    value
+
+QueryValue
+    operation
+    arguments:
+        name -> PathValue | LiteralValue
+```
+
+A QueryValue argument is deliberately not a complete ValueBinding. Queries therefore cannot
+contain nested queries, mechanics, expressions, or recursive binding graphs.
+
+### ValuePath is JSONPath-like authoring over a bounded BindingContext
+
+ValuePath provides compact path syntax for reading a value already exposed by the current
+usage-specific BindingContext.
+
+For a MovementBindingContext, examples include:
+
+```text
+actor.id
+actor.entity_type
+actor.location_id
+step.parameters.target
+step.parameters.mode
+step.bindings.vehicle
+step.blueprint.id
+step.blueprint.version
+```
+
+This is JSONPath-like syntax for authoring convenience, but it is not unrestricted JSONPath
+semantics and it never traverses serialized SimulationState/WorldState directly.
+
+The root namespace is supplied by the BindingContext. If a context does not expose a root
+or field, the path is invalid for that usage.
+
+Initial ValuePath deliberately excludes:
+
+```text
+wildcards
+recursive descent
+filters/predicates
+array slices
+functions
+method calls
+computed/dynamic path expressions
+arbitrary root selection
+```
+
+Simple dotted segments address declared context fields and identifier-like mapping keys.
+Bracket-quoted key syntax may address an exact mapping key when a key cannot be represented
+as a simple dotted segment, for example:
+
+```text
+step.parameters["target-name"]
+```
+
+The path syntax remains a navigation notation only; it performs no computation.
+
+### QueryValue remains explicit and flat
+
+QueryValue exists only for bounded operations whose semantics cannot be represented as
+ordinary path traversal, for example:
+
+```text
+SPACE_PROPERTY
+IS_WITHIN
+ENCLOSING_SPACES
+DIRECT_LOCATION
+```
+
+A movement binding may therefore be authored conceptually as:
+
+```text
+value_schema: STRING
+optional: true
+source:
+    query: SPACE_PROPERTY
+    arguments:
+        space_id:
+            path: step.parameters.target
+        property_name:
+            literal: "security_zone"
+```
+
+The query operation's declared signature determines the expected types of its arguments.
+For example, SPACE_PROPERTY may require a SpaceId argument and a string property name.
+Trusted binding resolution validates/resolves each PathValue or LiteralValue against that
+expected argument type before invoking the bounded query.
+
+The top-level ValueBinding.value_schema declares the expected result type.
+
+Another example:
+
+```text
+value_schema: BOOLEAN
+optional: false
+source:
+    query: IS_WITHIN
+    arguments:
+        subject:
+            path: actor.id
+        space_id:
+            literal: "building"
+```
+
+The operation itself must be permitted by the current BindingContext/capability declaration.
+A ValuePath cannot be used to bypass that capability by reaching arbitrary state.
+
+### Plain path bindings cover the common case
+
+Most bindings do not need QueryValue.
+
+For example:
+
+```text
+value_schema: SPACE_ID
+optional: false
+source:
+    path: step.parameters.target
+```
+
+means:
+
+```text
+read step.parameters.target
+    -> validate/resolve as SpaceId
+    -> produce one typed value
+```
+
+Similarly:
+
+```text
+value_schema: SPACE_ID
+optional: false
+source:
+    path: actor.location_id
+```
+
+reads the already canonical direct location exposed by the bounded context.
+
+This keeps ordinary authoring close to a simple path lookup while preserving explicit typed
+resolution at the ValueBinding boundary.
+
+### No hidden expression language
+
+ValueBinding does not add arithmetic, boolean expressions, conditionals, functions, loops,
+or arbitrary transformation syntax.
+
+If a value requires actual computation rather than retrieval/resolution/querying, that
+computation belongs in the selected BUILTIN/GEL/IMPLEMENTATION mechanic.
+
+Invariant:
+
+> ValueBinding resolves one typed value from a literal, a bounded ValuePath, or one
+> explicitly authorized flat query. ValuePath navigates only the current BindingContext,
+> and QueryValue arguments are only paths or literals, so ValueBinding cannot grow
+> implicitly into a second general-purpose expression language.
 
 ## Consequences
 
@@ -2858,7 +3039,7 @@ Invariant:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -3307,6 +3488,23 @@ Each usage supplies a bounded BindingContext and its own permitted source/query 
 
 Rejected because value acquisition/resolution and arbitrary computation are separate
 responsibilities. Computation belongs to BUILTIN/GEL/IMPLEMENTATION mechanics.
+
+### Use full JSONPath over SimulationState or WorldState
+
+Rejected because path convenience must not become unrestricted state authority. ValuePath
+navigates only the explicit usage BindingContext and excludes wildcard/filter/recursive/
+function semantics.
+
+### Allow QueryValue arguments to be arbitrary nested ValueBindings
+
+Rejected because recursive query composition would turn ValueBinding into an implicit
+expression language. Query arguments are only PathValue or LiteralValue.
+
+### Encode bounded queries as function calls inside ValuePath
+
+Rejected because that would mix navigation and execution semantics. ValuePath remains pure
+navigation; bounded query operations stay explicit QueryValue sources with capability
+validation.
 
 ## Remaining Slice-17.2 decisions
 
