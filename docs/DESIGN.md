@@ -414,6 +414,36 @@ queries or arbitrary expressions. The query signature supplies argument types; t
 ValueBinding `value_schema` supplies the expected result type. Most bindings should remain
 plain path lookups.
 
+ValueBinding uses a global semantic `ValueSchema`, independent from GelSchema:
+
+```text
+ValueSchema
+    BOOLEAN
+    INTEGER
+    FLOAT
+    STRING
+    NULL
+    IDENTIFIER(kind)
+    LIST(item_schema)
+    OBJECT(fields)
+```
+
+LIST is homogeneous and OBJECT is exact-field. `IDENTIFIER(kind)` preserves nominal GRASS
+identifier semantics such as ENTITY, SPACE, RELATION, BLUEPRINT, PLAN, PLAN_STEP, and JOB;
+other canonical identifier families use the same model when exposed by a BindingContext.
+A STRING and IDENTIFIER(SPACE) are not interchangeable merely because both serialize as the
+same text.
+
+`ValueBinding.optional` means the binding may produce no value; that is distinct from a
+present value satisfying NULL. ValueSchema initially defines semantic kinds rather than a
+general bounds/regex constraint language.
+
+GelSchema remains the GEL language type system. Mechanic adapters translate already
+validated ValueSchema values into implementation-language representations. For example, a
+validated IDENTIFIER(SPACE) may be supplied to GEL as a STRING, but raw strings are never
+implicitly promoted to SpaceId by that adapter. Unsupported/lossy schema mappings are
+composition errors.
+
 ## 5. Scenario mechanics and GEL
 
 Built-in formulas are convenience models, not the expressiveness boundary of GRASS.

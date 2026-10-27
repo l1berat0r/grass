@@ -2813,7 +2813,7 @@ detected statically.
 Runtime absence remains an explicit typed/optional-value semantic defined by the binding
 source and consuming contract; it is not silently converted into arbitrary defaults.
 
-The initial ValueBinding source variants and bounded ValuePath/query shape are defined by Decision 34. The exact reusable value-schema vocabulary remains a separate authoring decision.
+The initial ValueBinding source variants and bounded ValuePath/query shape are defined by Decision 34. The reusable semantic value-schema vocabulary is defined by Decision 35.
 
 Invariant:
 
@@ -3003,6 +3003,154 @@ Invariant:
 > and QueryValue arguments are only paths or literals, so ValueBinding cannot grow
 > implicitly into a second general-purpose expression language.
 
+
+## Decision 35: ValueSchema is the global semantic type system for ValueBinding
+
+ValueBinding does not reuse GelSchema as its semantic type system.
+
+GRASS introduces a global ValueSchema contract for values crossing declarative binding
+boundaries.
+
+The initial schema algebra is:
+
+```text
+ValueSchema
+    BOOLEAN
+    INTEGER
+    FLOAT
+    STRING
+    NULL
+    IDENTIFIER(kind)
+    LIST(item_schema)
+    OBJECT(fields)
+```
+
+`LIST` is homogeneous. `OBJECT` is an exact-field object: undeclared fields are not
+silently accepted.
+
+ValueSchema describes semantic GRASS values, not one mechanic implementation language.
+
+### Nominal identifier types
+
+`IDENTIFIER(kind)` represents one nominal GRASS identifier family.
+
+Examples include:
+
+```text
+IDENTIFIER(ENTITY)
+IDENTIFIER(SPACE)
+IDENTIFIER(RELATION)
+IDENTIFIER(BLUEPRINT)
+IDENTIFIER(PLAN)
+IDENTIFIER(PLAN_STEP)
+IDENTIFIER(JOB)
+```
+
+and the same model applies to other canonical GRASS identifier families when a BindingContext
+legitimately exposes them.
+
+Identifier values are nominally typed.
+
+Therefore:
+
+```text
+"server-room"                  # STRING
+SpaceId("server-room")         # IDENTIFIER(SPACE)
+```
+
+are not interchangeable merely because their serialized representation contains the same
+string.
+
+For example:
+
+```text
+value_schema: IDENTIFIER(SPACE)
+source:
+    path: step.parameters.target
+```
+
+means:
+
+```text
+read raw StructuredValue
+    -> validate/resolve under the current BindingContext as canonical SpaceId
+    -> expose typed IDENTIFIER(SPACE)
+```
+
+It does not mean "accept any string as a SpaceId".
+
+### Absence and NULL are distinct
+
+ValueBinding.optional describes whether the binding may produce no value.
+
+`NULL` is an explicit present semantic value.
+
+Therefore:
+
+```text
+optional binding with no value
+    !=
+present value satisfying NULL
+```
+
+Consumers may distinguish the two where their contract permits NULL.
+
+### ValueSchema is independent from GelSchema
+
+GelSchema remains the type contract of GEL programs and currently supports its own bounded
+language value set.
+
+ValueSchema instead describes values at the GRASS binding/mechanic boundary, including
+semantic types that GEL does not natively possess, such as:
+
+```text
+IDENTIFIER(SPACE)
+IDENTIFIER(ENTITY)
+FLOAT
+NULL
+```
+
+A mechanic adapter is responsible for converting an accepted ValueSchema value into the
+representation supported by that mechanic implementation.
+
+For example:
+
+```text
+ValueSchema IDENTIFIER(SPACE)
+    -> validated SpaceId("server-room")
+    -> GEL adapter representation STRING("server-room")
+```
+
+The conversion does not erase GRASS semantic validation: the value must already have been
+validated/resolved as a SpaceId before GEL sees its string representation.
+
+Likewise, a mechanic whose implementation language cannot represent a declared input schema
+must be rejected during composition/validation rather than receiving an implicit lossy
+conversion.
+
+### Constraints are separate from the initial semantic type algebra
+
+The initial ValueSchema decision freezes semantic kinds, not a complete constraint language.
+
+It does not yet add:
+
+```text
+STRING(max_length = ...)
+INTEGER(minimum = ..., maximum = ...)
+FLOAT bounds
+regex constraints
+custom predicates
+```
+
+Such constraints may be introduced when a concrete contract requires them. Existing
+mechanic-specific schemas such as GelSchema may remain more restrictive.
+
+Invariant:
+
+> ValueSchema is the global semantic type contract for ValueBinding. It is independent from
+> GelSchema, preserves nominal GRASS identifier types, distinguishes absence from explicit
+> NULL, and does not silently coerce serialized strings into canonical identifiers.
+
 ## Consequences
 
 ### Positive
@@ -3039,7 +3187,7 @@ Invariant:
 - enabling cycles removes assumptions that every containment walk reaches a root and requires visited-set traversal;
 - query and mechanics code must distinguish direct `location_id` from derived enclosing context;
 - the closed WorldEffect/Event/projection contracts must gain typed spatial mutation support;
-- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments;
+- MovementRule authoring must avoid ambiguous overlapping selectors; MovementSelector is a bounded declarative core matcher rather than a BUILTIN/GEL/IMPLEMENTATION mechanic, using only the closed `ALL`/`ANY`/`NOT`/`EQ`/`IN`/`EXISTS` boolean algebra over the closed initial selector-visible catalogue `ACTOR_ID`, `ACTOR_ENTITY_TYPE`, `CURRENT_LOCATION`, `BLUEPRINT_ID/VERSION`, `STEP_PARAMETER`, `STEP_BINDING`, and trusted `NAMED_VALUE`; MOVE-specific request arguments remain in generic `PlanStep.parameters`; selector preparation and mechanic `input_bindings` use the global typed read-only `ValueBinding` contract under a bounded `MovementBindingContext`; ValueBinding sources are limited to literal, bounded JSONPath-like `ValuePath`, or flat authorized query with path/literal arguments; global `ValueSchema` provides scalar, nominal `IDENTIFIER(kind)`, homogeneous `LIST`, and exact-field `OBJECT` semantic types independently from GelSchema;
 - mechanics that move Spaces or Entities must preserve the same validation boundary;
 - EntityCreated and the new SpaceCreated Event contracts must carry initial spatial state;
 - pre-stable local data using the earlier EntityCreated payload must be recreated rather than supported through optional compatibility fields;
@@ -3505,6 +3653,21 @@ expression language. Query arguments are only PathValue or LiteralValue.
 Rejected because that would mix navigation and execution semantics. ValuePath remains pure
 navigation; bounded query operations stay explicit QueryValue sources with capability
 validation.
+
+### Use GelSchema as the global ValueBinding type system
+
+Rejected because ValueBinding is a GRASS semantic boundary, not a GEL language boundary.
+GRASS needs nominal identifier types and may expose values that GEL cannot represent
+natively.
+
+### Treat canonical identifiers as ordinary strings in ValueSchema
+
+Rejected because serialization equality is not semantic type equality. A STRING containing
+"server-room" must not silently become IDENTIFIER(SPACE).
+
+### Make optional absence equivalent to NULL
+
+Rejected because absence and an explicit present null value are distinct data semantics.
 
 ## Remaining Slice-17.2 decisions
 
