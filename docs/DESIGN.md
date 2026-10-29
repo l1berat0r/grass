@@ -400,8 +400,21 @@ against MovementContract.input_schema.
 ScenarioReactionRule.input_bindings and PerceptionRule.input_bindings reuse the same global
 ValueBinding contract under their own bounded contexts.
 
-ValueBinding may invoke only explicitly declared bounded query capabilities. It never gains
-an unrestricted state handle.
+ValueBinding may invoke only bounded operations allowed by its usage-specific
+BindingContext and never gains an unrestricted state handle. Independently,
+mechanics may receive trusted runtime-provided host capability namespaces:
+`space.direct_location(subject)`, `space.enclosing(subject)`,
+`space.is_within(subject, target)`, and `space.property(target, "security_zone")`.
+`space` is not an ordinary GEL object but a statically registered read-only
+capability namespace using the same immutable spatial query semantics as QueryValue.
+Its first three operations default to enabled in an authorized spatial invocation;
+property access defaults to disabled and requires explicit enablement with a
+statically declared, host-allowed property/type list. Explicit overrides can
+disable defaults or enable permitted default-disabled operations, but never
+exceed the trusted host authority ceiling. BindingContext and mechanic dynamic
+call permissions are independent. All mechanic variants share this boundary.
+Existing `random_int` is unchanged; `random.*`, `time.*`, and
+`resource.*` are future namespace examples only.
 
 The initial source model is:
 
@@ -606,7 +619,9 @@ fail explicitly.
 The statement language has local declaration/reassignment, lexical `if/else`,
 bounded `for` over bounded lists, and exactly one final top-level return. It has no
 while, early return, loop control, user functions, recursion, imports, exceptions,
-methods, reflection, indexing, or dynamic calls. Locals have one static type,
+general methods, reflection, indexing, or dynamic calls. Only statically
+registered host capability namespace calls use the special qualified-call form.
+Locals have one static type,
 inputs and loop variables are read-only, and boolean `and`/`or` short-circuit.
 
 The closed function set is `abs`, `min`, `max`, `clamp`, `length`, and

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-11
-- Amended: 2026-10-27
+- Amended: 2026-10-29
 
 ## Context
 
@@ -113,7 +113,8 @@ return_statement := "return" expression ";"
 
 Exactly one return is required and it is the final top-level statement. There is
 no early return, break, continue, while, user-defined function, recursion, import,
-exception handling, method call, reflection, indexing, or dynamic call.
+exception handling, general method call, reflection, indexing, or dynamic call.
+The narrowly registered host-capability calls in Decision 14 are the only qualified-call exception; they are not methods on ordinary GEL objects.
 
 Blocks have lexical scope. A declaration cannot shadow any visible name. Inputs
 and loop variables are read-only. A `set` targets an existing mutable local and
@@ -478,6 +479,63 @@ Invariant:
 > GelSchema is an implementation-language boundary. Scenario semantic contracts remain
 > authoritative, and GEL integration requires explicit supported mappings rather than
 > implicit coercion.
+
+## Decision 14: Runtime-provided host capability namespaces
+
+GRASS runtime may supply read-only host capability namespaces to a mechanic invocation.
+A namespace such as `space` is not a first-class GEL value, ordinary GEL object,
+schema input, callable value, or host object with general method access. GEL v1 permits
+one narrowly defined qualified call form `NAMESPACE.OPERATION(arguments...)` only for
+statically registered host operations. No general method call, arbitrary attribute access,
+dynamic dispatch, reflection, assignment/capture, shadowing, passing or returning of
+capability objects, arbitrary host object injection, or serialization is allowed.
+
+The initial Slice-17.2 call surface is:
+
+```text
+space.direct_location(subject)
+space.enclosing(subject)
+space.is_within(subject, target)
+space.property(target, "security_zone")
+```
+
+`space.enclosing` invokes existing ENCLOSING_SPACES semantics and `space.property`
+invokes SPACE_PROPERTY; all calls share the existing bounded spatial query semantics
+with ValueBinding.QueryValue and the Query API. GEL capability calls statically verify
+arity, argument/result representations, namespace availability and authorized property
+names. Property names in GEL source are literal strings, checked at composition and
+enforced again at runtime. Nominal IDs pass through trusted semantic/GelSchema adapters.
+
+Each registered operation specifies default availability and authorization restrictions.
+An absent override inherits its default; an explicit disable removes a default-enabled
+operation; an explicit enable can opt into a default-disabled operation only within
+the trusted host's permitted operation/property ceiling. Effective permissions are the
+requested/default set intersected with the host authorization ceiling. For Slice 17.2
+`space.direct_location`, `space.enclosing`, and `space.is_within` default to
+enabled within an authorized spatial invocation; `space.property` defaults to
+disabled and requires explicit enablement and a static allowlist of readable Space
+properties and their ValueSchema types.
+
+Resolved ValueBinding.QueryValue inputs do not grant extra dynamic capability calls to
+the mechanic; dynamic capability availability does not grant extra reads to a binding's
+usage-specific BindingContext. Both resolve against the same immutable invocation
+view, and candidate writes are invisible during the invocation. BUILTIN and trusted
+IMPLEMENTATION variants receive equivalent typed, runtime-mediated capabilities with
+the same authority limits. The common result/validation/commit boundary still applies.
+Read-only host calls are deterministic, bounded by the existing invocation operation
+budgets (including traversals), and cannot create Events, effects, scheduler commands,
+mutations, I/O, or further authority. Standalone GEL execution works without such
+capabilities, while a program requiring them needs an explicit host capability context.
+
+The existing bare `random_int` and `GelRandomContext` retain their GEL-v1
+contract. Namespaces such as `random.int`, `time.*`, and `resource.*` are examples
+of future capability groups, not new Slice-17.2 operations.
+
+Invariant:
+
+> Host capability namespaces are non-first-class, statically validated, runtime
+> authorized and read-only; default-availability overrides never escape the trusted
+> host ceiling.
 
 ## Consequences
 

@@ -642,59 +642,76 @@ WorldDefinition-aware candidate validation
 A canonical WorldState must therefore be capable of representing a cyclic containment graph when the active WorldDefinition explicitly permits one.
 
 
-## Decision 11: Spatial mechanic access uses bounded query capabilities over an immutable invocation view
+## Decision 11: Spatial host capability namespace over one immutable invocation view
 
 Spatial mechanics do not receive unrestricted WorldState/SimulationState access.
+GRASS provides two complementary read paths: pre-resolved ValueBinding.QueryValue
+inputs when arguments are known before execution, and runtime-provided spatial
+capability calls when the mechanic chooses query arguments dynamically. Both use
+the same bounded operation implementations, typing, and immutable invocation view.
 
-GRASS supports both resolved value bindings and bounded read-only spatial query bindings.
-
-Resolved value bindings are appropriate when all arguments are known before mechanic invocation.
-
-Bounded query bindings are appropriate when the mechanic must decide dynamically which spatial subject or Space to inspect during execution.
-
-Conceptually:
-
-```text
-SpatialQueryCapability
-    direct_location(subject_ref)
-    enclosing_spaces(subject_ref)
-    is_within(subject_ref, space_id)
-    space_property(space_id, property_name)
-```
-
-These are pure read-only capabilities. They do not expose Event history, cognition, scheduler state, arbitrary resources, unrestricted world traversal, mutation, Event creation, or commit authority.
-
-The mechanic binding declares its available spatial query surface statically. Query arguments such as subject_ref or space_id may be dynamic at runtime, but the available query operations and readable Space property names are declared before invocation.
-
-For example, a mechanic may be authorized for:
+For GEL the runtime provides a special read-only `space` capability namespace,
+which is **not** an ordinary GEL object or schema input. Slice 17.2 permits
+only registered qualified host calls:
 
 ```text
-SpatialQueryBinding
-    direct_location: enabled
-    enclosing_spaces: enabled
-    is_within: enabled
-    readable_space_properties:
-        - security_zone
-        - floor
+space.direct_location(subject)
+space.enclosing(subject)
+space.is_within(subject, target)
+space.property(target, "security_zone")
 ```
 
-A GEL mechanic may then dynamically inspect:
+These names map to the existing DIRECT_LOCATION, ENCLOSING_SPACES, IS_WITHIN,
+and SPACE_PROPERTY query operations respectively. No second spatial query
+semantics are introduced. Capability namespaces cannot be copied, traversed,
+serialized, introspected, or used for arbitrary host method calls. Their exact
+special GEL syntax and static validation are defined by ADR-0017 Decision 14.
+
+Capability operations have registered default availability plus optional
+usage/invocation overrides. Missing override means inherit the default.
+Default-enabled operations may be disabled; default-disabled operations may be
+enabled only if the trusted host permits them. Effective authority is the
+default/override operation set intersected with the host ceiling and contextual
+restrictions. World authors and mechanics cannot escalate beyond that ceiling.
+
+Slice-17.2 defaults in an authorized spatial invocation:
 
 ```text
-spatial.space_property(target_space, "security_zone")
+space.direct_location  enabled
+space.enclosing        enabled
+space.is_within        enabled
+space.property         disabled
 ```
 
-but may not read an undeclared property such as:
+Enabling `space.property` requires a statically declared allowlist of readable
+property names and their ValueSchema types, checked against host authorization.
+GEL uses literal property names validated at composition and again at runtime;
+dynamic query subject/Space identifiers remain supported. Dynamic capability
+arguments cannot widen available operations or readable fields.
 
-```text
-spatial.space_property(target_space, "secret_code")
-```
+ValueBinding.QueryValue can only use the bounded query operations authorized in
+its usage-specific BindingContext. Its permissions are independent from those
+granted to mechanic host-capability calls: pre-resolving a property or
+`IS_WITHIN` value does not confer permission to call `space.property` or
+`space.is_within` during execution, nor vice versa. QueryValue remains
+a flat, declarative PathValue/LiteralValue query (Decision 34), not a host object.
 
-The invariant is:
+BUILTIN and trusted IMPLEMENTATION mechanics may use equivalent typed,
+runtime-mediated capabilities governed by the same authorization and immutable
+read semantics. None receives additional Event, scheduler, mutation, or commit
+authority. Dynamic calls and traversals are deterministic, pure, type-checked,
+and charged against bounded invocation/GEL execution budgets. No capability
+exposes unrestricted WorldState, cognition, Event history, arbitrary resources,
+I/O, or unrestricted traversal.
 
-> Query arguments may be dynamic, but the mechanic's readable semantic surface is declared statically.
+Future host namespaces may include `random.*`, `time.*`, or `resource.*`.
+They are outside Slice 17.2, and existing GEL `random_int` is unchanged.
 
-The same capability declaration principle applies to BUILTIN, GEL, and IMPLEMENTATION mechanics.
+Invariant:
+
+> Query arguments may be dynamic, but operation and property authority is
+> declared before execution, enforced by the host, and bounded by a fixed
+> invocation view.
 
 ### Immutable invocation spatial view
 
@@ -2821,7 +2838,8 @@ authority remains usage-specific.
 
 A ValueBinding may use a bounded query operation only when that operation is explicitly
 permitted by its BindingContext and declared capability surface. It never receives an
-unrestricted state handle.
+unrestricted state handle. QueryValue authorization is independent of the
+executing mechanic's dynamic host `space.*` permissions (Decision 11).
 
 For spatial queries this preserves Decision 11:
 
@@ -3451,7 +3469,8 @@ represented by the program's GelSchema input/output boundary and for translating
 already-validated GRASS semantic values and GEL values.
 
 GEL receives no additional world-read authority merely because a ValueBinding or bounded
-query was used to prepare one of its inputs.
+query was used to prepare one of its inputs. Dynamic `space.*` calls are authorized
+independently by the trusted runtime capability policy in Decision 11.
 
 ### IMPLEMENTATION
 
