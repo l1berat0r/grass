@@ -1,7 +1,8 @@
 # ADR-0029: Scenario-defined space and location semantics
 
-- Status: Draft
+- Status: Accepted
 - Date: 2026-10-15
+- Accepted: 2026-10-30
 
 ## Context
 
@@ -9,7 +10,7 @@ Slice 18 actor-capable composition now depends on stable generic spatial semanti
 
 GRASS must not hard-code scenario-domain concepts such as room, building, city, vehicle, grid cell, or zone. At the same time, location cannot remain an opaque Entity property or an arbitrary scenario-defined Relation because core mechanics need one unambiguous spatial authority model.
 
-This ADR records the accepted Slice-17.2 direction so far. It remains Draft until the remaining mutation, Event, genesis, query, and mechanic-integration decisions are resolved.
+This ADR fixes the Slice-17.2 spatial semantics and their integration contracts. The final consistency review against current core, Event, WorldEffect, projection/replay, WorldDefinition/genesis, package/persistence, Query, movement, and GEL boundaries was completed on 2026-10-30. The existing implementation is pre-spatial and must be updated to conform; this acceptance does not claim implementation completion.
 
 ## Decision 1: Space is a first-class scenario-defined abstraction
 
@@ -3644,12 +3645,14 @@ ConditionalMovementRule
     input_bindings
     movement_contract_ref
     mechanic_binding
+    capabilities  # optional per-rule host capability overrides
 
 DefaultMovementRule
     rule_id
     input_bindings
     movement_contract_ref
     mechanic_binding
+    capabilities  # optional per-rule host capability overrides
 ```
 
 Trusted preparation builds one immutable movement-selection context from the authoritative
@@ -4595,13 +4598,29 @@ allocation and same-result cross-reference resolution.
 Rejected because deduplication is justified for overlapping derived cascade consequences,
 not for repeated explicit author intent. Duplicate same-root explicit effects are invalid.
 
-## Final consistency and implementation obligations
+## Final consistency review and implementation obligations
 
-The material Slice-17.2 semantic decisions are recorded. Before changing this ADR from
-Draft to Accepted, perform one final consistency review against the current core, Event,
-WorldEffect, WorldDefinition/genesis, package, Query, projection, and GEL contracts.
+The 2026-10-30 final consistency review covered the pre-spatial core and the accepted
+Event/WorldEffect, atomic transition, projection/replay, WorldDefinition/genesis,
+WorldPackage/snapshot/SQLite, Query API, movement composition, GEL and capability
+boundaries. The review identified no remaining implementation-blocking architectural
+contradiction. The following previously under-specified details were reconciled and
+recorded before acceptance:
 
-That review is intended to identify implementation-blocking contradictions or missing
-contracts, not to add new spatial semantics by default. Once no such blocker remains, this
-ADR can move to Accepted and implementation can update the pre-spatial code to the contracts
-defined here.
+- per-rule overrides are owned by `MovementRule.capabilities` rather than
+  implementation-selecting `MechanicBinding`;
+- GEL spatial-subject arguments use a validated typed boundary representation;
+- a missing, authorized Space property is a GEL execution failure, while a
+  separately authorized optional QueryValue may resolve absence;
+- GEL qualified host calls are checked against static capability signatures and
+  effective permissions at composition, then checked again at runtime.
+
+The existing code still implements the pre-spatial semantics. Acceptance of this
+ADR authorizes **implementation**, not premature claims of feature completion.
+The required sequence, validation gates, and regression tests are documented in
+[`docs/SLICE_17_2_IMPLEMENTATION_PLAN.md`](../SLICE_17_2_IMPLEMENTATION_PLAN.md).
+Implementation must preserve the existing EventStore/engine authority and
+replay-without-mechanics boundary, use `schema_version = 1` / Event v1 /
+WorldPackage format 1 under their respective pre-stable policies, and avoid
+adding geometry, distance, universal visibility, or new actor/perception
+semantics outside this slice.

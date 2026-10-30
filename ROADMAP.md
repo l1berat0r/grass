@@ -340,7 +340,7 @@ a `Message`, `Conversation`, transcript, or other communication schema.
 
 ### Slice 17.2 — scenario-defined space semantics
 
-**Status: architecture substantially defined; final consistency review before implementation**
+**Status: architecture Accepted (ADR-0029, 2026-10-30); implementation not started**
 
 Stabilize a small generic spatial model before actor-capable package composition. GRASS
 uses first-class scenario-defined Spaces without compiling domain concepts such as room,
@@ -359,7 +359,7 @@ Accepted architecture direction includes:
 - atomic Entity/Space conflict detection is per semantic field (lifecycle/location/properties), permitting explicitly composable order-independent writes while rejecting duplicate writes to the same field; creation remains a full-state write;
 - Space-deactivation closure is derived after composing explicit creation/relocation into candidate topology; closures from multiple distinct accepted roots are unioned and deduplicated to at most one derived lifecycle deactivation write per subject before normal field-level conflict validation, while duplicate explicit DeactivateSpaceEffect intent for the same root is invalid; same-transition relocation can move a subject out of all closures without relying on Event order;
 - inactive Entity/Space state is preserved/queryable but not ordinarily mutable: non-lifecycle writes require base-state activity or explicit valid same-candidate reactivation; a base-active subject may still be mutated and deactivated atomically;
-- bounded spatial query capabilities over one immutable invocation view, with statically declared readable Space properties;
+- bounded spatial query capabilities over one immutable invocation view: GEL calls runtime-provided non-first-class `space.*` capability namespaces; `MovementRule.capabilities` supplies optional default-availability overrides limited by the host ceiling, independently from ValueBinding authorization; declared property/type access is statically checked and enforced at invocation;
 - Query API semantics for direct location, enclosing Spaces, `is_within`, cycle handling, and inactive topology;
 - current pre-stable WorldDefinition remains `schema_version = 1`: mandatory explicit `spatial_policy`, mandatory explicit `lifecycle_policy`, mandatory explicit `movement`, initial `spaces`, and mandatory Entity `location_id` become part of the one current schema-1 shape; policy/movement sections have no implicit loader defaults; WorldPackage format remains 1;
 - acceptance examples migrate `Office` from an informal `Location` Entity convention to a first-class Space and assign explicit initial locations to Entities;
@@ -369,10 +369,14 @@ Accepted architecture direction includes:
 - all current Event payloads remain provisional `event_version = 1` before the first stable Event-history contract; incompatible internal payload changes replace v1 in place, while post-stabilization versioning remains independent per Event type.
 - pre-stable GEL v1 evolves in place until stable GRASS v1.0 rather than minting new GEL language versions during design; current v1 gains explicit NULL, OPTIONAL(T) as T-or-null, separate object-field requiredness, finite string-constrained ENUM, deterministic absent-field GelExecutionError, and conservative pre-run composition validation of statically referenced GEL input fields against concrete bindings;
 
-Before implementation, perform one final consistency review against existing Event,
-projection, WorldEffect, WorldDefinition/genesis, package, and Query contracts. Do not add
-a physics engine, mandatory geometry, coordinates, distance metric, adjacency, universal
-visibility, or property inheritance unless a separate concrete scenario contract requires it.
+Final consistency review completed on 2026-10-30 against Event, projection/replay,
+WorldEffect, WorldDefinition/genesis, package/snapshot/persistence, Query, movement,
+GEL, and runtime capability contracts; no remaining architecture blocker was found.
+ADR-0029 is Accepted. The execution order and testable delivery gates for the
+pre-spatial codebase are in [Slice 17.2 implementation plan](docs/SLICE_17_2_IMPLEMENTATION_PLAN.md).
+Implementation remains pending. Do not add a physics engine, mandatory geometry,
+coordinates, distance metric, adjacency, universal visibility, or property inheritance
+unless a separate concrete scenario contract requires it.
 
 ### Slice 18 — actor-capable WorldPackage composition and actor templates
 
