@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-11
-- Amended: 2026-10-29
+- Amended: 2026-10-30
 
 ## Context
 
@@ -526,6 +526,42 @@ Read-only host calls are deterministic, bounded by the existing invocation opera
 budgets (including traversals), and cannot create Events, effects, scheduler commands,
 mutations, I/O, or further authority. Standalone GEL execution works without such
 capabilities, while a program requiring them needs an explicit host capability context.
+
+### Rule-level grants and host-call validation
+
+Capability overrides are owned by the semantic rule invoking a mechanic, initially
+`MovementRule.capabilities` for both conditional and default movement rules.
+They do not belong to `MechanicBinding`, `GelProgram`, or an input
+`BindingContext`. The selected rule's defaults/overrides are intersected with
+the trusted host ceiling; ValueBinding/selector reads have independent grants.
+
+Host operations accepting either Entity or Space require a typed
+`SpatialSubjectRef`. GEL represents it at the capability boundary as an exact
+tagged object, e.g. `{"kind":"ENTITY","id":"alice"}` or
+`{"kind":"SPACE","id":"office"}`. The trusted adapter checks kind,
+canonical ID, existence, and operation signature against the immutable view.
+This is not a new generic GEL union or a change to canonical Event payloads.
+A raw GEL string is never implicitly a spatial subject reference; target
+SpaceId representations are validated by their own operation signatures.
+
+For `space.property`, an unauthorized or undeclared property is rejected
+during composition where statically knowable and again by the host during
+execution. An authorized declared property missing from the chosen Space
+raises deterministic `GelExecutionError`, never an implicit `null` or
+default. Present NULL is distinct and requires a compatible declared type.
+`ValueBinding.QueryValue` instead may yield absence when the binding is
+optional and the consuming contract permits omission, without converting
+absence to NULL.
+
+GEL preparation/type validation receives a trusted **static capability
+interface** describing signatures, effective permissions, and allowed
+property names/types; it must reject unsupported or unauthorized qualified
+calls before composition completes. Actual read-only host capability objects
+are injected only at execution, where the runtime validates authorization
+and dynamic argument/result types again. No capability object enters
+GelSchema, GelProgram, ordinary GEL inputs or canonical history. Standalone
+capability-free preparation/execution remains available but cannot
+silently accept or run capability-requiring source.
 
 The existing bare `random_int` and `GelRandomContext` retain their GEL-v1
 contract. Namespaces such as `random.int`, `time.*`, and `resource.*` are examples

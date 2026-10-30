@@ -713,6 +713,54 @@ Invariant:
 > declared before execution, enforced by the host, and bounded by a fixed
 > invocation view.
 
+### Per-rule overrides and typed host-call arguments
+
+`MovementRule.capabilities` is the optional semantic authorization declaration
+for both `ConditionalMovementRule` and `DefaultMovementRule`. It is separate
+from the implementation-selecting `MechanicBinding`. The missing declaration
+inherits registered defaults, and explicit overrides remain subject to the
+trusted host ceiling. Conceptually:
+
+```yaml
+capabilities:
+  space:
+    direct_location: false
+    property:
+      enabled: true
+      readable_properties:
+        security_zone: STRING
+```
+
+This is an illustrative shape, not a frozen serialization format. The
+selected rule's capabilities govern its mechanic's dynamic host calls, not
+movement-level selection bindings or rule input bindings: those remain
+authorized by their separate usage-specific BindingContexts. The same
+rule-level ownership pattern can later support reaction/perception rules.
+
+GEL operations accepting an Entity-or-Space subject require a typed
+`SpatialSubjectRef` representation, conceptually
+`{"kind":"ENTITY","id":"alice"}` or
+`{"kind":"SPACE","id":"office"}`. The trusted host validates kind,
+nominal ID, existence and signature. Plain strings do not implicitly become
+spatial subject references. This boundary representation is not the
+canonical Event encoding and does not add general union/host-object values
+to GEL. Target SpaceIds receive explicit signature/identity validation.
+
+For an enabled `space.property`, a declared but absent property on the
+selected Space raises deterministic `GelExecutionError`. Undeclared or
+unauthorized property names fail composition/static checking wherever
+detectable and runtime authorization always. An explicitly present NULL
+must be validated separately against the declared type. In contrast, an
+optional `ValueBinding.QueryValue` may produce an absent binding where
+the consumer permits it; missing values are never silently converted to NULL.
+
+Trusted composition uses a static capability-interface description for GEL
+parsing/type-checking and authorization, including operation signatures,
+effective grants and readable property names/types. The actual host
+capabilities are supplied only at execution, where permissions and dynamic
+arguments/results are rechecked. The same immutable invocation view and
+no-write-authority boundary apply in both phases.
+
 ### Immutable invocation spatial view
 
 All spatial queries within one mechanic invocation read the same immutable authoritative base state captured for that invocation.
@@ -2135,6 +2183,7 @@ MovementRule
     input_bindings
     movement_contract_ref
     mechanic_binding
+    capabilities  # optional host-capability overrides
 
 ConditionalMovementRule(MovementRule)
     selector
@@ -3470,7 +3519,7 @@ already-validated GRASS semantic values and GEL values.
 
 GEL receives no additional world-read authority merely because a ValueBinding or bounded
 query was used to prepare one of its inputs. Dynamic `space.*` calls are authorized
-independently by the trusted runtime capability policy in Decision 11.
+independently by the selected rule's `capabilities` plus the trusted host ceiling (Decision 11).
 
 ### IMPLEMENTATION
 
@@ -4069,7 +4118,7 @@ Rejected because it would erase declared dependency boundaries and allow spatial
 
 ### Allow dynamic access to arbitrary Space property names
 
-Rejected because it would make Space properties effectively unrestricted data access. Space targets may be dynamic, but readable property names are declared statically by the mechanic binding.
+Rejected because it would make Space properties effectively unrestricted data access. Space targets may be dynamic, but readable property names/types are declared statically by the invoking rule's capability policy, not MechanicBinding.
 
 ### Let a mechanic observe its own proposed spatial effects during the same invocation
 

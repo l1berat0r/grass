@@ -413,6 +413,19 @@ statically declared, host-allowed property/type list. Explicit overrides can
 disable defaults or enable permitted default-disabled operations, but never
 exceed the trusted host authority ceiling. BindingContext and mechanic dynamic
 call permissions are independent. All mechanic variants share this boundary.
+Overrides live on the invoking semantic rule, initially
+`MovementRule.capabilities` for conditional and default movement rules,
+not inside `MechanicBinding`. The mechanic's grants and ValueBinding/
+selector BindingContexts are separately authorized. An Entity-or-Space
+argument to GEL `space.*` uses an exact typed reference such as
+`{"kind":"ENTITY","id":"alice"}`; the host validates kind, ID and
+existence. Raw string IDs are not automatically spatial references.
+An authorized but absent `space.property` raises deterministic
+`GelExecutionError`; an optional QueryValue may instead produce an
+absent binding when permitted, never an implicit NULL. GEL composition
+validates qualified calls against a static capability interface
+(signatures, permissions, declared properties/types); runtime separately
+checks the actual injected read-only host capabilities.
 Existing `random_int` is unchanged; `random.*`, `time.*`, and
 `resource.*` are future namespace examples only.
 
@@ -494,8 +507,9 @@ Conceptually, BUILTIN selects a registered GRASS/library implementation plus typ
 GEL contains a canonical validated GelProgram, and IMPLEMENTATION selects explicitly trusted
 installed host/plugin code through a stable implementation reference plus typed config.
 
-MechanicBinding does not own `input_bindings`, BindingContext/read authority, semantic
-input/result meaning, WorldEffect/Event creation, or commit authority. Those remain separate
+MechanicBinding does not own `input_bindings`, BindingContext/read authority, rule-level
+capability overrides, semantic input/result meaning, WorldEffect/Event creation,
+or commit authority. Those remain separate
 rule/contract/trusted-adapter responsibilities.
 
 ```text
